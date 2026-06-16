@@ -42,9 +42,9 @@ export default function OrderModal({ isOpen, onClose, onSuccess }: OrderModalPro
 
           // Filter by roles appropriately
           if (profileData) {
-            setUsers(profileData.filter((p) => p.role !== "installer"));
-            setDistributors(profileData.filter((p) => p.role === "distributor"));
-            setCoordinators(profileData.filter((p) => p.role === "employee" || p.role === "admin"));
+            setUsers(profileData.filter((p: any) => p.role !== "installer"));
+            setDistributors(profileData.filter((p: any) => p.role === "distributor"));
+            setCoordinators(profileData.filter((p: any) => p.role === "employee" || p.role === "admin"));
           }
 
           // Fetch products
