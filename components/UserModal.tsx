@@ -99,7 +99,7 @@ export default function UserModal({
       password,
       designation,
       contact,
-      role,
+      role: role.toLowerCase().replace(" ", "_"),
       group,
       status,
     };

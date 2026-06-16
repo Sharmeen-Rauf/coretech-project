@@ -86,4 +86,38 @@ create policy "Allow update access to auth" on public.support_tickets for update
 
 -- Activity Logs
 create policy "Allow read access to auth" on public.activity_logs for select using (true);
+create policy "Allow read access to auth" on public.activity_logs for select using (true);
 create policy "Allow insert access to auth" on public.activity_logs for insert with check (true);
+
+-- 6. Regions Table
+create table if not exists public.regions (
+  id uuid primary key default gen_random_uuid(),
+  region_code text not null unique,
+  name text not null,
+  warehouse text not null,
+  distributors integer default 0,
+  sub_dealers integer default 0,
+  status text not null default 'active',
+  created_at timestamptz default now()
+);
+
+alter table public.regions enable row level security;
+create policy "Allow read access to auth" on public.regions for select using (true);
+create policy "Allow insert access to auth" on public.regions for insert with check (true);
+create policy "Allow update access to auth" on public.regions for update using (true);
+
+-- 7. Announcements / Broadcasts Table
+create table if not exists public.announcements (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  content text not null,
+  role_target text not null default 'all', -- 'all', 'employee', 'distributor', 'sub_dealer', 'installer'
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz default now()
+);
+
+alter table public.announcements enable row level security;
+create policy "Allow read access to auth" on public.announcements for select using (true);
+create policy "Allow insert access to auth" on public.announcements for insert with check (true);
+create policy "Allow update access to auth" on public.announcements for update using (true);
+

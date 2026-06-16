@@ -20,6 +20,7 @@ export default function InvoicesPage() {
   const supabase = createClientComponentClient();
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [userRole, setUserRole] = useState<string>("");
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -36,8 +37,20 @@ export default function InvoicesPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+
+      const roleStr = profile?.role || "distributor";
+      setUserRole(roleStr);
+
       // 1. Fetch invoices
-      const { data: invData, error: invError } = await supabase
+      let invQuery = supabase
         .from("invoices")
         .select(`
           id,
@@ -47,8 +60,13 @@ export default function InvoicesPage() {
           payment_status,
           order:orders(order_code),
           distributor:profiles!distributor_id(first_name, last_name)
-        `)
-        .order("created_at", { ascending: false });
+        `);
+
+      if (roleStr === "distributor") {
+        invQuery = invQuery.eq("distributor_id", session.user.id);
+      }
+
+      const { data: invData, error: invError } = await invQuery.order("created_at", { ascending: false });
 
       if (invError) throw invError;
 
@@ -148,7 +166,7 @@ export default function InvoicesPage() {
     }
   };
 
-  const columns = [
+  const baseColumns = [
     { key: "invoice_code", label: "Invoice Code" },
     { key: "order_code", label: "Order ID" },
     { key: "distributor_name", label: "Distributor" },
@@ -171,6 +189,10 @@ export default function InvoicesPage() {
         </span>
       ),
     },
+  ];
+
+  const columns = userRole === "distributor" ? baseColumns : [
+    ...baseColumns,
     {
       key: "id",
       label: "Actions",
@@ -217,18 +239,20 @@ export default function InvoicesPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            const defaultDue = new Date();
-            defaultDue.setDate(defaultDue.getDate() + 30); // Default 30-day net payment
-            setDueDate(defaultDue.toISOString().split("T")[0]);
-            setIsModalOpen(true);
-          }}
-          className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Create Invoice
-        </button>
+        {userRole !== "distributor" && (
+          <button
+            onClick={() => {
+              const defaultDue = new Date();
+              defaultDue.setDate(defaultDue.getDate() + 30); // Default 30-day net payment
+              setDueDate(defaultDue.toISOString().split("T")[0]);
+              setIsModalOpen(true);
+            }}
+            className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Create Invoice
+          </button>
+        )}
       </div>
 
       {isLoading ? (

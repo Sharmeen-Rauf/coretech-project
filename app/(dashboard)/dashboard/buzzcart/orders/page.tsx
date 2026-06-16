@@ -1,11 +1,12 @@
 "use client";
-
+ 
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import OrderModal from "@/components/OrderModal";
 import toast from "react-hot-toast";
-
+import Link from "next/link";
+ 
 interface OrderRow {
   id: string;
   order_code: string;
@@ -16,15 +17,16 @@ interface OrderRow {
   date: string;
   status: string;
 }
-
+ 
 export default function BuzzcartOrdersPage() {
   const supabase = createClientComponentClient();
-
+ 
   // Loading and modals
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-
+  const [userRole, setUserRole] = useState<string>("");
+ 
   // Filters
   const [distributors, setDistributors] = useState<string[]>([]);
   const [products, setProducts] = useState<string[]>([]);
@@ -33,11 +35,23 @@ export default function BuzzcartOrdersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 10;
-
+ 
   const fetchOrders = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+
+      const roleStr = profile?.role || "sub_dealer";
+      setUserRole(roleStr);
+
+      let query = supabase
         .from("orders")
         .select(`
           id,
@@ -48,8 +62,17 @@ export default function BuzzcartOrdersPage() {
           product:products(name),
           distributor:profiles!distributor_id(first_name, last_name),
           coordinator:profiles!sales_coordinator_id(first_name, last_name)
-        `)
-        .order("created_at", { ascending: false });
+        `);
+
+      if (roleStr === "distributor") {
+        query = query.eq("distributor_id", session.user.id);
+      } else if (roleStr === "employee") {
+        query = query.eq("sales_coordinator_id", session.user.id);
+      } else if (roleStr === "sub_dealer") {
+        query = query.eq("user_id", session.user.id);
+      }
+
+      const { data, error } = await query.order("created_at", { ascending: false });
 
       if (error) throw error;
 
@@ -120,7 +143,18 @@ export default function BuzzcartOrdersPage() {
   );
 
   const columns = [
-    { key: "order_code", label: "Order ID" },
+    {
+      key: "order_code",
+      label: "Order ID",
+      render: (val: string, row: any) => (
+        <Link
+          href={`/dashboard/buzzcart/orders/${row.id}`}
+          className="font-bold text-[#00B4D8] hover:underline"
+        >
+          {val}
+        </Link>
+      ),
+    },
     {
       key: "user_name",
       label: "User",

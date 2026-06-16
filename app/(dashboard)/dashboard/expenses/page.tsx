@@ -21,6 +21,7 @@ export default function ExpensesPage() {
   const supabase = createClientComponentClient();
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [userRole, setUserRole] = useState<string>("");
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -34,7 +35,19 @@ export default function ExpensesPage() {
   const fetchExpenses = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+
+      const roleStr = profile?.role || "employee";
+      setUserRole(roleStr);
+
+      let query = supabase
         .from("expenses")
         .select(`
           id,
@@ -45,8 +58,13 @@ export default function ExpensesPage() {
           status,
           description,
           profile:profiles!user_id(first_name, last_name)
-        `)
-        .order("date", { ascending: false });
+        `);
+
+      if (roleStr === "employee") {
+        query = query.eq("user_id", session.user.id);
+      }
+
+      const { data, error } = await query.order("date", { ascending: false });
 
       if (error) throw error;
 
@@ -133,7 +151,7 @@ export default function ExpensesPage() {
     }
   };
 
-  const columns = [
+  const baseColumns = [
     { key: "user_name", label: "Employee" },
     { key: "title", label: "Title" },
     {
@@ -160,6 +178,10 @@ export default function ExpensesPage() {
         </span>
       ),
     },
+  ];
+
+  const columns = userRole === "employee" ? baseColumns : [
+    ...baseColumns,
     {
       key: "id",
       label: "Audit",

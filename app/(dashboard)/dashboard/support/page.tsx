@@ -19,6 +19,7 @@ export default function SupportTicketsPage() {
   const supabase = createClientComponentClient();
   const [tickets, setTickets] = useState<SupportTicketRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [userRole, setUserRole] = useState<string>("");
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -29,7 +30,19 @@ export default function SupportTicketsPage() {
   const fetchTickets = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+
+      const roleStr = profile?.role || "employee";
+      setUserRole(roleStr);
+
+      let query = supabase
         .from("support_tickets")
         .select(`
           id,
@@ -38,8 +51,13 @@ export default function SupportTicketsPage() {
           status,
           created_at,
           profile:profiles!user_id(first_name, last_name, role)
-        `)
-        .order("created_at", { ascending: false });
+        `);
+
+      if (roleStr !== "admin") {
+        query = query.eq("user_id", session.user.id);
+      }
+
+      const { data, error } = await query.order("created_at", { ascending: false });
 
       if (error) throw error;
 
@@ -120,7 +138,7 @@ export default function SupportTicketsPage() {
     }
   };
 
-  const columns = [
+  const baseColumns = [
     { key: "user_name", label: "User" },
     { key: "subject", label: "Subject" },
     {
@@ -142,6 +160,10 @@ export default function SupportTicketsPage() {
         </span>
       ),
     },
+  ];
+
+  const columns = userRole === "admin" ? [
+    ...baseColumns,
     {
       key: "id",
       label: "Action",
@@ -167,7 +189,7 @@ export default function SupportTicketsPage() {
         );
       },
     },
-  ];
+  ] : baseColumns;
 
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 10;
