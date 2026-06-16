@@ -60,7 +60,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
 
       if (distErr) throw distErr;
 
-      const formattedSales = (salesData || []).map((row, idx) => ({
+      const formattedSales = (salesData || []).map((row: any, idx: number) => ({
         ...row,
         sno: String(idx + 1).padStart(2, "0"),
         distributor_name: row.distributor
@@ -164,8 +164,8 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
   ];
 
   // Extract unique warehouses and distributors for table filtering
-  const uniqueWarehouses = Array.from(new Set(sales.map((s) => s.warehouse).filter(Boolean)));
-  const uniqueDistributorNames = Array.from(new Set(sales.map((s) => s.distributor_name).filter(Boolean)));
+  const uniqueWarehouses = Array.from(new Set(sales.map((s: any) => s.warehouse).filter(Boolean))) as string[];
+  const uniqueDistributorNames = Array.from(new Set(sales.map((s: any) => s.distributor_name).filter(Boolean))) as string[];
 
   return (
     <div className="space-y-6 select-none">

@@ -60,7 +60,7 @@ export default function Topbar() {
 
         if (error) throw error;
         setNotifications(data || []);
-        setUnreadCount((data || []).filter((n) => !n.read).length);
+        setUnreadCount((data || []).filter((n: NotificationItem) => !n.read).length);
       } catch (err: any) {
         console.error("Error fetching notifications:", err.message);
       }
@@ -74,9 +74,9 @@ export default function Topbar() {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications" },
-        (payload) => {
+        (payload: any) => {
           const newNotif = payload.new as NotificationItem;
-          setNotifications((prev) => [newNotif, ...prev]);
+          setNotifications((prev: any) => [newNotif, ...prev]);
           setUnreadCount((prev) => prev + 1);
           toast((t) => (
             <div className="flex items-start gap-2 text-xs">
