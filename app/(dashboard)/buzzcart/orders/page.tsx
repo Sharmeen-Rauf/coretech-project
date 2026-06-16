@@ -73,8 +73,8 @@ export default function BuzzcartOrdersPage() {
       setOrders(formatted);
 
       // Collect unique options for filter dropdowns
-      const dists = Array.from(new Set(formatted.map((o) => o.distributor_name).filter(Boolean)));
-      const prods = Array.from(new Set(formatted.map((o) => o.product_name).filter(Boolean)));
+      const dists = Array.from(new Set(formatted.map((o: any) => o.distributor_name).filter(Boolean))) as string[];
+      const prods = Array.from(new Set(formatted.map((o: any) => o.product_name).filter(Boolean))) as string[];
       setDistributors(dists);
       setProducts(prods);
     } catch (err: any) {

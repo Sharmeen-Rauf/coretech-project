@@ -1,15 +1,25 @@
 import { createClient as createJSClient } from '@supabase/supabase-js';
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, createBrowserClient } from '@supabase/ssr';
 import { type NextRequest, type NextResponse } from 'next/server';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder';
 
-// Single shared instance of standard browser client
-export const supabase = createJSClient(supabaseUrl, supabaseAnonKey);
+// Shared instance of standard browser client to prevent multiple GoTrueClient instances
+let browserClientInstance: any = null;
+
+export const supabase = typeof window !== 'undefined'
+  ? (browserClientInstance || (browserClientInstance = createBrowserClient(supabaseUrl, supabaseAnonKey)))
+  : null;
 
 export function createClientComponentClient() {
-  return createJSClient(supabaseUrl, supabaseAnonKey);
+  if (typeof window === 'undefined') {
+    return createBrowserClient(supabaseUrl, supabaseAnonKey);
+  }
+  if (!browserClientInstance) {
+    browserClientInstance = createBrowserClient(supabaseUrl, supabaseAnonKey);
+  }
+  return browserClientInstance;
 }
 
 // For Server Components / Actions / Route Handlers

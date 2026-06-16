@@ -37,7 +37,7 @@ export default function InverterProductPage() {
       if (error) throw error;
 
       // Add Serial Number (S.No) index to table rows
-      const formatted = (data || []).map((item, idx) => ({
+      const formatted = (data || []).map((item: any, idx: number) => ({
         ...item,
         sno: String(idx + 1).padStart(2, "0"),
       }));

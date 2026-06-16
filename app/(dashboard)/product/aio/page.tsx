@@ -24,7 +24,7 @@ export default function AioProductPage() {
 
       if (error) throw error;
 
-      const formatted = (data || []).map((item, idx) => ({
+      const formatted = (data || []).map((item: any, idx) => ({
         ...item,
         sno: String(idx + 1).padStart(2, "0"),
       }));
