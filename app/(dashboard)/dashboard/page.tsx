@@ -4,7 +4,6 @@ import StatsCard from "@/components/StatsCard";
 import ProjectionsChart from "@/components/ProjectionsChart";
 import RevenueChart from "@/components/RevenueChart";
 import SalesDonutChart from "@/components/SalesDonutChart";
-import { Loader2, ArrowUpRight } from "lucide-react";
 
 export const revalidate = 0; // Disable caching for realtime updates
 
@@ -55,7 +54,6 @@ async function DashboardStats() {
     }
 
     // 4. Calculate simulated growth
-    // (In production this would calculate current vs previous month. We formulate a stable calculation.)
     if (customersVal > 0) {
       growthVal = `${Math.min(Number((ordersVal / customersVal * 100).toFixed(1)), 100)}%`;
     }
@@ -141,7 +139,6 @@ export default async function DashboardPage() {
                 className="w-40 h-20 text-slate-300"
                 fill="currentColor"
               >
-                {/* Simplified SVG Map representation */}
                 <path d="M15,20 Q30,15 40,25 T60,20 T70,30 T90,25 Z" />
                 <path d="M110,40 Q130,35 150,45 T170,40 T180,50 T190,45 Z" />
                 <path d="M30,60 Q50,55 70,65 T80,60 T90,70 T100,65 Z" />
