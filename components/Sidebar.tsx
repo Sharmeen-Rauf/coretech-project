@@ -15,6 +15,12 @@ import {
   TrendingUp,
   Wrench,
   LogOut,
+  CheckSquare,
+  FileText,
+  CreditCard,
+  Download,
+  HelpCircle,
+  Activity,
 } from "lucide-react";
 import { createClientComponentClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
@@ -336,6 +342,42 @@ export default function Sidebar() {
                 </div>
               )}
             </div>
+
+            {/* Gate Pass & Approvals */}
+            <Link href="/dashboard/approvals" className={linkClass("/dashboard/approvals")}>
+              <CheckSquare className="w-4 h-4 mr-3" />
+              Approvals & Passes
+            </Link>
+
+            {/* Expenses */}
+            <Link href="/dashboard/expenses" className={linkClass("/dashboard/expenses")}>
+              <FileText className="w-4 h-4 mr-3" />
+              Expenses
+            </Link>
+
+            {/* Invoices */}
+            <Link href="/dashboard/invoices" className={linkClass("/dashboard/invoices")}>
+              <CreditCard className="w-4 h-4 mr-3" />
+              Invoices & Payments
+            </Link>
+
+            {/* Resources & Targets */}
+            <Link href="/dashboard/resources" className={linkClass("/dashboard/resources")}>
+              <Download className="w-4 h-4 mr-3" />
+              Resources & Targets
+            </Link>
+
+            {/* Support Tickets */}
+            <Link href="/dashboard/support" className={linkClass("/dashboard/support")}>
+              <HelpCircle className="w-4 h-4 mr-3" />
+              Support Tickets
+            </Link>
+
+            {/* Activity Logs */}
+            <Link href="/dashboard/activity-logs" className={linkClass("/dashboard/activity-logs")}>
+              <Activity className="w-4 h-4 mr-3" />
+              Activity Logs
+            </Link>
           </div>
         </div>
       </div>
