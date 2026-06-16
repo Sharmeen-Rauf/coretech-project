@@ -2,14 +2,13 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClientComponentClient } from "@/lib/supabase";
+import { createUserAction } from "@/app/actions/users";
 import toast from "react-hot-toast";
 import { Loader2, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const supabase = createClientComponentClient();
 
   // Form states
   const [firstName, setFirstName] = useState("");
@@ -52,36 +51,21 @@ export default function RegisterPage() {
 
     setIsLoading(true);
     try {
-      // 1. Sign up user in Supabase Auth
-      const { data, error: signUpError } = await supabase.auth.signUp({
+      // Call the Server Action which uses the admin client to bypass SMTP limits
+      const res = await createUserAction({
+        firstName,
+        lastName,
         email,
         password,
-        options: {
-          data: {
-            first_name: firstName,
-            last_name: lastName,
-          },
-        },
-      });
-
-      if (signUpError) throw signUpError;
-      if (!data.user) throw new Error("Registration failed - no user returned");
-
-      // 2. Insert user row into profiles table
-      const { error: profileError } = await supabase.from("profiles").insert({
-        id: data.user.id,
-        first_name: firstName,
-        last_name: lastName,
         designation,
         contact,
         role,
-        group_name: group,
+        group,
         status: "active",
       });
 
-      if (profileError) {
-        // If profile insert fails, throw error
-        throw profileError;
+      if (!res.success) {
+        throw new Error(res.error || "Registration failed");
       }
 
       toast.success("Account successfully registered! Please log in.");
