@@ -113,13 +113,13 @@ export default function ProfileScreen() {
           </View>
           <View style={[styles.statColumn, styles.statBorder]}>
             <Text style={[styles.statNumber, { color: "#059669" }]}>
-              {styles.container ? stats.completed : 0}
+              {stats.completed}
             </Text>
             <Text style={styles.statLabel}>Completed</Text>
           </View>
           <View style={styles.statColumn}>
             <Text style={[styles.statNumber, { color: "#EA580C" }]}>
-              {styles.container ? stats.pending : 0}
+              {stats.pending}
             </Text>
             <Text style={styles.statLabel}>Pending</Text>
           </View>
@@ -221,7 +221,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   statBorder: {
-    borderXWidth: 1, // wait, borderX is not standard RN. We use standard left/right borders
     borderLeftWidth: 1,
     borderRightWidth: 1,
     borderColor: "#F1F5F9",

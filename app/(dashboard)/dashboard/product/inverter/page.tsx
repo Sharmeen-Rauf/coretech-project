@@ -1,22 +1,11 @@
 "use client";
-
+ 
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
+import ProductModal from "@/components/ProductModal";
 import toast from "react-hot-toast";
-
-interface ProductItem {
-  id: string;
-  name: string;
-  code: string;
-  brand: string;
-  category: string;
-  model: string;
-  price: number;
-  cost: number;
-  alert_quantity: number;
-}
-
+ 
 export default function InverterProductPage() {
   const supabase = createClientComponentClient();
   const [products, setProducts] = useState<any[]>([]);
@@ -24,7 +13,11 @@ export default function InverterProductPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 10;
-
+ 
+  // Modal states
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any>(undefined);
+ 
   const fetchProducts = async () => {
     setIsLoading(true);
     try {
@@ -33,15 +26,14 @@ export default function InverterProductPage() {
         .select("*")
         .eq("category", "inverter")
         .order("created_at", { ascending: false });
-
+ 
       if (error) throw error;
-
-      // Add Serial Number (S.No) index to table rows
+ 
       const formatted = (data || []).map((item: any, idx: number) => ({
         ...item,
         sno: String(idx + 1).padStart(2, "0"),
       }));
-
+ 
       setProducts(formatted);
     } catch (err: any) {
       toast.error(err.message || "Failed to fetch products");
@@ -49,11 +41,11 @@ export default function InverterProductPage() {
       setIsLoading(false);
     }
   };
-
+ 
   useEffect(() => {
     fetchProducts();
   }, []);
-
+ 
   const filtered = products.filter((p) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
@@ -64,20 +56,35 @@ export default function InverterProductPage() {
       (p.code && p.code.toLowerCase().includes(q))
     );
   });
-
+ 
   const paginated = filtered.slice(
     (currentPage - 1) * perPage,
     currentPage * perPage
   );
-
+ 
   const columns = [
     { key: "sno", label: "S.No" },
     { key: "brand", label: "Brand" },
     { key: "name", label: "Product Name" },
     { key: "model", label: "Model" },
-    { key: "category", label: "Category" },
+    { key: "code", label: "Product Code" },
+    {
+      key: "price",
+      label: "Sale Price",
+      render: (val: number) => <span className="font-semibold text-slate-700">Rs. {val?.toLocaleString() || "0"}</span>,
+    },
+    {
+      key: "cost",
+      label: "Cost Price",
+      render: (val: number) => <span className="font-semibold text-slate-500">Rs. {val?.toLocaleString() || "0"}</span>,
+    },
   ];
-
+ 
+  const handleEditClick = (prod: any) => {
+    setEditingProduct(prod);
+    setIsModalOpen(true);
+  };
+ 
   return (
     <div className="space-y-6 select-none">
       <div>
@@ -86,7 +93,7 @@ export default function InverterProductPage() {
           View and manage the core inventory for Inverter units.
         </p>
       </div>
-
+ 
       <DataTable
         title="Inverters"
         columns={columns}
@@ -97,12 +104,28 @@ export default function InverterProductPage() {
           setSearchQuery(q);
           setCurrentPage(1);
         }}
+        actionButton={{
+          label: "Add Inverter",
+          onClick: () => {
+            setEditingProduct(undefined);
+            setIsModalOpen(true);
+          },
+        }}
+        onEditClick={handleEditClick}
         pagination={{
           current: currentPage,
           total: filtered.length,
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+      />
+ 
+      <ProductModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        category="inverter"
+        onSuccess={fetchProducts}
+        editingProduct={editingProduct}
       />
     </div>
   );

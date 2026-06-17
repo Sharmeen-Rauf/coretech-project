@@ -339,6 +339,18 @@ export default function Sidebar() {
                   >
                     List
                   </Link>
+                  <Link
+                    href="/dashboard/installer/jobs"
+                    className={linkClass("/dashboard/installer/jobs")}
+                  >
+                    Job Assignment
+                  </Link>
+                  <Link
+                    href="/dashboard/installer/performance"
+                    className={linkClass("/dashboard/installer/performance")}
+                  >
+                    Performance Logs
+                  </Link>
                 </div>
               )}
             </div>
@@ -377,6 +389,12 @@ export default function Sidebar() {
             <Link href="/dashboard/activity-logs" className={linkClass("/dashboard/activity-logs")}>
               <Activity className="w-4 h-4 mr-3" />
               Activity Logs
+            </Link>
+
+            {/* Broadcast Notice */}
+            <Link href="/dashboard/broadcast" className={linkClass("/dashboard/broadcast")}>
+              <HelpCircle className="w-4 h-4 mr-3" />
+              Broadcast Notice
             </Link>
           </div>
         </div>
