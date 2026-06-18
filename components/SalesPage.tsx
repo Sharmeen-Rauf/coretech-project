@@ -137,80 +137,112 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
     setIsCreating(true);
   };
 
-  // Scan / Check IMEI input
+  // Scan / Check IMEI input (supports bulk copy-paste split by comma/newline/tabs)
   const handleCheckImei = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const cleanImei = imeiInput.trim();
-    if (!cleanImei) return;
+    const cleanInput = imeiInput.trim();
+    if (!cleanInput) return;
 
-    // Prevent duplicate scans
-    if (scannedItems.some(item => item.imei === cleanImei)) {
-      toast.error("This IMEI/SN has already been scanned!");
+    // Split by newlines, commas, semicolons, or tabs
+    const inputs = cleanInput.split(/[\n,;\t\r]+/).map(x => x.trim()).filter(Boolean);
+    if (inputs.length === 0) return;
+
+    // Filter out items already scanned
+    const newInputs = Array.from(new Set(inputs.filter(x => !scannedItems.some(item => item.imei === x))));
+    const duplicatesCount = inputs.length - newInputs.length;
+    
+    if (newInputs.length === 0) {
+      if (duplicatesCount > 0) {
+        toast.error("All entered IMEIs/SNs have already been scanned!");
+      }
       setImeiInput("");
       return;
     }
 
     setIsCheckingImei(true);
     try {
-      // Lookup in stock table with product info joined
+      // Fetch matching serials in bulk
       const { data, error } = await supabase
         .from("stock")
         .select(`
-          *,
+          serial_no,
+          product_id,
+          model_no,
           product:products(id, name, model)
         `)
-        .eq("serial_no", cleanImei)
-        .limit(1)
-        .single();
+        .in("serial_no", newInputs);
 
-      let newItem: ScannedItem;
-
-      if (error || !data) {
-        // Fallback: If not found in stock cache, allow custom mockup creation
-        console.warn("IMEI not found in database stock, fallback to mock details");
-        toast.success("IMEI simulated successfully!");
-        
-        // Pick a dynamic mockup name/model based on input lengths
-        const isBattery = cleanImei.toLowerCase().includes("bat") || cleanImei.length % 2 === 0;
-        newItem = {
-          imei: cleanImei,
-          productName: isBattery ? "LiFePO4 Solar Battery 200Ah" : "Huawei Smart Inverter 10kW",
-          model: isBattery ? "LFP-200" : "SUN2000-10KTL",
-          productId: isBattery ? "dummy-battery-id" : "dummy-inverter-id",
-        };
-      } else {
-        newItem = {
-          imei: data.serial_no,
-          productName: data.product?.name || "Stock Item",
-          model: data.product?.model || data.model_no || "Generic",
-          productId: data.product_id || "stock-item-id",
-        };
-        toast.success("IMEI verified and added!");
+      const dbMap = new Map<string, any>();
+      if (data) {
+        data.forEach((row: any) => {
+          dbMap.set(row.serial_no, row);
+        });
       }
 
-      // 1. Add to scanned log
-      setScannedItems(prev => [newItem, ...prev]);
+      const itemsToAdd: ScannedItem[] = [];
+      let foundCount = 0;
+      let simulatedCount = 0;
 
-      // 2. Increment quantity or add to order details table
-      setOrderDetails(prev => {
-        const existingIdx = prev.findIndex(item => item.productName === newItem.productName);
-        if (existingIdx >= 0) {
-          const updated = [...prev];
-          updated[existingIdx].quantity += 1;
-          return updated;
+      newInputs.forEach(imei => {
+        const dbRow = dbMap.get(imei);
+        if (dbRow) {
+          itemsToAdd.push({
+            imei: dbRow.serial_no,
+            productName: dbRow.product?.name || "Stock Item",
+            model: dbRow.product?.model || dbRow.model_no || "Generic",
+            productId: dbRow.product_id || "stock-item-id",
+          });
+          foundCount++;
         } else {
-          return [...prev, {
-            productId: newItem.productId,
-            productName: newItem.productName,
-            model: newItem.model,
-            quantity: 1,
-          }];
+          // Fallback: If not found in stock cache, allow custom mockup creation
+          const isBattery = imei.toLowerCase().includes("bat") || imei.length % 2 === 0;
+          itemsToAdd.push({
+            imei: imei,
+            productName: isBattery ? "LiFePO4 Solar Battery 200Ah" : "Huawei Smart Inverter 10kW",
+            model: isBattery ? "LFP-200" : "SUN2000-10KTL",
+            productId: isBattery ? "dummy-battery-id" : "dummy-inverter-id",
+          });
+          simulatedCount++;
         }
       });
 
+      // 1. Add all to scanned log state
+      setScannedItems(prev => [...itemsToAdd, ...prev]);
+
+      // 2. Aggregate quantities in order details table
+      setOrderDetails(prev => {
+        const updated = [...prev];
+        itemsToAdd.forEach(item => {
+          const idx = updated.findIndex(row => row.productName === item.productName);
+          if (idx >= 0) {
+            updated[idx].quantity += 1;
+          } else {
+            updated.push({
+              productId: item.productId,
+              productName: item.productName,
+              model: item.model,
+              quantity: 1,
+            });
+          }
+        });
+        return updated;
+      });
+
+      // Show toast summarizing action
+      if (newInputs.length === 1) {
+        if (foundCount === 1) {
+          toast.success("IMEI verified and added!");
+        } else {
+          toast.success("IMEI simulated and added!");
+        }
+      } else {
+        toast.success(`Bulk imported ${newInputs.length} items (${foundCount} verified, ${simulatedCount} simulated).`);
+      }
+
       setImeiInput("");
     } catch (err) {
-      toast.error("Failed to check serial number.");
+      console.error(err);
+      toast.error("Failed to check serial numbers.");
     } finally {
       setIsCheckingImei(false);
     }
