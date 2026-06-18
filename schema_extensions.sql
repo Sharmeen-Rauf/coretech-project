@@ -121,3 +121,9 @@ create policy "Allow read access to auth" on public.announcements for select usi
 create policy "Allow insert access to auth" on public.announcements for insert with check (true);
 create policy "Allow update access to auth" on public.announcements for update using (true);
 
+-- Append columns to installer_jobs for job details
+ALTER TABLE public.installer_jobs ADD COLUMN IF NOT EXISTS serial_number text;
+ALTER TABLE public.installer_jobs ADD COLUMN IF NOT EXISTS remarks text;
+ALTER TABLE public.installer_jobs ADD COLUMN IF NOT EXISTS incentive numeric;
+
+
