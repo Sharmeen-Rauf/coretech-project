@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
-import { Loader2, Check, X, FileText, Plus, AlertCircle } from "lucide-react";
+import { Loader2, Check, X, FileText, Plus, AlertCircle, Edit, Eye } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface OrderApprovalRow {
@@ -12,8 +12,10 @@ interface OrderApprovalRow {
   user_name: string;
   product_name: string;
   distributor_name: string;
+  coordinator_name: string;
   status: string;
   created_at: string;
+  items: any[];
 }
 
 interface GatePassRow {
@@ -45,6 +47,12 @@ export default function ApprovalsPage() {
   const [vehicleNo, setVehicleNo] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Order Review/Edit Modal states
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [reviewOrder, setReviewOrder] = useState<OrderApprovalRow | null>(null);
+  const [editableItems, setEditableItems] = useState<any[]>([]);
+  const [isUpdatingOrder, setIsUpdatingOrder] = useState(false);
+
   // Fetch pending orders for approval
   const fetchOrders = async () => {
     try {
@@ -55,27 +63,45 @@ export default function ApprovalsPage() {
           order_code,
           status,
           created_at,
+          items,
+          product_id,
           user:profiles!user_id(first_name, last_name),
-          product:products(name),
-          distributor:profiles!distributor_id(first_name, last_name)
+          product:products(name, model, price),
+          distributor:profiles!distributor_id(first_name, last_name),
+          coordinator:profiles!sales_coordinator_id(first_name, last_name)
         `)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
 
-      const formatted: OrderApprovalRow[] = (data || []).map((row: any) => ({
-        id: row.id,
-        order_code: row.order_code || "-",
-        user_name: row.user ? `${row.user.first_name} ${row.user.last_name || ""}`.trim() : "Unknown",
-        product_name: row.product?.name || "-",
-        distributor_name: row.distributor ? `${row.distributor.first_name} ${row.distributor.last_name || ""}`.trim() : "-",
-        status: row.status,
-        created_at: row.created_at ? new Date(row.created_at).toLocaleDateString() : "-",
-      }));
+      const formatted: OrderApprovalRow[] = (data || []).map((row: any) => {
+        // Fallback for legacy orders that do not have `items` array
+        const items = row.items || [
+          {
+            productId: row.product_id || "legacy",
+            productName: row.product?.name || "Generic Product",
+            model: row.product?.model || "Generic",
+            quantity: 1,
+            price: row.product?.price || 0,
+          }
+        ];
+
+        return {
+          id: row.id,
+          order_code: row.order_code || "-",
+          user_name: row.user ? `${row.user.first_name} ${row.user.last_name || ""}`.trim() : "Unknown",
+          product_name: row.product?.name || "-",
+          distributor_name: row.distributor ? `${row.distributor.first_name} ${row.distributor.last_name || ""}`.trim() : "-",
+          coordinator_name: row.coordinator ? `${row.coordinator.first_name} ${row.coordinator.last_name || ""}`.trim() : "-",
+          status: row.status,
+          created_at: row.created_at ? new Date(row.created_at).toLocaleDateString() : "-",
+          items,
+        };
+      });
 
       setOrders(formatted);
-      // Collect approved/completed orders for gate pass options
-      setCompletedOrders((data || []).filter((o: any) => o.status === "complete"));
+      // Aligned orders that are approved or in a post-approval state can issue gate passes
+      setCompletedOrders((data || []).filter((o: any) => o.status !== "pending" && o.status !== "declined"));
     } catch (err: any) {
       toast.error(err.message || "Failed to fetch orders");
     }
@@ -111,7 +137,7 @@ export default function ApprovalsPage() {
 
       setGatePasses(formatted);
     } catch (err: any) {
-      console.error("Failed to fetch gate passes. Running local fallback.", err.message);
+      console.error("Failed to fetch gate passes.", err.message);
     }
   };
 
@@ -125,27 +151,96 @@ export default function ApprovalsPage() {
     loadData();
   }, []);
 
-  // Update order status (Approve / Decline)
-  const handleUpdateOrderStatus = async (orderId: string, newStatus: string) => {
+  const handleOpenReviewModal = (order: OrderApprovalRow) => {
+    setReviewOrder(order);
+    setEditableItems(
+      order.items.map(item => ({
+        ...item,
+        // Make deep copy of mutable values
+        quantity: Number(item.quantity) || 0,
+        price: Number(item.price) || 0,
+      }))
+    );
+    setIsReviewModalOpen(true);
+  };
+
+  const handleItemQtyChange = (idx: number, val: string) => {
+    const qty = Math.max(0, parseInt(val) || 0);
+    setEditableItems(prev => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], quantity: qty };
+      return copy;
+    });
+  };
+
+  const handleItemPriceChange = (idx: number, val: string) => {
+    const prc = Math.max(0, parseFloat(val) || 0);
+    setEditableItems(prev => {
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], price: prc };
+      return copy;
+    });
+  };
+
+  // Submit approved edits
+  const handleApproveWithEdits = async () => {
+    if (!reviewOrder) return;
+    const itemsToSave = editableItems.filter(item => item.quantity > 0);
+    if (itemsToSave.length === 0) {
+      toast.error("Please ensure at least one item has a quantity > 0");
+      return;
+    }
+
+    setIsUpdatingOrder(true);
     try {
       const { error } = await supabase
         .from("orders")
-        .update({ status: newStatus })
+        .update({
+          items: itemsToSave,
+          status: "approved"
+        })
+        .eq("id", reviewOrder.id);
+
+      if (error) throw error;
+
+      await supabase.from("activity_logs").insert({
+        action: "Order Approved (Edits)",
+        details: `NSM approved order ${reviewOrder.order_code} with modified item counts/prices.`,
+      });
+
+      toast.success("Order approved successfully!");
+      setIsReviewModalOpen(false);
+      fetchOrders();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to approve order");
+    } finally {
+      setIsUpdatingOrder(false);
+    }
+  };
+
+  const handleDeclineOrder = async (orderId: string) => {
+    setIsUpdatingOrder(true);
+    try {
+      const { error } = await supabase
+        .from("orders")
+        .update({ status: "declined" })
         .eq("id", orderId);
 
       if (error) throw error;
 
-      // Log activity
-      const targetOrder = orders.find((o) => o.id === orderId);
+      const orderCode = reviewOrder?.order_code || orders.find(o => o.id === orderId)?.order_code || "";
       await supabase.from("activity_logs").insert({
-        action: "Order Status Update",
-        details: `Order ${targetOrder?.order_code} was ${newStatus}d`,
+        action: "Order Declined",
+        details: `NSM declined order ${orderCode}.`,
       });
 
-      toast.success(`Order successfully ${newStatus}d!`);
+      toast.success("Order declined.");
+      setIsReviewModalOpen(false);
       fetchOrders();
     } catch (err: any) {
-      toast.error(err.message || "Failed to update order status");
+      toast.error(err.message || "Failed to decline order");
+    } finally {
+      setIsUpdatingOrder(false);
     }
   };
 
@@ -159,7 +254,6 @@ export default function ApprovalsPage() {
 
       if (error) throw error;
 
-      // Log activity
       const targetPass = gatePasses.find((p) => p.id === passId);
       await supabase.from("activity_logs").insert({
         action: "Gate Pass Update",
@@ -211,18 +305,36 @@ export default function ApprovalsPage() {
 
   const orderColumns = [
     { key: "order_code", label: "Order ID" },
-    { key: "user_name", label: "Customer" },
-    { key: "product_name", label: "Product" },
-    { key: "distributor_name", label: "Distributor" },
+    { key: "coordinator_name", label: "RSM Placed" },
+    { key: "user_name", label: "Dealer" },
+    {
+      key: "items",
+      label: "Models Ordered",
+      render: (items: any[]) => {
+        return (
+          <span className="font-semibold text-slate-600 truncate max-w-[200px] block">
+            {items.map(i => `${i.model || "Generic"} (x${i.quantity || 1})`).join(", ")}
+          </span>
+        );
+      }
+    },
+    {
+      key: "pieces",
+      label: "Total pieces",
+      render: (_: any, row: any) => {
+        const total = row.items?.reduce((sum: number, i: any) => sum + (Number(i.quantity) || 0), 0) || 0;
+        return <span className="font-bold text-slate-700">{total} Pcs</span>;
+      }
+    },
     { key: "created_at", label: "Date" },
     {
       key: "status",
       label: "Status",
       render: (val: string) => (
-        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-          val === "complete" ? "bg-emerald-50 text-emerald-600 border border-emerald-200" :
-          val === "declined" ? "bg-rose-50 text-rose-600 border border-rose-200" :
-          "bg-amber-50 text-amber-600 border border-amber-200"
+        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+          val === "approved" || val === "complete" ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
+          val === "declined" ? "bg-rose-50 text-rose-600 border-rose-200" :
+          "bg-amber-50 text-amber-600 border-amber-200"
         }`}>
           {val}
         </span>
@@ -230,26 +342,25 @@ export default function ApprovalsPage() {
     },
     {
       key: "id",
-      label: "Actions",
-      render: (val: string, row: any) => {
-        if (row.status !== "pending") return <span className="text-slate-400 text-xs">Closed</span>;
+      label: "Review",
+      render: (_: string, row: any) => {
         return (
-          <div className="flex gap-2">
-            <button
-              onClick={() => handleUpdateOrderStatus(val, "complete")}
-              className="p-1 hover:bg-emerald-50 text-emerald-600 rounded border border-emerald-100 transition-colors"
-              title="Approve Order"
-            >
-              <Check className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleUpdateOrderStatus(val, "declined")}
-              className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
-              title="Decline Order"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+          <button
+            onClick={() => handleOpenReviewModal(row)}
+            className="flex items-center gap-1.5 px-3 py-1 hover:bg-[#F0FAFE] hover:text-[#00B4D8] border border-slate-200 text-slate-600 rounded-[4px] text-[11px] font-bold transition-all"
+          >
+            {row.status === "pending" ? (
+              <>
+                <Edit className="w-3 h-3" />
+                Audit
+              </>
+            ) : (
+              <>
+                <Eye className="w-3 h-3" />
+                View
+              </>
+            )}
+          </button>
         );
       },
     },
@@ -382,6 +493,152 @@ export default function ApprovalsPage() {
         />
       )}
 
+      {/* Review & Edit Order Modal */}
+      {isReviewModalOpen && reviewOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            onClick={() => setIsReviewModalOpen(false)}
+            className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm"
+          ></div>
+
+          <div className="relative bg-white w-full max-w-2xl border border-slate-100 rounded-[12px] shadow-2xl p-6 flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-4 bg-slate-50/50 -m-6 p-6 rounded-t-[12px]">
+              <div>
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Review Order: {reviewOrder.order_code}
+                </h3>
+                <p className="text-[10px] text-slate-400 mt-1 font-bold">
+                  Status: {reviewOrder.status.toUpperCase()}
+                </p>
+              </div>
+              <button
+                onClick={() => setIsReviewModalOpen(false)}
+                className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-1 space-y-5">
+              {/* Partner summary */}
+              <div className="grid grid-cols-3 gap-4 bg-slate-50 p-4 rounded-[6px] border border-slate-100 text-xs">
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">RSM Placed</p>
+                  <p className="font-semibold text-slate-700 mt-0.5">{reviewOrder.coordinator_name}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">Dealer (Buyer)</p>
+                  <p className="font-semibold text-slate-700 mt-0.5">{reviewOrder.user_name}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">Routing Distributor</p>
+                  <p className="font-semibold text-slate-700 mt-0.5">{reviewOrder.distributor_name}</p>
+                </div>
+              </div>
+
+              {/* Items ledger */}
+              <div className="border border-slate-150 rounded-[6px] overflow-hidden">
+                <table className="w-full text-left border-collapse text-xs select-none">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/20">
+                      <th className="px-4 py-2.5 font-bold text-slate-400 uppercase tracking-wider">Model Name</th>
+                      <th className="px-4 py-2.5 font-bold text-slate-400 uppercase tracking-wider w-28">Approved Qty</th>
+                      <th className="px-4 py-2.5 font-bold text-slate-400 uppercase tracking-wider w-36">Approved Price (PKR)</th>
+                      <th className="px-4 py-2.5 font-bold text-slate-400 uppercase tracking-wider text-right">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {editableItems.map((item, idx) => {
+                      const subtotal = item.quantity * item.price;
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50/10">
+                          <td className="px-4 py-2.5 font-bold text-slate-800">
+                            {item.productName}
+                            <span className="block text-[9px] text-slate-400 font-normal">{item.model || "Generic"}</span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {reviewOrder.status === "pending" ? (
+                              <input
+                                type="number"
+                                min="0"
+                                value={item.quantity}
+                                onChange={(e) => handleItemQtyChange(idx, e.target.value)}
+                                className="w-20 h-7 border border-slate-200 rounded px-1.5 focus:outline-none focus:border-[#00B4D8] text-center"
+                              />
+                            ) : (
+                              <span className="font-bold">{item.quantity} Pcs</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {reviewOrder.status === "pending" ? (
+                              <input
+                                type="number"
+                                min="0"
+                                value={item.price}
+                                onChange={(e) => handleItemPriceChange(idx, e.target.value)}
+                                className="w-28 h-7 border border-slate-200 rounded px-1.5 focus:outline-none focus:border-[#00B4D8]"
+                              />
+                            ) : (
+                              <span>PKR {item.price.toLocaleString()}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-bold text-slate-700">
+                            PKR {subtotal.toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Total value */}
+            <div className="flex justify-between items-center py-4 border-t border-slate-100 mt-4">
+              <div>
+                <p className="text-[9px] font-bold text-slate-400 uppercase">Grand Total</p>
+                <p className="text-lg font-extrabold text-[#00B4D8] mt-0.5">
+                  PKR {editableItems.reduce((sum, item) => sum + (item.quantity * item.price), 0).toLocaleString()}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsReviewModalOpen(false)}
+                  className="h-9 px-4 border border-slate-200 hover:bg-slate-50 text-slate-500 text-xs font-semibold rounded-[6px] transition-all"
+                >
+                  Close
+                </button>
+
+                {reviewOrder.status === "pending" && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isUpdatingOrder}
+                      onClick={() => handleDeclineOrder(reviewOrder.id)}
+                      className="h-9 px-4 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white text-xs font-bold rounded-[6px] flex items-center gap-1.5 transition-all shadow"
+                    >
+                      {isUpdatingOrder && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      Decline
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isUpdatingOrder}
+                      onClick={handleApproveWithEdits}
+                      className="h-9 px-5 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/60 text-white text-xs font-bold rounded-[6px] flex items-center gap-1.5 transition-all shadow"
+                    >
+                      {isUpdatingOrder && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      Approve & Save
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Issue Gate Pass Modal */}
       {isPassModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -406,7 +663,7 @@ export default function ApprovalsPage() {
             <form onSubmit={handleCreateGatePass} className="space-y-4">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Select Complete Order*
+                  Select Order*
                 </label>
                 <select
                   value={selectedOrderId}
@@ -417,14 +674,14 @@ export default function ApprovalsPage() {
                   <option value="">Select Order</option>
                   {completedOrders.map((o) => (
                     <option key={o.id} value={o.id}>
-                      {o.order_code} ({o.product?.name})
+                      {o.order_code} ({o.user_name})
                     </option>
                   ))}
                 </select>
                 {completedOrders.length === 0 && (
                   <div className="flex items-center gap-1.5 mt-1 text-[9px] text-amber-600 font-semibold">
                     <AlertCircle className="w-3.5 h-3.5" />
-                    <span>No approved orders found to release</span>
+                    <span>No approved/active orders found to release</span>
                   </div>
                 )}
               </div>

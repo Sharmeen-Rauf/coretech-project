@@ -28,7 +28,7 @@ export default function ExpensesPage() {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("travel");
   const [amount, setAmount] = useState("");
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(() => new Date().toLocaleDateString('en-CA'));
   const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -229,7 +229,7 @@ export default function ExpensesPage() {
 
         <button
           onClick={() => {
-            const today = new Date().toISOString().split("T")[0];
+            const today = new Date().toLocaleDateString('en-CA');
             setDate(today);
             setIsModalOpen(true);
           }}

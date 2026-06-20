@@ -222,6 +222,12 @@ export default function Sidebar() {
                   >
                     Inventory
                   </Link>
+                  <Link
+                    href="/dashboard/purchase/warehouse"
+                    className={linkClass("/dashboard/purchase/warehouse")}
+                  >
+                    Warehouse
+                  </Link>
                 </div>
               )}
             </div>

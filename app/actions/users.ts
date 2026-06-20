@@ -29,7 +29,25 @@ function getAdminClient() {
 
 export async function createUserAction(formData: any) {
   const supabase = getAdminClient();
-  const { email, password, firstName, lastName, designation, contact, role, group, status } = formData;
+  const {
+    email,
+    password,
+    firstName,
+    lastName,
+    designation,
+    contact,
+    role,
+    group,
+    status,
+    state,
+    region,
+    warehouse,
+    address,
+    city,
+    bankName,
+    bankAccount,
+    accountHolderName,
+  } = formData;
 
   try {
     // 1. Create Auth User
@@ -44,7 +62,7 @@ export async function createUserAction(formData: any) {
       // If service role isn't available, we fallback to creating a mock profile with a generated UUID for demo/local display
       if (authError.message.includes("Service Role") || authError.status === 401) {
         const tempId = crypto.randomUUID();
-        const { error: profileError } = await supabase.from("profiles").insert({
+        const profileInsertData: any = {
           id: tempId,
           first_name: firstName,
           last_name: lastName,
@@ -53,7 +71,33 @@ export async function createUserAction(formData: any) {
           role,
           group_name: group,
           status,
-        });
+          state: state || null,
+          region: region || null,
+          warehouse: warehouse || null,
+          address: address || null,
+          city: city || null,
+          bank_name: bankName || null,
+          bank_account: bankAccount || null,
+          account_holder_name: accountHolderName || null,
+        };
+
+        let { error: profileError } = await supabase.from("profiles").insert(profileInsertData);
+
+        if (profileError && (profileError.message.includes("column") || profileError.code === "PGRST204" || profileError.code === "42703")) {
+          const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName };
+          const cleanInsertData = {
+            id: tempId,
+            first_name: firstName,
+            last_name: lastName,
+            designation: `[DISTRIBUTOR_METADATA]${JSON.stringify(metadata)}`,
+            contact,
+            role,
+            group_name: group,
+            status,
+          };
+          const { error: retryError } = await supabase.from("profiles").insert(cleanInsertData);
+          profileError = retryError;
+        }
 
         if (profileError) throw profileError;
         return { success: true, message: "Demo User created (Auth bypassed - local profile saved)", data: { id: tempId } };
@@ -62,7 +106,7 @@ export async function createUserAction(formData: any) {
     }
 
     // 2. Insert Profile row linked to the new Auth user
-    const { error: profileError } = await supabase.from("profiles").insert({
+    const profileInsertData: any = {
       id: authUser.user.id,
       first_name: firstName,
       last_name: lastName,
@@ -71,7 +115,33 @@ export async function createUserAction(formData: any) {
       role,
       group_name: group,
       status,
-    });
+      state: state || null,
+      region: region || null,
+      warehouse: warehouse || null,
+      address: address || null,
+      city: city || null,
+      bank_name: bankName || null,
+      bank_account: bankAccount || null,
+      account_holder_name: accountHolderName || null,
+    };
+
+    let { error: profileError } = await supabase.from("profiles").insert(profileInsertData);
+
+    if (profileError && (profileError.message.includes("column") || profileError.code === "PGRST204" || profileError.code === "42703")) {
+      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName };
+      const cleanInsertData = {
+        id: authUser.user.id,
+        first_name: firstName,
+        last_name: lastName,
+        designation: `[DISTRIBUTOR_METADATA]${JSON.stringify(metadata)}`,
+        contact,
+        role,
+        group_name: group,
+        status,
+      };
+      const { error: retryError } = await supabase.from("profiles").insert(cleanInsertData);
+      profileError = retryError;
+    }
 
     if (profileError) {
       // Cleanup created auth user if profile insert fails
@@ -87,22 +157,67 @@ export async function createUserAction(formData: any) {
 
 export async function updateUserAction(id: string, formData: any) {
   const supabase = getAdminClient();
-  const { firstName, lastName, designation, contact, group, status } = formData;
+  const {
+    firstName,
+    lastName,
+    designation,
+    contact,
+    group,
+    status,
+    state,
+    region,
+    warehouse,
+    address,
+    city,
+    bankName,
+    bankAccount,
+    accountHolderName,
+  } = formData;
 
   try {
-    const { data, error } = await supabase
+    const updateData: any = {
+      first_name: firstName,
+      last_name: lastName,
+      designation,
+      contact,
+      group_name: group,
+      status,
+      state: state || null,
+      region: region || null,
+      warehouse: warehouse || null,
+      address: address || null,
+      city: city || null,
+      bank_name: bankName || null,
+      bank_account: bankAccount || null,
+      account_holder_name: accountHolderName || null,
+    };
+
+    let { data, error } = await supabase
       .from("profiles")
-      .update({
-        first_name: firstName,
-        last_name: lastName,
-        designation,
-        contact,
-        group_name: group,
-        status,
-      })
+      .update(updateData)
       .eq("id", id)
       .select()
       .single();
+
+    if (error && (error.message.includes("column") || error.code === "PGRST204" || error.code === "42703")) {
+      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName };
+      const cleanUpdateData = {
+        first_name: firstName,
+        last_name: lastName,
+        designation: `[DISTRIBUTOR_METADATA]${JSON.stringify(metadata)}`,
+        contact,
+        group_name: group,
+        status,
+      };
+      const { data: retryData, error: retryError } = await supabase
+        .from("profiles")
+        .update(cleanUpdateData)
+        .eq("id", id)
+        .select()
+        .single();
+      error = retryError;
+      data = retryData;
+    }
 
     if (error) throw error;
 

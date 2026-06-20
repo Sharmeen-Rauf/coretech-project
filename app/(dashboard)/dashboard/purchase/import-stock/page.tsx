@@ -1,23 +1,44 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import { Download, UploadCloud, FileText, Loader2, ArrowRight } from "lucide-react";
 import toast from "react-hot-toast";
+import { getOrCreateProductByCode } from "@/app/actions/products";
 
 export default function ImportStockPage() {
   const supabase = createClientComponentClient();
 
   // Form states
   const [file, setFile] = useState<File | null>(null);
-  const [importDate, setImportDate] = useState("");
+  const [importDate, setImportDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [modelNo, setModelNo] = useState("");
   const [serialNo, setSerialNo] = useState("");
   const [warehouseName, setWarehouseName] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const [modelsList, setModelsList] = useState<string[]>([]);
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("products")
+          .select("model")
+          .order("model", { ascending: true });
+        if (error) throw error;
+        if (data) {
+          const uniqueModels = Array.from(new Set(data.map((item: any) => item.model).filter(Boolean))) as string[];
+          setModelsList(uniqueModels);
+        }
+      } catch (err: any) {
+        console.error("Error fetching product models:", err);
+      }
+    };
+    fetchModels();
+  }, [supabase]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -51,7 +72,7 @@ export default function ImportStockPage() {
     const errs: Record<string, string> = {};
     if (!file) errs.file = "CSV file is required";
     if (!importDate) errs.importDate = "Import date is required";
-    if (!modelNo.trim()) errs.modelNo = "Model number is required";
+    if (!modelNo) errs.modelNo = "Model name is required";
     if (!serialNo.trim()) errs.serialNo = "Serial number is required";
     if (!warehouseName.trim()) errs.warehouseName = "Warehouse name is required";
     
@@ -96,36 +117,22 @@ export default function ImportStockPage() {
 
         if (!name) continue;
 
-        // 1. Resolve or create product in Supabase
-        let productId;
-        const { data: existingProd } = await supabase
-          .from("products")
-          .select("id")
-          .eq("code", code)
-          .maybeSingle();
-
-        if (existingProd) {
-          productId = existingProd.id;
-        } else {
-          // Insert new product
-          const { data: newProd, error: prodErr } = await supabase
-            .from("products")
-            .insert({
-              name,
-              code,
-              brand,
-              category,
-              model,
-              price,
-              cost,
-              alert_quantity: alertQuantity,
-            })
-            .select("id")
-            .single();
-
-          if (prodErr) throw prodErr;
-          productId = newProd.id;
+        // 1. Resolve or create product in Supabase using server action
+        const fallbackData = {
+          name,
+          code,
+          brand,
+          category,
+          model,
+          price,
+          cost,
+          alert_quantity: alertQuantity,
+        };
+        const res = await getOrCreateProductByCode(code, fallbackData);
+        if (!res.success) {
+          throw new Error(res.error || "Failed to resolve product");
         }
+        const productId = res.data.id;
 
         // 2. Insert Stock entry linked to the product
         const { error: stockErr } = await supabase
@@ -251,17 +258,22 @@ export default function ImportStockPage() {
 
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Model No*
+              Model Name*
             </label>
-            <input
-              type="text"
-              placeholder="e.g. M-100X"
+            <select
               value={modelNo}
               onChange={(e) => setModelNo(e.target.value)}
-              className={`w-full h-10 px-3 border rounded-[6px] text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#00B4D8] ${
+              className={`w-full h-10 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${
                 errors.modelNo ? "border-rose-500" : "border-slate-200"
               }`}
-            />
+            >
+              <option value="">Select Model Name</option>
+              {modelsList.map((model, idx) => (
+                <option key={idx} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
             {errors.modelNo && (
               <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.modelNo}</p>
             )}

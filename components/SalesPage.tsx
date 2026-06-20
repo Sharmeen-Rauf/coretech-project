@@ -55,7 +55,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
   const [seller, setSeller] = useState("CoreTECH HQ");
   const [selectedDistributor, setSelectedDistributor] = useState("");
   const [warehouse, setWarehouse] = useState("");
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(() => new Date().toLocaleDateString('en-CA'));
   const [remarks, setRemarks] = useState("");
   
   // IMEI scanning states
@@ -132,7 +132,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
     setScannedItems([]);
     setOrderDetails([]);
     // Default to today's date
-    const today = new Date().toISOString().split("T")[0];
+    const today = new Date().toLocaleDateString('en-CA');
     setDate(today);
     setIsCreating(true);
   };

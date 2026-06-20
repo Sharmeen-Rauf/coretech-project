@@ -32,6 +32,16 @@ export default function UserModal({
   const [status, setStatus] = useState("active");
   const [isLoading, setIsLoading] = useState(false);
 
+  // Distributor specific states
+  const [state, setState] = useState("");
+  const [region, setRegion] = useState("");
+  const [warehouse, setWarehouse] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [bankAccount, setBankAccount] = useState("");
+  const [accountHolderName, setAccountHolderName] = useState("");
+
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -46,26 +56,54 @@ export default function UserModal({
         setGroup(editingUser.group_name || "sales");
         setStatus(editingUser.status || "active");
         setPassword("");
+
+        // Check for serialized metadata fallback in designation
+        let meta: any = {};
+        if (editingUser.designation && editingUser.designation.startsWith("[DISTRIBUTOR_METADATA]")) {
+          try {
+            meta = JSON.parse(editingUser.designation.replace("[DISTRIBUTOR_METADATA]", ""));
+          } catch (e) {}
+        }
+        setState(editingUser.state || meta.state || "");
+        setRegion(editingUser.region || meta.region || "");
+        setWarehouse(editingUser.warehouse || meta.warehouse || "");
+        setAddress(editingUser.address || meta.address || "");
+        setCity(editingUser.city || meta.city || "");
+        setBankName(editingUser.bank_name || meta.bankName || "");
+        setBankAccount(editingUser.bank_account || meta.bankAccount || "");
+        setAccountHolderName(editingUser.account_holder_name || meta.accountHolderName || "");
       } else {
         setFirstName("");
         setLastName("");
         setEmail("");
         setPassword("");
-        setDesignation("");
+        setDesignation(role === "Distributor" ? "Distributor" : "");
         setContact("");
         setGroup("sales");
         setStatus("active");
+        setState("");
+        setRegion("");
+        setWarehouse("");
+        setAddress("");
+        setCity("");
+        setBankName("");
+        setBankAccount("");
+        setAccountHolderName("");
       }
       setErrors({});
     }
-  }, [isOpen, editingUser]);
+  }, [isOpen, editingUser, role]);
 
   if (!isOpen) return null;
 
   const validate = () => {
     const errs: Record<string, string> = {};
-    if (!firstName.trim()) errs.firstName = "First name is required";
-    if (!lastName.trim()) errs.lastName = "Last name is required";
+    if (!firstName.trim()) {
+      errs.firstName = role === "Distributor" ? "Distributor name is required" : "First name is required";
+    }
+    if (!lastName.trim()) {
+      errs.lastName = role === "Distributor" ? "Owner name is required" : "Last name is required";
+    }
     
     if (!isEdit) {
       if (!email.trim()) {
@@ -80,7 +118,7 @@ export default function UserModal({
       }
     }
     
-    if (!designation.trim()) errs.designation = "Designation is required";
+    if (role !== "Distributor" && !designation.trim()) errs.designation = "Designation is required";
     if (!contact.trim()) errs.contact = "Contact number is required";
     
     setErrors(errs);
@@ -97,11 +135,19 @@ export default function UserModal({
       lastName,
       email,
       password,
-      designation,
+      designation: role === "Distributor" ? "Distributor" : designation,
       contact,
       role: role.toLowerCase().replace(" ", "_"),
-      group,
+      group: role === "Distributor" ? "sales" : group,
       status,
+      state,
+      region,
+      warehouse,
+      address,
+      city,
+      bankName,
+      bankAccount,
+      accountHolderName,
     };
 
     try {
@@ -135,7 +181,7 @@ export default function UserModal({
       ></div>
 
       {/* Card Body */}
-      <div className="relative bg-white w-full max-w-md border border-slate-100 rounded-[12px] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200">
+      <div className={`relative bg-white w-full ${role === "Distributor" ? "max-w-2xl" : "max-w-md"} border border-slate-100 rounded-[12px] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200`}>
         {/* Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <h3 className="text-sm font-bold text-slate-800">
@@ -151,153 +197,389 @@ export default function UserModal({
 
         {/* Scrollable Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                First Name*
-              </label>
-              <input
-                type="text"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
-                  errors.firstName ? "border-rose-500" : "border-slate-200"
-                }`}
-              />
-              {errors.firstName && (
-                <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.firstName}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Last Name*
-              </label>
-              <input
-                type="text"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
-                  errors.lastName ? "border-rose-500" : "border-slate-200"
-                }`}
-              />
-              {errors.lastName && (
-                <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.lastName}</p>
-              )}
-            </div>
-          </div>
-
-          {!isEdit && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Email Address*
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
-                    errors.email ? "border-rose-500" : "border-slate-200"
-                  }`}
-                />
-                {errors.email && (
-                  <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.email}</p>
-                )}
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Password*
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
-                    errors.password ? "border-rose-500" : "border-slate-200"
-                  }`}
-                />
-                {errors.password && (
-                  <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.password}</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Designation*
-              </label>
-              <input
-                type="text"
-                value={designation}
-                onChange={(e) => setDesignation(e.target.value)}
-                className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
-                  errors.designation ? "border-rose-500" : "border-slate-200"
-                }`}
-              />
-              {errors.designation && (
-                <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.designation}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Contact Phone*
-              </label>
-              <input
-                type="text"
-                value={contact}
-                onChange={(e) => setContact(e.target.value)}
-                placeholder="0300-1234567"
-                className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
-                  errors.contact ? "border-rose-500" : "border-slate-200"
-                }`}
-              />
-              {errors.contact && (
-                <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.contact}</p>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Department Group
-              </label>
-              <select
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-                className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
-              >
-                <option value="owner">Owner</option>
-                <option value="sales">Sales</option>
-                <option value="operations">Operations</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Status
-              </label>
-              <div className="flex items-center mt-2">
-                <button
-                  type="button"
-                  onClick={() => setStatus(status === "active" ? "inactive" : "active")}
-                  className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors focus:outline-none ${
-                    status === "active" ? "bg-[#00B4D8]" : "bg-slate-300"
-                  }`}
-                >
-                  <span
-                    className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                      status === "active" ? "translate-x-5" : ""
+          {role === "Distributor" ? (
+            <div className="grid grid-cols-2 gap-6 text-slate-800 text-left">
+              {/* Left Column: Distributor Details */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold text-[#00B4D8] uppercase tracking-wider border-b pb-1">
+                  Distributor Info
+                </h4>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Distributor Name*
+                  </label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                      errors.firstName ? "border-rose-500" : "border-slate-200"
                     }`}
-                  ></span>
-                </button>
-                <span className="text-xs text-slate-600 font-bold ml-3 uppercase tracking-wider select-none">
-                  {status}
-                </span>
+                  />
+                  {errors.firstName && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.firstName}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Contact Phone*
+                  </label>
+                  <input
+                    type="text"
+                    value={contact}
+                    onChange={(e) => setContact(e.target.value)}
+                    placeholder="e.g. 0321-2498406"
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                      errors.contact ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  />
+                  {errors.contact && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.contact}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    State
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Punjab"
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Region
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Lahore Central"
+                    value={region}
+                    onChange={(e) => setRegion(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Warehouse
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Lahore WH 1"
+                    value={warehouse}
+                    onChange={(e) => setWarehouse(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    City
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Lahore"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Complete Address
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Complete Street Address"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    className="w-full p-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Right Column: Owner & Bank Details */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold text-[#00B4D8] uppercase tracking-wider border-b pb-1">
+                  Owner & Bank Info
+                </h4>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Owner Name*
+                  </label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                      errors.lastName ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  />
+                  {errors.lastName && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.lastName}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Account Holder Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Owner / Co. Account Name"
+                    value={accountHolderName}
+                    onChange={(e) => setAccountHolderName(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Bank Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. HBL / Alfalah"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Bank Account / IBAN
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Account Number / IBAN"
+                    value={bankAccount}
+                    onChange={(e) => setBankAccount(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+
+                {/* Login Info Card */}
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-1 pt-2">
+                  System Credentials
+                </h4>
+                {!isEdit ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                        Email*
+                      </label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className={`w-full h-9 px-2 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                          errors.email ? "border-rose-500" : "border-slate-200"
+                        }`}
+                      />
+                      {errors.email && (
+                        <p className="text-[9px] text-rose-500 font-semibold mt-0.5">{errors.email}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                        Password*
+                      </label>
+                      <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className={`w-full h-9 px-2 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                          errors.password ? "border-rose-500" : "border-slate-200"
+                        }`}
+                      />
+                      {errors.password && (
+                        <p className="text-[9px] text-rose-500 font-semibold mt-0.5">{errors.password}</p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-400 italic">
+                    Login credentials cannot be modified inside the profile modal.
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between pt-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      Status
+                    </label>
+                    <div className="flex items-center mt-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setStatus(status === "active" ? "inactive" : "active")}
+                        className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors focus:outline-none ${
+                          status === "active" ? "bg-[#00B4D8]" : "bg-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                            status === "active" ? "translate-x-5" : ""
+                          }`}
+                        ></span>
+                      </button>
+                      <span className="text-[10px] text-slate-600 font-bold ml-2 uppercase tracking-wider">
+                        {status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    First Name*
+                  </label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                      errors.firstName ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  />
+                  {errors.firstName && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.firstName}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Last Name*
+                  </label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                      errors.lastName ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  />
+                  {errors.lastName && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.lastName}</p>
+                  )}
+                </div>
+              </div>
+
+              {!isEdit && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      Email Address*
+                    </label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                        errors.email ? "border-rose-500" : "border-slate-200"
+                      }`}
+                    />
+                    {errors.email && (
+                      <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.email}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      Password*
+                    </label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                        errors.password ? "border-rose-500" : "border-slate-200"
+                      }`}
+                    />
+                    {errors.password && (
+                      <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.password}</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Designation*
+                  </label>
+                  <input
+                    type="text"
+                    value={designation}
+                    onChange={(e) => setDesignation(e.target.value)}
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                      errors.designation ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  />
+                  {errors.designation && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.designation}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Contact Phone*
+                  </label>
+                  <input
+                    type="text"
+                    value={contact}
+                    onChange={(e) => setContact(e.target.value)}
+                    placeholder="0300-1234567"
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                      errors.contact ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  />
+                  {errors.contact && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.contact}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Department Group
+                  </label>
+                  <select
+                    value={group}
+                    onChange={(e) => setGroup(e.target.value)}
+                    className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
+                  >
+                    <option value="owner">Owner</option>
+                    <option value="sales">Sales</option>
+                    <option value="operations">Operations</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Status
+                  </label>
+                  <div className="flex items-center mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setStatus(status === "active" ? "inactive" : "active")}
+                      className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors focus:outline-none ${
+                        status === "active" ? "bg-[#00B4D8]" : "bg-slate-300"
+                      }`}
+                    >
+                      <span
+                        className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                          status === "active" ? "translate-x-5" : ""
+                        }`}
+                      ></span>
+                    </button>
+                    <span className="text-xs text-slate-600 font-bold ml-3 uppercase tracking-wider select-none">
+                      {status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
         </form>
 
         {/* Footer Actions */}

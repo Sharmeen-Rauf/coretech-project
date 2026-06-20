@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import { createClientComponentClient } from "@/lib/supabase";
+import { createProductAction, updateProductAction } from "@/app/actions/products";
 import toast from "react-hot-toast";
  
 interface ProductModalProps {
@@ -90,19 +91,16 @@ export default function ProductModal({
     };
  
     try {
-      let error;
+      let res;
       if (isEdit) {
-        const { error: err } = await supabase
-          .from("products")
-          .update(data)
-          .eq("id", editingProduct.id);
-        error = err;
+        res = await updateProductAction(editingProduct.id, data);
       } else {
-        const { error: err } = await supabase.from("products").insert(data);
-        error = err;
+        res = await createProductAction(data);
       }
- 
-      if (error) throw error;
+
+      if (!res.success) {
+        throw new Error(res.error || "Operation failed");
+      }
  
       toast.success(isEdit ? "Product updated successfully!" : "Product created successfully!");
       

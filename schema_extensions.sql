@@ -126,4 +126,24 @@ ALTER TABLE public.installer_jobs ADD COLUMN IF NOT EXISTS serial_number text;
 ALTER TABLE public.installer_jobs ADD COLUMN IF NOT EXISTS remarks text;
 ALTER TABLE public.installer_jobs ADD COLUMN IF NOT EXISTS incentive numeric;
 
+-- 8. Add Products RLS Policies (Fixes Product Creation error)
+alter table public.products enable row level security;
+create policy "Allow select access to everyone" on public.products for select using (true);
+create policy "Allow insert access to authenticated" on public.products for insert with check (true);
+create policy "Allow update access to authenticated" on public.products for update using (true);
+
+-- 9. Extend Profiles Table for Distributor Fields & RSM Alignment
+alter table public.profiles add column if not exists state text;
+alter table public.profiles add column if not exists region text;
+alter table public.profiles add column if not exists warehouse text;
+alter table public.profiles add column if not exists address text;
+alter table public.profiles add column if not exists city text;
+alter table public.profiles add column if not exists bank_name text;
+alter table public.profiles add column if not exists bank_account text;
+alter table public.profiles add column if not exists account_holder_name text;
+alter table public.profiles add column if not exists rsm_id uuid references public.profiles(id) on delete set null;
+
+-- 10. Extend Orders Table for Model-wise Items JSON
+alter table public.orders add column if not exists items jsonb;
+
 

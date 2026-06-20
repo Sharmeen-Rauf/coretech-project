@@ -27,7 +27,7 @@ export default function InvoicesPage() {
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [selectedDistributorId, setSelectedDistributorId] = useState("");
   const [amount, setAmount] = useState("");
-  const [dueDate, setDueDate] = useState("");
+  const [dueDate, setDueDate] = useState(() => new Date().toLocaleDateString('en-CA'));
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Selector data
@@ -242,9 +242,7 @@ export default function InvoicesPage() {
         {userRole !== "distributor" && (
           <button
             onClick={() => {
-              const defaultDue = new Date();
-              defaultDue.setDate(defaultDue.getDate() + 30); // Default 30-day net payment
-              setDueDate(defaultDue.toISOString().split("T")[0]);
+              setDueDate(new Date().toLocaleDateString('en-CA'));
               setIsModalOpen(true);
             }}
             className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
