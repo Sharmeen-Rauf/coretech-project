@@ -70,13 +70,48 @@ export default function CreateOrderPage() {
         }
         const currentUserId = session.user.id;
 
-        // 2. Fetch profiles
-        const { data: profileData, error: profileErr } = await supabase
+        // 2. Fetch profiles with resilient fallback if rsm_id or warehouse columns are missing
+        let profileData: any[] = [];
+        const { data: fullProfileData, error: profileErr } = await supabase
           .from("profiles")
           .select("id, first_name, last_name, role, rsm_id, warehouse");
-        if (profileErr) throw profileErr;
 
-        const profiles: Profile[] = profileData || [];
+        if (profileErr) {
+          console.warn("Profiles schema missing columns. Falling back to metadata extraction.", profileErr);
+          const { data: basicProfileData, error: basicErr } = await supabase
+            .from("profiles")
+            .select("id, first_name, last_name, role, designation");
+          
+          if (basicErr) throw basicErr;
+          
+          profileData = (basicProfileData || []).map((p: any) => {
+            let rsmId: string | undefined = undefined;
+            let wh: string | undefined = undefined;
+
+            if (p.designation && p.designation.startsWith("[DISTRIBUTOR_METADATA]")) {
+              try {
+                const meta = JSON.parse(p.designation.substring(22));
+                wh = meta.warehouse;
+                rsmId = meta.rsmId || meta.rsm_id;
+              } catch (e) {
+                // Ignore
+              }
+            }
+
+            return {
+              id: p.id,
+              first_name: p.first_name,
+              last_name: p.last_name,
+              role: p.role,
+              rsm_id: rsmId,
+              warehouse: wh,
+            };
+          });
+        } else {
+          profileData = fullProfileData || [];
+        }
+
+        const profiles: Profile[] = profileData;
 
         // Identify current user's profile
         const activeProfile = profiles.find(p => p.id === currentUserId) || null;

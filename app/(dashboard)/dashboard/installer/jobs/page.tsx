@@ -65,8 +65,9 @@ export default function AdminJobsPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch jobs joined with installer name and all fields
-      const { data: jobsData, error: jobsErr } = await supabase
+      // 1. Fetch jobs joined with installer name and all fields, falling back to basic columns if needed
+      let jobsData: any[] = [];
+      const { data: fullJobsData, error: jobsErr } = await supabase
         .from("installer_jobs")
         .select(`
           id,
@@ -84,7 +85,28 @@ export default function AdminJobsPage() {
         `)
         .order("created_at", { ascending: false });
 
-      if (jobsErr) throw jobsErr;
+      if (jobsErr) {
+        console.warn("installer_jobs schema missing custom columns. Falling back to basic select.", jobsErr);
+        const { data: basicJobsData, error: basicErr } = await supabase
+          .from("installer_jobs")
+          .select(`
+            id,
+            job_title,
+            address,
+            status,
+            payment_status,
+            created_at,
+            photos,
+            notes,
+            installer:profiles!installer_id(first_name, last_name)
+          `)
+          .order("created_at", { ascending: false });
+
+        if (basicErr) throw basicErr;
+        jobsData = basicJobsData || [];
+      } else {
+        jobsData = fullJobsData || [];
+      }
 
       const formatted: JobRow[] = (jobsData || []).map((row: any) => {
         let sn = row.serial_number || "";
