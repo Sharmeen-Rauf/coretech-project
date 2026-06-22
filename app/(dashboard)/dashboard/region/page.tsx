@@ -54,7 +54,11 @@ export default function RegionPage() {
         ];
  
         // Insert defaults asynchronously so they persist in DB
-        await supabase.from("regions").insert(defaultRegions).catch(e => console.warn("Could not insert default regions:", e));
+        try {
+          await supabase.from("regions").insert(defaultRegions);
+        } catch (e) {
+          console.warn("Could not insert default regions:", e);
+        }
         dbData = defaultRegions;
       }
     } catch (err: any) {
@@ -117,10 +121,14 @@ export default function RegionPage() {
       }
  
       // Log audit activity safely
-      await supabase.from("activity_logs").insert({
-        action: "Region Registered",
-        details: `Region Hub "${newRegion.name}" (${newRegion.region_code}) was registered`,
-      }).catch(e => console.warn("Activity log failed:", e));
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Region Registered",
+          details: `Region Hub "${newRegion.name}" (${newRegion.region_code}) was registered`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
  
       setIsModalOpen(false);
       setCode("");

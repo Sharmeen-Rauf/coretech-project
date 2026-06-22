@@ -341,11 +341,15 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
         });
       }
 
-      // Log activity
-      await supabase.from("activity_logs").insert({
-        action: `Create ${type} Ledger`,
-        details: `${type} transaction ID "${stId}" successfully created in warehouse "${warehouse}" for distributor. Scanned ${scannedItems.length} units.`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      // Log activity safely
+      try {
+        await supabase.from("activity_logs").insert({
+          action: `Create ${type} Ledger`,
+          details: `${type} transaction ID "${stId}" successfully created in warehouse "${warehouse}" for distributor. Scanned ${scannedItems.length} units.`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       toast.success(`${title} transaction successfully created!`);
       setIsCreating(false);

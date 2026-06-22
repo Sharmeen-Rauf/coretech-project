@@ -363,10 +363,14 @@ export default function CreateOrderPage() {
         toast.success(`Order ${orderCode} created locally (Database fallback)!`);
       }
 
-      await supabase.from("activity_logs").insert({
-        action: "Create Buzzcart Order",
-        details: `RSM ${currentRsm?.first_name} created order ${orderCode} for Dealer. Total PKR ${totalAmount.toLocaleString()}`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Create Buzzcart Order",
+          details: `RSM ${currentRsm?.first_name} created order ${orderCode} for Dealer. Total PKR ${totalAmount.toLocaleString()}`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       router.push("/dashboard/buzzcart/orders");
     } catch (err: any) {

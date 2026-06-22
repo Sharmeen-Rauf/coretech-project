@@ -93,13 +93,16 @@ export default function OrderStatusModal({
       }
 
       // Log activity safely
-      await supabase
-        .from("activity_logs")
-        .insert({
-          action: `Order Status Transition`,
-          details: `Order ${order.order_code} status transitioned to "${newStatus}"`,
-        })
-        .catch((e) => console.warn("Activity log failed:", e));
+      try {
+        await supabase
+          .from("activity_logs")
+          .insert({
+            action: `Order Status Transition`,
+            details: `Order ${order.order_code} status transitioned to "${newStatus}"`,
+          });
+      } catch (e) {
+        console.warn("Activity log failed:", e);
+      }
 
       toast.success(`Order status updated to ${newStatus}`);
       const updatedOrder = { ...order, ...updatedFields };
@@ -166,14 +169,17 @@ export default function OrderStatusModal({
         saveLocalItem("coretech_local_orders", { ...order, ...orderUpdates }, true);
       }
 
-      // Log activity
-      await supabase
-        .from("activity_logs")
-        .insert({
-          action: "Invoice Generated",
-          details: `Generated invoice ${invoiceCode} for order ${order.order_code}`,
-        })
-        .catch((e) => console.warn("Activity log failed:", e));
+      // Log activity safely
+      try {
+        await supabase
+          .from("activity_logs")
+          .insert({
+            action: "Invoice Generated",
+            details: `Generated invoice ${invoiceCode} for order ${order.order_code}`,
+          });
+      } catch (e) {
+        console.warn("Activity log failed:", e);
+      }
 
       toast.success(`Invoice ${invoiceCode} generated!`);
       setOrder((prev: any) => ({ ...prev, ...orderUpdates }));
@@ -230,14 +236,17 @@ export default function OrderStatusModal({
         saveLocalItem("coretech_local_orders", { ...order, ...orderUpdates }, true);
       }
 
-      // Log activity
-      await supabase
-        .from("activity_logs")
-        .insert({
-          action: "Gate Pass Issued",
-          details: `Issued gate pass ${passCode} for order ${order.order_code}`,
-        })
-        .catch((e) => console.warn("Activity log failed:", e));
+      // Log activity safely
+      try {
+        await supabase
+          .from("activity_logs")
+          .insert({
+            action: "Gate Pass Issued",
+            details: `Issued gate pass ${passCode} for order ${order.order_code}`,
+          });
+      } catch (e) {
+        console.warn("Activity log failed:", e);
+      }
 
       toast.success(`Gate pass ${passCode} issued!`);
       setOrder((prev: any) => ({ ...prev, ...orderUpdates }));

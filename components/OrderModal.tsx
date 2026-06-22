@@ -158,11 +158,15 @@ export default function OrderModal({ isOpen, onClose, onSuccess }: OrderModalPro
         toast.success(`Order ${orderCode} created locally (Database fallback)!`);
       }
 
-      // Log audit trail
-      await supabase.from("activity_logs").insert({
-        action: "Create Order Modal",
-        details: `Created order ${orderCode} for customer. Status: ${status}`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      // Log audit trail safely
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Create Order Modal",
+          details: `Created order ${orderCode} for customer. Status: ${status}`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       onSuccess();
       onClose();

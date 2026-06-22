@@ -227,12 +227,16 @@ export default function InvoicesPage() {
         saveLocalItem("coretech_local_invoices", updated, true);
       }
 
-      // Log activity
-      const target = invoices.find((inv) => inv.id === id);
-      await supabase.from("activity_logs").insert({
-        action: "Invoice Payment Update",
-        details: `Invoice ${target?.invoice_code} status set to ${newStatus}`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      // Log activity safely
+      try {
+        const target = invoices.find((inv) => inv.id === id);
+        await supabase.from("activity_logs").insert({
+          action: "Invoice Payment Update",
+          details: `Invoice ${target?.invoice_code} status set to ${newStatus}`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       toast.success(`Invoice payment marked as ${newStatus}`);
       fetchData();

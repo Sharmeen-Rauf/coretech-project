@@ -165,12 +165,16 @@ export default function ExpensesPage() {
         }
       }
  
-      // Log activity
-      const target = expenses.find((e) => e.id === id);
-      await supabase.from("activity_logs").insert({
-        action: "Expense Audit Update",
-        details: `Expense claim "${target?.title}" was ${newStatus}d`,
-      }).catch((e: any) => console.warn("Activity log insert failed:", e));
+      // Log activity safely
+      try {
+        const target = expenses.find((e) => e.id === id);
+        await supabase.from("activity_logs").insert({
+          action: "Expense Audit Update",
+          details: `Expense claim "${target?.title}" was ${newStatus}d`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log insert failed:", logErr);
+      }
  
       toast.success(`Expense successfully ${newStatus}d!`);
       fetchExpenses();

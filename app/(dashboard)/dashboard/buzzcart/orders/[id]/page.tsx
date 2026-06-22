@@ -166,11 +166,15 @@ export default function OrderDetailPage() {
         saveLocalItem("coretech_local_orders", { ...order, status: newStatus }, true);
       }
  
-      // Log audit trail
-      await supabase.from("activity_logs").insert({
-        action: "Order Status Updated",
-        details: `Order ${order.order_code} status was set to ${newStatus}`,
-      }).catch((e: any) => console.warn("Activity log insert failed:", e));
+      // Log audit trail safely
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Order Status Updated",
+          details: `Order ${order.order_code} status was set to ${newStatus}`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log insert failed:", logErr);
+      }
  
       toast.success(`Order status set to ${newStatus}!`);
       fetchOrderDetails();
@@ -203,11 +207,15 @@ export default function OrderDetailPage() {
         saveLocalItem("coretech_local_orders", { ...order, status: "payment_logged" }, true);
       }
  
-      // Log activity
-      await supabase.from("activity_logs").insert({
-        action: "Order Payment Logged",
-        details: `Logged payment of PKR ${Number(paymentAmount).toLocaleString()} for order ${order.order_code}`,
-      }).catch((e: any) => console.warn("Activity log insert failed:", e));
+      // Log activity safely
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Order Payment Logged",
+          details: `Logged payment of PKR ${Number(paymentAmount).toLocaleString()} for order ${order.order_code}`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log insert failed:", logErr);
+      }
  
       toast.success("Payment successfully logged!");
       setShowPaymentInput(false);
@@ -276,11 +284,15 @@ export default function OrderDetailPage() {
         saveLocalItem("coretech_local_orders", { ...order, status: "invoice_generated" }, true);
       }
  
-      // Log activity
-      await supabase.from("activity_logs").insert({
-        action: "Invoice Generated",
-        details: `Generated invoice ${invoiceCode} for order ${order.order_code}`,
-      }).catch((e: any) => console.warn("Activity log insert failed:", e));
+      // Log activity safely
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Invoice Generated",
+          details: `Generated invoice ${invoiceCode} for order ${order.order_code}`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log insert failed:", logErr);
+      }
  
       toast.success(`Invoice ${invoiceCode} successfully generated!`);
       fetchOrderDetails();

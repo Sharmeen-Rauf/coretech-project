@@ -100,11 +100,15 @@ export default function BroadcastPage() {
         saveLocalItem("coretech_local_announcements", payload);
       }
  
-      // Log activity
-      await supabase.from("activity_logs").insert({
-        action: "Announcement Broadcast",
-        details: `Announcement "${title}" was posted to ${roleTarget} users`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      // Log activity safely
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Announcement Broadcast",
+          details: `Announcement "${title}" was posted to ${roleTarget} users`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
  
       toast.success("Notice broadcasted successfully!");
       setIsModalOpen(false);

@@ -158,12 +158,16 @@ export default function SupportTicketsPage() {
         saveLocalItem("coretech_local_support_tickets", updated, true);
       }
 
-      // Log activity
-      const target = tickets.find((t) => t.id === id);
-      await supabase.from("activity_logs").insert({
-        action: "Support Ticket Update",
-        details: `Ticket "${target?.subject}" marked as ${newStatus}`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      // Log activity safely
+      try {
+        const target = tickets.find((t) => t.id === id);
+        await supabase.from("activity_logs").insert({
+          action: "Support Ticket Update",
+          details: `Ticket "${target?.subject}" marked as ${newStatus}`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       toast.success(`Ticket marked as ${newStatus}!`);
       fetchTickets();

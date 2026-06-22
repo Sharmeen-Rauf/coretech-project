@@ -104,11 +104,15 @@ export default function ProductModal({
  
       toast.success(isEdit ? "Product updated successfully!" : "Product created successfully!");
       
-      // Log activity
-      await supabase.from("activity_logs").insert({
-        action: isEdit ? "Product Updated" : "Product Created",
-        details: `Product "${data.name}" (${data.code}) was ${isEdit ? "modified" : "registered"}`,
-      }).catch((e: any) => console.warn("Activity log insert failed:", e));
+      // Log activity safely
+      try {
+        await supabase.from("activity_logs").insert({
+          action: isEdit ? "Product Updated" : "Product Created",
+          details: `Product "${data.name}" (${data.code}) was ${isEdit ? "modified" : "registered"}`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log insert failed:", logErr);
+      }
  
       onSuccess();
       onClose();

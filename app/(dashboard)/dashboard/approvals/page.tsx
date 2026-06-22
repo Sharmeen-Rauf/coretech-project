@@ -239,10 +239,14 @@ export default function ApprovalsPage() {
         saveLocalItem("coretech_local_orders", updated, true);
       }
 
-      await supabase.from("activity_logs").insert({
-        action: "Order Approved (Edits)",
-        details: `NSM approved order ${reviewOrder.order_code} with modified item counts/prices.`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Order Approved (Edits)",
+          details: `NSM approved order ${reviewOrder.order_code} with modified item counts/prices.`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       toast.success("Order approved successfully!");
       setIsReviewModalOpen(false);
@@ -275,11 +279,15 @@ export default function ApprovalsPage() {
         saveLocalItem("coretech_local_orders", updated, true);
       }
 
-      const orderCode = reviewOrder?.order_code || orders.find(o => o.id === orderId)?.order_code || "";
-      await supabase.from("activity_logs").insert({
-        action: "Order Declined",
-        details: `NSM declined order ${orderCode}.`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      try {
+        const orderCode = reviewOrder?.order_code || orders.find(o => o.id === orderId)?.order_code || "";
+        await supabase.from("activity_logs").insert({
+          action: "Order Declined",
+          details: `NSM declined order ${orderCode}.`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       toast.success("Order declined.");
       setIsReviewModalOpen(false);
@@ -312,11 +320,15 @@ export default function ApprovalsPage() {
         saveLocalItem("coretech_local_gate_passes", updated, true);
       }
 
-      const targetPass = gatePasses.find((p) => p.id === passId);
-      await supabase.from("activity_logs").insert({
-        action: "Gate Pass Update",
-        details: `Gate Pass ${targetPass?.pass_code} was ${newStatus}d`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      try {
+        const targetPass = gatePasses.find((p) => p.id === passId);
+        await supabase.from("activity_logs").insert({
+          action: "Gate Pass Update",
+          details: `Gate Pass ${targetPass?.pass_code} was ${newStatus}d`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       toast.success(`Gate pass ${newStatus}d successfully!`);
       fetchGatePasses();
@@ -360,10 +372,14 @@ export default function ApprovalsPage() {
         });
       }
 
-      await supabase.from("activity_logs").insert({
-        action: "Gate Pass Issue",
-        details: `Gate pass ${passCode} released for order ${orderCode}`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Gate Pass Issue",
+          details: `Gate pass ${passCode} released for order ${orderCode}`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       toast.success(`Gate pass ${passCode} issued successfully!`);
       setIsPassModalOpen(false);

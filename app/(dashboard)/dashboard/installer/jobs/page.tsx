@@ -303,13 +303,17 @@ export default function AdminJobsPage() {
         toast.success("Job ticket assigned locally (Database fallback)!");
       }
 
-      // Log audit
-      const targetInstaller = installers.find((i) => i.id === selectedInstallerId);
-      const name = targetInstaller ? `${targetInstaller.first_name} ${targetInstaller.last_name || ""}`.trim() : "Installer";
-      await supabase.from("activity_logs").insert({
-        action: "Job Assigned",
-        details: `Job "${jobTitle}" was assigned to installer ${name} with incentive Rs. ${incentive || 0}`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      // Log audit safely
+      try {
+        const targetInstaller = installers.find((i) => i.id === selectedInstallerId);
+        const name = targetInstaller ? `${targetInstaller.first_name} ${targetInstaller.last_name || ""}`.trim() : "Installer";
+        await supabase.from("activity_logs").insert({
+          action: "Job Assigned",
+          details: `Job "${jobTitle}" was assigned to installer ${name} with incentive Rs. ${incentive || 0}`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       // Clear states & navigate back
       setJobTitle("");
@@ -350,11 +354,15 @@ export default function AdminJobsPage() {
         saveLocalItem("coretech_local_installer_jobs", updated, true);
       }
 
-      const target = jobs.find((j) => j.id === id);
-      await supabase.from("activity_logs").insert({
-        action: "Job Payment Settlement",
-        details: `Installer payment for job "${target?.job_title}" set to Paid`,
-      }).catch((e: any) => console.warn("Activity log failed:", e));
+      try {
+        const target = jobs.find((j) => j.id === id);
+        await supabase.from("activity_logs").insert({
+          action: "Job Payment Settlement",
+          details: `Installer payment for job "${target?.job_title}" set to Paid`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       toast.success("Job payment status marked as PAID!");
       if (selectedJob && selectedJob.id === id) {

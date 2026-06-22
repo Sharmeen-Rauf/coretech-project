@@ -99,10 +99,14 @@ export default function WarehousePage() {
       }
 
       // Log audit activity safely
-      await supabase.from("activity_logs").insert({
-        action: "Warehouse Registered",
-        details: `Warehouse "${newRegion.warehouse}" (${newRegion.region_code}) was registered under region "${newRegion.name}"`,
-      }).catch(e => console.warn("Activity log failed:", e));
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Warehouse Registered",
+          details: `Warehouse "${newRegion.warehouse}" (${newRegion.region_code}) was registered under region "${newRegion.name}"`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
 
       setIsModalOpen(false);
       setCode("");
