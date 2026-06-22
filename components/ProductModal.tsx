@@ -97,7 +97,7 @@ export default function ProductModal({
       } else {
         res = await createProductAction(data);
       }
-
+ 
       if (!res.success) {
         throw new Error(res.error || "Operation failed");
       }
@@ -108,12 +108,26 @@ export default function ProductModal({
       await supabase.from("activity_logs").insert({
         action: isEdit ? "Product Updated" : "Product Created",
         details: `Product "${data.name}" (${data.code}) was ${isEdit ? "modified" : "registered"}`,
-      });
-
+      }).catch((e: any) => console.warn("Activity log insert failed:", e));
+ 
       onSuccess();
       onClose();
     } catch (err: any) {
-      toast.error(err.message || "Operation failed");
+      console.warn("Supabase product operation failed. Falling back to local storage.", err);
+      try {
+        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
+        const fallbackItem = {
+          ...data,
+          id: isEdit ? editingProduct.id : undefined,
+        };
+        saveLocalItem("coretech_local_products", fallbackItem, isEdit);
+        toast.success(isEdit ? "Product updated locally (Database fallback)!" : "Product registered locally (Database fallback)!");
+        onSuccess();
+        onClose();
+      } catch (fallbackErr) {
+        console.error("Local storage fallback failed:", fallbackErr);
+        toast.error(err.message || "Operation failed");
+      }
     } finally {
       setIsLoading(false);
     }

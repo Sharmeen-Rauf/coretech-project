@@ -6,6 +6,7 @@ import { LogOut, Wrench, CheckCircle, Clock, AlertCircle, Loader2 } from "lucide
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import StatusBadge from "@/components/StatusBadge";
+import { getLocalItems } from "@/lib/supabaseLocalFallback";
 
 export default function WebInstallerPage() {
   const supabase = createClientComponentClient();
@@ -23,27 +24,36 @@ export default function WebInstallerPage() {
       }
 
       // Fetch name
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("first_name, last_name")
-        .eq("id", session.user.id)
-        .single();
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("first_name, last_name")
+          .eq("id", session.user.id)
+          .single();
 
-      if (profile) {
-        setInstallerName(`${profile.first_name} ${profile.last_name || ""}`.trim());
+        if (profile) {
+          setInstallerName(`${profile.first_name} ${profile.last_name || ""}`.trim());
+        }
+      } catch (profErr) {
+        console.warn("Failed to get profile name. Defaulting.", profErr);
+        setInstallerName("Installer");
       }
 
       // Fetch jobs
-      const { data: jobsData, error } = await supabase
-        .from("installer_jobs")
-        .select("*")
-        .eq("installer_id", session.user.id)
-        .order("created_at", { ascending: false });
+      try {
+        const { data: jobsData, error } = await supabase
+          .from("installer_jobs")
+          .select("*")
+          .eq("installer_id", session.user.id)
+          .order("created_at", { ascending: false });
 
-      if (error) {
-        toast.error("Failed to load installer jobs");
-      } else {
+        if (error) throw error;
         setJobs(jobsData || []);
+      } catch (err: any) {
+        console.warn("Failed to fetch installer jobs from database. Using local fallback.", err);
+        const localJobs = getLocalItems("coretech_local_installer_jobs");
+        const filtered = localJobs.filter((j: any) => j.installer_id === session.user.id);
+        setJobs(filtered);
       }
       setIsLoading(false);
     };

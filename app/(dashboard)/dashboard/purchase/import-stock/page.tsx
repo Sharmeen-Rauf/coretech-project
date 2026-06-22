@@ -5,6 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import { Download, UploadCloud, FileText, Loader2, ArrowRight } from "lucide-react";
 import toast from "react-hot-toast";
 import { getOrCreateProductByCode } from "@/app/actions/products";
+import { getLocalItems, saveLocalItem } from "@/lib/supabaseLocalFallback";
 
 export default function ImportStockPage() {
   const supabase = createClientComponentClient();
@@ -24,15 +25,22 @@ export default function ImportStockPage() {
   useEffect(() => {
     const fetchModels = async () => {
       try {
-        const { data, error } = await supabase
-          .from("products")
-          .select("model")
-          .order("model", { ascending: true });
-        if (error) throw error;
-        if (data) {
-          const uniqueModels = Array.from(new Set(data.map((item: any) => item.model).filter(Boolean))) as string[];
-          setModelsList(uniqueModels);
+        let dbModels: any[] = [];
+        try {
+          const { data, error } = await supabase
+            .from("products")
+            .select("model")
+            .order("model", { ascending: true });
+          if (error) throw error;
+          dbModels = data || [];
+        } catch (dbErr) {
+          console.warn("Failed to fetch products for models list. Checking local products.", dbErr);
         }
+
+        const localProds = getLocalItems("coretech_local_products");
+        const allProds = [...dbModels, ...localProds];
+        const uniqueModels = Array.from(new Set(allProds.map((item: any) => item.model).filter(Boolean))) as string[];
+        setModelsList(uniqueModels);
       } catch (err: any) {
         console.error("Error fetching product models:", err);
       }
@@ -135,18 +143,25 @@ export default function ImportStockPage() {
         const productId = res.data.id;
 
         // 2. Insert Stock entry linked to the product
-        const { error: stockErr } = await supabase
-          .from("stock")
-          .insert({
-            product_id: productId,
-            model_no: modelNo,
-            serial_no: `${serialNo}-${i}`, // append index for uniqueness
-            warehouse_name: warehouseName,
-            import_date: importDate,
-            quantity: alertQuantity || 1, // Default quantity
-          });
+        const stockPayload = {
+          product_id: productId,
+          model_no: modelNo,
+          serial_no: `${serialNo}-${i}`, // append index for uniqueness
+          warehouse_name: warehouseName,
+          import_date: importDate,
+          quantity: alertQuantity || 1, // Default quantity
+        };
 
-        if (stockErr) throw stockErr;
+        try {
+          const { error: stockErr } = await supabase
+            .from("stock")
+            .insert(stockPayload);
+
+          if (stockErr) throw stockErr;
+        } catch (dbErr) {
+          console.warn("Database stock insert failed. Saving locally.", dbErr);
+          saveLocalItem("coretech_local_stock", stockPayload);
+        }
         successCount++;
       }
 

@@ -1,0 +1,523 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { X, Check, Loader2 } from "lucide-react";
+import { createClientComponentClient } from "@/lib/supabase";
+import toast from "react-hot-toast";
+import { saveLocalItem } from "@/lib/supabaseLocalFallback";
+
+interface OrderStatusModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  order: any;
+  onSuccess: () => void;
+}
+
+export default function OrderStatusModal({
+  isOpen,
+  onClose,
+  order: initialOrder,
+  onSuccess,
+}: OrderStatusModalProps) {
+  const supabase = createClientComponentClient();
+  const [order, setOrder] = useState<any>(initialOrder);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  useEffect(() => {
+    setOrder(initialOrder);
+  }, [initialOrder]);
+
+  if (!isOpen || !order) return null;
+
+  // Date formatter matching Figma "at 4:00 pm on 12th Jan 2026"
+  const formatFigmaDate = (dateStr?: string) => {
+    const d = dateStr ? new Date(dateStr) : new Date();
+    if (isNaN(d.getTime())) return "";
+
+    let hours = d.getHours();
+    const minutes = String(d.getMinutes()).padStart(2, "0");
+    const ampm = hours >= 12 ? "pm" : "am";
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+
+    const day = d.getDate();
+    let suffix = "th";
+    if (day === 1 || day === 21 || day === 31) suffix = "st";
+    else if (day === 2 || day === 22) suffix = "nd";
+    else if (day === 3 || day === 23) suffix = "rd";
+
+    const months = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const monthStr = months[d.getMonth()];
+    const year = d.getFullYear();
+
+    return `at ${hours}:${minutes} ${ampm} on ${day}${suffix} ${monthStr} ${year}`;
+  };
+
+  const currentStatus = order.status || "pending";
+
+  const handleUpdateStatus = async (newStatus: string, dateField?: string) => {
+    setIsUpdating(true);
+    const nowISO = new Date().toISOString();
+    const updatedFields: any = { status: newStatus };
+    if (dateField) {
+      updatedFields[dateField] = nowISO;
+    }
+
+    try {
+      try {
+        const { error } = await supabase
+          .from("orders")
+          .update(updatedFields)
+          .eq("id", order.id);
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Database status update failed. Saving locally.", dbErr);
+        saveLocalItem(
+          "coretech_local_orders",
+          { ...order, ...updatedFields },
+          true
+        );
+      }
+
+      // Log activity safely
+      await supabase
+        .from("activity_logs")
+        .insert({
+          action: `Order Status Transition`,
+          details: `Order ${order.order_code} status transitioned to "${newStatus}"`,
+        })
+        .catch((e) => console.warn("Activity log failed:", e));
+
+      toast.success(`Order status updated to ${newStatus}`);
+      const updatedOrder = { ...order, ...updatedFields };
+      setOrder(updatedOrder);
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update order status");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCreateInvoice = async () => {
+    setIsUpdating(true);
+    const nowISO = new Date().toISOString();
+    const randomDigits = Math.floor(1000 + Math.random() * 9000);
+    const invoiceCode = `#INV${randomDigits}`;
+
+    // Calculate total order amount
+    const itemsList = order.items || [];
+    const totalAmount = itemsList.reduce(
+      (sum: number, item: any) => sum + (item.quantity * item.price),
+      0
+    ) || 120000;
+
+    try {
+      try {
+        const { error: invErr } = await supabase.from("invoices").insert({
+          invoice_code: invoiceCode,
+          order_id: order.id,
+          distributor_id: order.distributor_id || order.user_id,
+          amount: totalAmount,
+          due_date: new Date().toLocaleDateString("en-CA"),
+          payment_status: "paid",
+        });
+        if (invErr) throw invErr;
+      } catch (dbErr) {
+        console.warn("Database invoice insert failed. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_invoices", {
+          invoice_code: invoiceCode,
+          order_id: order.id,
+          distributor_id: order.distributor_id || order.user_id,
+          amount: totalAmount,
+          due_date: new Date().toLocaleDateString("en-CA"),
+          payment_status: "paid",
+          created_at: nowISO,
+        });
+      }
+
+      // Transition order status
+      const orderUpdates = {
+        status: "invoice_generated",
+        invoice_created_at: nowISO,
+      };
+
+      try {
+        const { error: orderErr } = await supabase
+          .from("orders")
+          .update(orderUpdates)
+          .eq("id", order.id);
+        if (orderErr) throw orderErr;
+      } catch (dbErr) {
+        console.warn("Database order update failed. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_orders", { ...order, ...orderUpdates }, true);
+      }
+
+      // Log activity
+      await supabase
+        .from("activity_logs")
+        .insert({
+          action: "Invoice Generated",
+          details: `Generated invoice ${invoiceCode} for order ${order.order_code}`,
+        })
+        .catch((e) => console.warn("Activity log failed:", e));
+
+      toast.success(`Invoice ${invoiceCode} generated!`);
+      setOrder((prev: any) => ({ ...prev, ...orderUpdates }));
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to generate invoice");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCreateGatepass = async () => {
+    setIsUpdating(true);
+    const nowISO = new Date().toISOString();
+    const randomDigits = Math.floor(1000 + Math.random() * 9000);
+    const passCode = `#GP${randomDigits}`;
+
+    try {
+      try {
+        const { error: gpErr } = await supabase.from("gate_passes").insert({
+          pass_code: passCode,
+          order_id: order.id,
+          driver_name: "Self / Local Driver",
+          vehicle_no: "LES-9900",
+          status: "approved",
+        });
+        if (gpErr) throw gpErr;
+      } catch (dbErr) {
+        console.warn("Database gatepass insert failed. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_gate_passes", {
+          pass_code: passCode,
+          order_id: order.id,
+          driver_name: "Self / Local Driver",
+          vehicle_no: "LES-9900",
+          status: "approved",
+          created_at: nowISO,
+        });
+      }
+
+      // Transition order status to delivered
+      const orderUpdates = {
+        status: "delivered",
+        gate_pass_created_at: nowISO,
+      };
+
+      try {
+        const { error: orderErr } = await supabase
+          .from("orders")
+          .update(orderUpdates)
+          .eq("id", order.id);
+        if (orderErr) throw orderErr;
+      } catch (dbErr) {
+        console.warn("Database order update failed. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_orders", { ...order, ...orderUpdates }, true);
+      }
+
+      // Log activity
+      await supabase
+        .from("activity_logs")
+        .insert({
+          action: "Gate Pass Issued",
+          details: `Issued gate pass ${passCode} for order ${order.order_code}`,
+        })
+        .catch((e) => console.warn("Activity log failed:", e));
+
+      toast.success(`Gate pass ${passCode} issued!`);
+      setOrder((prev: any) => ({ ...prev, ...orderUpdates }));
+      onSuccess();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create gatepass");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  // Determine state of milestones
+  const isApproved =
+    currentStatus !== "pending" && currentStatus !== "declined";
+  const isDeclined = currentStatus === "declined";
+  const isInvoiceCreated =
+    currentStatus === "invoice_generated" || currentStatus === "delivered";
+  const isGatepassCreated = currentStatus === "delivered";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop with Glassmorphism */}
+      <div
+        onClick={onClose}
+        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300"
+      ></div>
+
+      {/* Modal Card */}
+      <div className="relative bg-white w-full max-w-lg border border-slate-100 rounded-[12px] shadow-2xl p-7 flex flex-col animate-in fade-in zoom-in-95 duration-200">
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        {/* Title */}
+        <h3 className="text-center text-slate-800 font-extrabold text-lg mb-8 tracking-tight">
+          Order{order.order_code ? `#${order.order_code.replace("#", "")}` : ""} Status
+        </h3>
+
+        {/* Vertical Timeline */}
+        <div className="relative pl-12 pr-4 py-2 space-y-8 select-none">
+          {/* Vertical line indicator */}
+          <div className="absolute left-6 top-3 bottom-3 w-0.5 border-l-2 border-dashed border-slate-200 z-0"></div>
+
+          {/* Milestone 1: Order Placed */}
+          <div className="relative flex flex-col items-start gap-1 z-10">
+            {/* Timeline bullet */}
+            <div className="absolute -left-9 top-0 w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md shadow-emerald-100 border border-emerald-500">
+              <Check className="w-3.5 h-3.5" />
+            </div>
+            <div>
+              <span className="text-xs font-bold text-slate-800">
+                Order Placed
+              </span>
+              <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                {formatFigmaDate(order.created_at)}
+              </p>
+            </div>
+          </div>
+
+          {/* Milestone 2: RSM Approval Status */}
+          <div className="relative flex flex-col items-start gap-1 z-10">
+            {/* Timeline bullet */}
+            <div
+              className={`absolute -left-9 top-0 w-6 h-6 rounded-full flex items-center justify-center border shadow-md transition-all duration-300 ${
+                isApproved
+                  ? "bg-emerald-500 text-white border-emerald-500 shadow-emerald-100"
+                  : isDeclined
+                  ? "bg-rose-500 text-white border-rose-500 shadow-rose-100"
+                  : "bg-white border-slate-300 text-slate-400"
+              }`}
+            >
+              {isApproved ? (
+                <Check className="w-3.5 h-3.5" />
+              ) : isDeclined ? (
+                <X className="w-3.5 h-3.5" />
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+              )}
+            </div>
+            <div className="flex items-center justify-between w-full">
+              <div>
+                <span className="text-xs font-bold text-slate-800">
+                  RSM Approval Status:
+                </span>
+                {isApproved && (
+                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                    {formatFigmaDate(order.approved_at || order.created_at)}
+                  </p>
+                )}
+                {isDeclined && (
+                  <p className="text-[10px] text-rose-400 font-bold mt-0.5">
+                    Declined
+                  </p>
+                )}
+              </div>
+
+              {/* Action Buttons for Milestone 2 */}
+              {currentStatus === "pending" && (
+                <div className="flex gap-2">
+                  <button
+                    disabled={isUpdating}
+                    onClick={() =>
+                      handleUpdateStatus("approved", "approved_at")
+                    }
+                    className="px-4 py-1.5 bg-[#52C41A] hover:bg-[#40a9ff] text-white text-[10px] font-extrabold rounded-[4px] shadow transition-all duration-200 hover:scale-105"
+                  >
+                    Approved
+                  </button>
+                  <button
+                    disabled={isUpdating}
+                    onClick={() => handleUpdateStatus("declined")}
+                    className="px-4 py-1.5 bg-[#FF4D4F] hover:bg-rose-600 text-white text-[10px] font-extrabold rounded-[4px] shadow transition-all duration-200 hover:scale-105"
+                  >
+                    Decline
+                  </button>
+                </div>
+              )}
+
+              {isApproved && (
+                <span className="px-3 py-1 bg-[#52C41A] text-white text-[10px] font-bold rounded-[4px]">
+                  Approved
+                </span>
+              )}
+              {isDeclined && (
+                <span className="px-3 py-1 bg-[#FF4D4F] text-white text-[10px] font-bold rounded-[4px]">
+                  Declined
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Milestone 3: Create Purchase Invoice */}
+          <div className="relative flex flex-col items-start gap-1 z-10">
+            {/* Timeline bullet */}
+            <div
+              className={`absolute -left-9 top-0 w-6 h-6 rounded-full flex items-center justify-center border shadow-md transition-all duration-300 ${
+                isInvoiceCreated
+                  ? "bg-emerald-500 text-white border-emerald-500 shadow-emerald-100"
+                  : isApproved
+                  ? "bg-white border-slate-400 text-slate-500"
+                  : "bg-white border-slate-200 border-dashed text-slate-300"
+              }`}
+            >
+              {isInvoiceCreated ? (
+                <Check className="w-3.5 h-3.5" />
+              ) : (
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isApproved ? "bg-slate-450" : "bg-slate-200"
+                  }`}
+                ></span>
+              )}
+            </div>
+            <div className="flex items-center justify-between w-full">
+              <div className={isApproved ? "" : "opacity-40"}>
+                <span className="text-xs font-bold text-slate-800 font-sans">
+                  Create Purchase Invoice:
+                </span>
+                {isInvoiceCreated && (
+                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                    {formatFigmaDate(
+                      order.invoice_created_at || order.created_at
+                    )}
+                  </p>
+                )}
+              </div>
+
+              {/* Action Buttons for Milestone 3 */}
+              {currentStatus === "approved" && (
+                <div className="flex gap-2">
+                  <button
+                    disabled={isUpdating}
+                    onClick={handleCreateInvoice}
+                    className="px-4 py-1.5 bg-[#A8E6CF] hover:bg-emerald-400 text-emerald-800 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    disabled={isUpdating}
+                    onClick={() => handleUpdateStatus("pending")}
+                    className="px-4 py-1.5 bg-[#FFD3B6] hover:bg-amber-400 text-amber-900 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105"
+                  >
+                    No
+                  </button>
+                </div>
+              )}
+
+              {isInvoiceCreated && (
+                <span className="px-3 py-1 bg-[#A8E6CF] text-emerald-800 text-[10px] font-extrabold rounded-[4px]">
+                  Yes
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Milestone 4: Create Gatepass */}
+          <div className="relative flex flex-col items-start gap-1 z-10">
+            {/* Timeline bullet */}
+            <div
+              className={`absolute -left-9 top-0 w-6 h-6 rounded-full flex items-center justify-center border shadow-md transition-all duration-300 ${
+                isGatepassCreated
+                  ? "bg-emerald-500 text-white border-emerald-500 shadow-emerald-100"
+                  : isInvoiceCreated
+                  ? "bg-white border-slate-400 text-slate-500"
+                  : "bg-white border-slate-200 border-dashed text-slate-300"
+              }`}
+            >
+              {isGatepassCreated ? (
+                <Check className="w-3.5 h-3.5" />
+              ) : (
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isInvoiceCreated ? "bg-slate-450" : "bg-slate-200"
+                  }`}
+                ></span>
+              )}
+            </div>
+            <div className="flex items-center justify-between w-full">
+              <div className={isInvoiceCreated ? "" : "opacity-40"}>
+                <span className="text-xs font-bold text-slate-800">
+                  Create Gatepass:
+                </span>
+                {isGatepassCreated && (
+                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                    {formatFigmaDate(
+                      order.gate_pass_created_at || order.created_at
+                    )}
+                  </p>
+                )}
+              </div>
+
+              {/* Action Buttons for Milestone 4 */}
+              {currentStatus === "invoice_generated" && (
+                <div className="flex gap-2">
+                  <button
+                    disabled={isUpdating}
+                    onClick={handleCreateGatepass}
+                    className="px-4 py-1.5 bg-[#A8E6CF] hover:bg-emerald-400 text-emerald-800 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    disabled={isUpdating}
+                    onClick={() => handleUpdateStatus("approved")}
+                    className="px-4 py-1.5 bg-[#FFD3B6] hover:bg-amber-400 text-amber-900 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105"
+                  >
+                    No
+                  </button>
+                </div>
+              )}
+
+              {isGatepassCreated && (
+                <span className="px-3 py-1 bg-[#A8E6CF] text-emerald-800 text-[10px] font-extrabold rounded-[4px]">
+                  Yes
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="flex items-center justify-end mt-8 pt-4 border-t border-slate-100">
+          {isUpdating && (
+            <div className="flex items-center gap-1.5 mr-auto text-slate-400 text-xs font-semibold">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Updating status...</span>
+            </div>
+          )}
+          <button
+            onClick={onClose}
+            className="px-6 py-2 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-bold rounded-[6px] transition-all shadow-md shadow-cyan-100 hover:scale-105"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

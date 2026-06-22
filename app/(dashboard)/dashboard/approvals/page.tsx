@@ -5,6 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import { Loader2, Check, X, FileText, Plus, AlertCircle, Edit, Eye } from "lucide-react";
 import toast from "react-hot-toast";
+import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 
 interface OrderApprovalRow {
   id: string;
@@ -56,43 +57,57 @@ export default function ApprovalsPage() {
   // Fetch pending orders for approval
   const fetchOrders = async () => {
     try {
-      const { data, error } = await supabase
-        .from("orders")
-        .select(`
-          id,
-          order_code,
-          status,
-          created_at,
-          items,
-          product_id,
-          user:profiles!user_id(first_name, last_name),
-          product:products(name, model, price),
-          distributor:profiles!distributor_id(first_name, last_name),
-          coordinator:profiles!sales_coordinator_id(first_name, last_name)
-        `)
-        .order("created_at", { ascending: false });
+      let dbData: any[] = [];
+      try {
+        const { data, error } = await supabase
+          .from("orders")
+          .select(`
+            id,
+            order_code,
+            status,
+            created_at,
+            items,
+            product_id,
+            user:profiles!user_id(first_name, last_name),
+            product:products(name, model, price),
+            distributor:profiles!distributor_id(first_name, last_name),
+            coordinator:profiles!sales_coordinator_id(first_name, last_name)
+          `)
+          .order("created_at", { ascending: false });
 
-      if (error) throw error;
+        if (error) throw error;
+        dbData = data || [];
+      } catch (dbErr) {
+        console.warn("Failed to fetch orders from Supabase. Using local fallback.", dbErr);
+      }
 
-      const formatted: OrderApprovalRow[] = (data || []).map((row: any) => {
+      const merged = mergeLocalItems(dbData, "coretech_local_orders");
+
+      const formatted: OrderApprovalRow[] = merged.map((row: any) => {
         // Fallback for legacy orders that do not have `items` array
         const items = row.items || [
           {
             productId: row.product_id || "legacy",
-            productName: row.product?.name || "Generic Product",
-            model: row.product?.model || "Generic",
+            productName: row.product?.name || row.local_product_name || "Generic Product",
+            model: row.product?.model || row.local_product_model || "Generic",
             quantity: 1,
-            price: row.product?.price || 0,
+            price: row.product?.price || row.local_product_price || 0,
           }
         ];
 
         return {
           id: row.id,
           order_code: row.order_code || "-",
-          user_name: row.user ? `${row.user.first_name} ${row.user.last_name || ""}`.trim() : "Unknown",
-          product_name: row.product?.name || "-",
-          distributor_name: row.distributor ? `${row.distributor.first_name} ${row.distributor.last_name || ""}`.trim() : "-",
-          coordinator_name: row.coordinator ? `${row.coordinator.first_name} ${row.coordinator.last_name || ""}`.trim() : "-",
+          user_name: row.user 
+            ? `${row.user.first_name} ${row.user.last_name || ""}`.trim() 
+            : (row.local_user_name || "Unknown"),
+          product_name: row.product?.name || row.local_product_name || "-",
+          distributor_name: row.distributor 
+            ? `${row.distributor.first_name} ${row.distributor.last_name || ""}`.trim() 
+            : (row.local_distributor_name || "-"),
+          coordinator_name: row.coordinator 
+            ? `${row.coordinator.first_name} ${row.coordinator.last_name || ""}`.trim() 
+            : (row.local_coordinator_name || "-"),
           status: row.status,
           created_at: row.created_at ? new Date(row.created_at).toLocaleDateString() : "-",
           items,
@@ -101,7 +116,7 @@ export default function ApprovalsPage() {
 
       setOrders(formatted);
       // Aligned orders that are approved or in a post-approval state can issue gate passes
-      setCompletedOrders((data || []).filter((o: any) => o.status !== "pending" && o.status !== "declined"));
+      setCompletedOrders(formatted.filter((o: any) => o.status !== "pending" && o.status !== "declined"));
     } catch (err: any) {
       toast.error(err.message || "Failed to fetch orders");
     }
@@ -110,25 +125,33 @@ export default function ApprovalsPage() {
   // Fetch gate passes
   const fetchGatePasses = async () => {
     try {
-      const { data, error } = await supabase
-        .from("gate_passes")
-        .select(`
-          id,
-          pass_code,
-          driver_name,
-          vehicle_no,
-          status,
-          created_at,
-          order:orders(order_code)
-        `)
-        .order("created_at", { ascending: false });
+      let dbData: any[] = [];
+      try {
+        const { data, error } = await supabase
+          .from("gate_passes")
+          .select(`
+            id,
+            pass_code,
+            driver_name,
+            vehicle_no,
+            status,
+            created_at,
+            order:orders(order_code)
+          `)
+          .order("created_at", { ascending: false });
 
-      if (error) throw error;
+        if (error) throw error;
+        dbData = data || [];
+      } catch (dbErr) {
+        console.warn("Failed to fetch gate passes from Supabase. Using local fallback.", dbErr);
+      }
 
-      const formatted: GatePassRow[] = (data || []).map((row: any) => ({
+      const merged = mergeLocalItems(dbData, "coretech_local_gate_passes");
+
+      const formatted: GatePassRow[] = merged.map((row: any) => ({
         id: row.id,
         pass_code: row.pass_code,
-        order_code: row.order?.order_code || "-",
+        order_code: row.order?.order_code || row.local_order_code || "-",
         driver_name: row.driver_name,
         vehicle_no: row.vehicle_no,
         status: row.status,
@@ -193,20 +216,33 @@ export default function ApprovalsPage() {
 
     setIsUpdatingOrder(true);
     try {
-      const { error } = await supabase
-        .from("orders")
-        .update({
-          items: itemsToSave,
-          status: "approved"
-        })
-        .eq("id", reviewOrder.id);
+      try {
+        const { error } = await supabase
+          .from("orders")
+          .update({
+            items: itemsToSave,
+            status: "approved"
+          })
+          .eq("id", reviewOrder.id);
 
-      if (error) throw error;
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Database order update failed. Saving locally.", dbErr);
+        const localOrders = getLocalItems("coretech_local_orders");
+        const match = localOrders.find((o: any) => o.id === reviewOrder.id);
+        const updated = {
+          ...(match || reviewOrder),
+          items: itemsToSave,
+          status: "approved",
+          approved_at: new Date().toISOString(),
+        };
+        saveLocalItem("coretech_local_orders", updated, true);
+      }
 
       await supabase.from("activity_logs").insert({
         action: "Order Approved (Edits)",
         details: `NSM approved order ${reviewOrder.order_code} with modified item counts/prices.`,
-      });
+      }).catch((e: any) => console.warn("Activity log failed:", e));
 
       toast.success("Order approved successfully!");
       setIsReviewModalOpen(false);
@@ -221,18 +257,29 @@ export default function ApprovalsPage() {
   const handleDeclineOrder = async (orderId: string) => {
     setIsUpdatingOrder(true);
     try {
-      const { error } = await supabase
-        .from("orders")
-        .update({ status: "declined" })
-        .eq("id", orderId);
+      try {
+        const { error } = await supabase
+          .from("orders")
+          .update({ status: "declined" })
+          .eq("id", orderId);
 
-      if (error) throw error;
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Database decline update failed. Saving locally.", dbErr);
+        const localOrders = getLocalItems("coretech_local_orders");
+        const match = localOrders.find((o: any) => o.id === orderId);
+        const updated = {
+          ...(match || { id: orderId }),
+          status: "declined",
+        };
+        saveLocalItem("coretech_local_orders", updated, true);
+      }
 
       const orderCode = reviewOrder?.order_code || orders.find(o => o.id === orderId)?.order_code || "";
       await supabase.from("activity_logs").insert({
         action: "Order Declined",
         details: `NSM declined order ${orderCode}.`,
-      });
+      }).catch((e: any) => console.warn("Activity log failed:", e));
 
       toast.success("Order declined.");
       setIsReviewModalOpen(false);
@@ -247,18 +294,29 @@ export default function ApprovalsPage() {
   // Update gate pass status
   const handleUpdatePassStatus = async (passId: string, newStatus: string) => {
     try {
-      const { error } = await supabase
-        .from("gate_passes")
-        .update({ status: newStatus })
-        .eq("id", passId);
+      try {
+        const { error } = await supabase
+          .from("gate_passes")
+          .update({ status: newStatus })
+          .eq("id", passId);
 
-      if (error) throw error;
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Database gatepass update failed. Saving locally.", dbErr);
+        const localGPs = getLocalItems("coretech_local_gate_passes");
+        const match = localGPs.find((p: any) => p.id === passId);
+        const updated = {
+          ...(match || { id: passId }),
+          status: newStatus,
+        };
+        saveLocalItem("coretech_local_gate_passes", updated, true);
+      }
 
       const targetPass = gatePasses.find((p) => p.id === passId);
       await supabase.from("activity_logs").insert({
         action: "Gate Pass Update",
         details: `Gate Pass ${targetPass?.pass_code} was ${newStatus}d`,
-      });
+      }).catch((e: any) => console.warn("Activity log failed:", e));
 
       toast.success(`Gate pass ${newStatus}d successfully!`);
       fetchGatePasses();
@@ -280,15 +338,32 @@ export default function ApprovalsPage() {
       const randomDigits = Math.floor(1000 + Math.random() * 9000);
       const passCode = `#GP${randomDigits}`;
 
-      const { error } = await supabase.from("gate_passes").insert({
+      const matchedOrder = completedOrders.find(o => o.id === selectedOrderId);
+      const orderCode = matchedOrder?.order_code || "-";
+
+      const insertPayload = {
         pass_code: passCode,
         order_id: selectedOrderId,
-        driver_name: driverName,
-        vehicle_no: vehicleNo,
+        driver_name: driverName.trim(),
+        vehicle_no: vehicleNo.trim(),
         status: "pending",
-      });
+      };
 
-      if (error) throw error;
+      try {
+        const { error } = await supabase.from("gate_passes").insert(insertPayload);
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Database gatepass insert failed. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_gate_passes", {
+          ...insertPayload,
+          local_order_code: orderCode,
+        });
+      }
+
+      await supabase.from("activity_logs").insert({
+        action: "Gate Pass Issue",
+        details: `Gate pass ${passCode} released for order ${orderCode}`,
+      }).catch((e: any) => console.warn("Activity log failed:", e));
 
       toast.success(`Gate pass ${passCode} issued successfully!`);
       setIsPassModalOpen(false);

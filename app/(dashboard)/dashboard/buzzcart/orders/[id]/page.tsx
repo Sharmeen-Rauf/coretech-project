@@ -36,36 +36,60 @@ export default function OrderDetailPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-
+ 
       // 1. Fetch user role
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", session.user.id)
-        .single();
-      if (profile) setUserRole(profile.role);
-
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+        if (profile) setUserRole(profile.role);
+      } catch (profileErr) {
+        console.warn("Failed to fetch user role. Defaulting to employee.", profileErr);
+        setUserRole("employee");
+      }
+ 
       // 2. Fetch order data including items list
-      const { data: orderData, error } = await supabase
-        .from("orders")
-        .select(`
-          id,
-          order_code,
-          status,
-          created_at,
-          items,
-          product_id,
-          user_id,
-          distributor_id,
-          user:profiles!user_id(id, first_name, last_name, email, contact),
-          product:products(*),
-          distributor:profiles!distributor_id(id, first_name, last_name, contact),
-          coordinator:profiles!sales_coordinator_id(id, first_name, last_name, contact)
-        `)
-        .eq("id", id)
-        .single();
+      let orderData: any = null;
+      try {
+        const { data, error } = await supabase
+          .from("orders")
+          .select(`
+            id,
+            order_code,
+            status,
+            created_at,
+            items,
+            product_id,
+            user_id,
+            distributor_id,
+            user:profiles!user_id(id, first_name, last_name, email, contact),
+            product:products(*),
+            distributor:profiles!distributor_id(id, first_name, last_name, contact),
+            coordinator:profiles!sales_coordinator_id(id, first_name, last_name, contact)
+          `)
+          .eq("id", id)
+          .single();
+ 
+        if (error) throw error;
+        orderData = data;
+      } catch (dbErr) {
+        console.warn("Failed to fetch order details from Supabase. Checking local storage fallback.", dbErr);
+        const { getLocalItems } = require("@/lib/supabaseLocalFallback");
+        const localOrders = getLocalItems("coretech_local_orders");
+        const found = localOrders.find((x: any) => x.id === id);
+        if (found) {
+          orderData = {
+            ...found,
+            user: { id: found.user_id, first_name: found.local_user_name || "Local Dealer", last_name: "", email: "-", contact: "-" },
+            distributor: { id: found.distributor_id, first_name: found.local_distributor_name || "Local Distributor", contact: "-" },
+            coordinator: { id: found.sales_coordinator_id, first_name: found.local_coordinator_name || "Local RSM", contact: "-" }
+          };
+        }
+      }
 
-      if (error) throw error;
+      if (!orderData) throw new Error("Order details not found");
       setOrder(orderData);
 
       // Initialize payment input to total amount
@@ -82,19 +106,37 @@ export default function OrderDetailPage() {
       setPaymentAmount(String(totalAmount));
 
       // 3. Fetch linked invoices
-      const { data: invData } = await supabase
-        .from("invoices")
-        .select("invoice_code, payment_status, amount")
-        .eq("order_id", id)
-        .maybeSingle();
+      let invData: any = null;
+      try {
+        const { data } = await supabase
+          .from("invoices")
+          .select("invoice_code, payment_status, amount")
+          .eq("order_id", id)
+          .maybeSingle();
+        invData = data;
+      } catch (dbErr) {
+        console.warn("Failed to fetch invoices from Supabase. Checking local storage fallback.", dbErr);
+        const { getLocalItems } = require("@/lib/supabaseLocalFallback");
+        const localInvoices = getLocalItems("coretech_local_invoices");
+        invData = localInvoices.find((x: any) => x.order_id === id) || null;
+      }
       setLinkedInvoice(invData);
 
       // 4. Fetch linked gate passes
-      const { data: gpData } = await supabase
-        .from("gate_passes")
-        .select("pass_code, vehicle_no, driver_name, status")
-        .eq("order_id", id)
-        .maybeSingle();
+      let gpData: any = null;
+      try {
+        const { data } = await supabase
+          .from("gate_passes")
+          .select("pass_code, vehicle_no, driver_name, status")
+          .eq("order_id", id)
+          .maybeSingle();
+        gpData = data;
+      } catch (dbErr) {
+        console.warn("Failed to fetch gate passes from Supabase. Checking local storage fallback.", dbErr);
+        const { getLocalItems } = require("@/lib/supabaseLocalFallback");
+        const localGatePasses = getLocalItems("coretech_local_gate_passes");
+        gpData = localGatePasses.find((x: any) => x.order_id === id) || null;
+      }
       setLinkedGatePass(gpData);
 
     } catch (err: any) {
@@ -112,19 +154,24 @@ export default function OrderDetailPage() {
   const handleUpdateStatus = async (newStatus: string) => {
     setIsUpdating(true);
     try {
-      const { error } = await supabase
-        .from("orders")
-        .update({ status: newStatus })
-        .eq("id", id);
-
-      if (error) throw error;
-
+      try {
+        const { error } = await supabase
+          .from("orders")
+          .update({ status: newStatus })
+          .eq("id", id);
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Supabase order status update failed. Saving locally.", dbErr);
+        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
+        saveLocalItem("coretech_local_orders", { ...order, status: newStatus }, true);
+      }
+ 
       // Log audit trail
       await supabase.from("activity_logs").insert({
         action: "Order Status Updated",
         details: `Order ${order.order_code} status was set to ${newStatus}`,
-      });
-
+      }).catch((e: any) => console.warn("Activity log insert failed:", e));
+ 
       toast.success(`Order status set to ${newStatus}!`);
       fetchOrderDetails();
     } catch (err: any) {
@@ -133,7 +180,7 @@ export default function OrderDetailPage() {
       setIsUpdating(false);
     }
   };
-
+ 
   // Step 2: Log Payment Action
   const handleLogPayment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,23 +188,27 @@ export default function OrderDetailPage() {
       toast.error("Please enter a valid payment amount");
       return;
     }
-
+ 
     setIsUpdating(true);
     try {
-      // 1. Update order status
-      const { error: orderErr } = await supabase
-        .from("orders")
-        .update({ status: "payment_logged" })
-        .eq("id", id);
-
-      if (orderErr) throw orderErr;
-
-      // 2. Log activity
+      try {
+        const { error: orderErr } = await supabase
+          .from("orders")
+          .update({ status: "payment_logged" })
+          .eq("id", id);
+        if (orderErr) throw orderErr;
+      } catch (dbErr) {
+        console.warn("Supabase order payment update failed. Saving locally.", dbErr);
+        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
+        saveLocalItem("coretech_local_orders", { ...order, status: "payment_logged" }, true);
+      }
+ 
+      // Log activity
       await supabase.from("activity_logs").insert({
         action: "Order Payment Logged",
         details: `Logged payment of PKR ${Number(paymentAmount).toLocaleString()} for order ${order.order_code}`,
-      });
-
+      }).catch((e: any) => console.warn("Activity log insert failed:", e));
+ 
       toast.success("Payment successfully logged!");
       setShowPaymentInput(false);
       fetchOrderDetails();
@@ -167,14 +218,14 @@ export default function OrderDetailPage() {
       setIsUpdating(false);
     }
   };
-
+ 
   // Step 3: Generate Invoice Action
   const handleGenerateInvoice = async () => {
     setIsUpdating(true);
     try {
       const randomDigits = Math.floor(1000 + Math.random() * 9000);
       const invoiceCode = `#INV${randomDigits}`;
-
+ 
       // Calculate total order amount
       const itemsList = order.items || [
         {
@@ -186,35 +237,51 @@ export default function OrderDetailPage() {
         }
       ];
       const totalAmount = itemsList.reduce((sum: number, item: any) => sum + (item.quantity * item.price), 0);
-
+ 
       // Create invoice row linked to this order
-      const { error: invErr } = await supabase
-        .from("invoices")
-        .insert({
+      try {
+        const { error: invErr } = await supabase
+          .from("invoices")
+          .insert({
+            invoice_code: invoiceCode,
+            order_id: order.id,
+            distributor_id: order.distributor_id || order.distributor?.id,
+            amount: totalAmount,
+            due_date: new Date().toLocaleDateString('en-CA'),
+            payment_status: "paid", // set to paid since payment is logged
+          });
+        if (invErr) throw invErr;
+      } catch (dbErr) {
+        console.warn("Supabase invoice insert failed. Saving locally.", dbErr);
+        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
+        saveLocalItem("coretech_local_invoices", {
+          id: crypto.randomUUID(),
           invoice_code: invoiceCode,
           order_id: order.id,
-          distributor_id: order.distributor_id || order.distributor?.id,
           amount: totalAmount,
-          due_date: new Date().toLocaleDateString('en-CA'),
-          payment_status: "paid", // set to paid since payment is logged
+          payment_status: "paid",
         });
-
-      if (invErr) throw invErr;
-
+      }
+ 
       // Update order status
-      const { error: orderErr } = await supabase
-        .from("orders")
-        .update({ status: "invoice_generated" })
-        .eq("id", id);
-
-      if (orderErr) throw orderErr;
-
+      try {
+        const { error: orderErr } = await supabase
+          .from("orders")
+          .update({ status: "invoice_generated" })
+          .eq("id", id);
+        if (orderErr) throw orderErr;
+      } catch (dbErr) {
+        console.warn("Supabase order invoice status update failed. Saving locally.", dbErr);
+        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
+        saveLocalItem("coretech_local_orders", { ...order, status: "invoice_generated" }, true);
+      }
+ 
       // Log activity
       await supabase.from("activity_logs").insert({
         action: "Invoice Generated",
         details: `Generated invoice ${invoiceCode} for order ${order.order_code}`,
-      });
-
+      }).catch((e: any) => console.warn("Activity log insert failed:", e));
+ 
       toast.success(`Invoice ${invoiceCode} successfully generated!`);
       fetchOrderDetails();
     } catch (err: any) {

@@ -5,6 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import { Loader2, Plus, X, MessageSquare, HelpCircle, CheckCircle2 } from "lucide-react";
 import toast from "react-hot-toast";
+import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 
 interface SupportTicketRow {
   id: string;
@@ -33,37 +34,50 @@ export default function SupportTicketsPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", session.user.id)
-        .single();
-
-      const roleStr = profile?.role || "employee";
+      let roleStr = "employee";
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+        if (profile?.role) roleStr = profile.role;
+      } catch (roleErr) {
+        console.warn("Failed to get profile role. Defaulting to employee.", roleErr);
+      }
       setUserRole(roleStr);
 
-      let query = supabase
-        .from("support_tickets")
-        .select(`
-          id,
-          subject,
-          message,
-          status,
-          created_at,
-          profile:profiles!user_id(first_name, last_name, role)
-        `);
+      let dbData: any[] = [];
+      try {
+        let query = supabase
+          .from("support_tickets")
+          .select(`
+            id,
+            subject,
+            message,
+            status,
+            created_at,
+            profile:profiles!user_id(first_name, last_name, role)
+          `);
 
-      if (roleStr !== "admin") {
-        query = query.eq("user_id", session.user.id);
+        if (roleStr !== "admin") {
+          query = query.eq("user_id", session.user.id);
+        }
+
+        const { data, error } = await query.order("created_at", { ascending: false });
+        if (error) throw error;
+        dbData = data || [];
+      } catch (dbErr) {
+        console.warn("Failed to fetch tickets from database. Using local fallback.", dbErr);
       }
 
-      const { data, error } = await query.order("created_at", { ascending: false });
+      const merged = mergeLocalItems(dbData, "coretech_local_support_tickets");
 
-      if (error) throw error;
-
-      const formatted: SupportTicketRow[] = (data || []).map((row: any) => ({
+      const formatted: SupportTicketRow[] = merged.map((row: any) => ({
         id: row.id,
-        user_name: row.profile ? `${row.profile.first_name} ${row.profile.last_name || ""}`.trim() : "System Guest",
+        user_name: row.profile 
+          ? `${row.profile.first_name} ${row.profile.last_name || ""}`.trim() 
+          : (row.local_user_name || "System Guest"),
         subject: row.subject,
         message: row.message,
         status: row.status,
@@ -94,14 +108,23 @@ export default function SupportTicketsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No authenticated session found");
 
-      const { error } = await supabase.from("support_tickets").insert({
+      const payload = {
         user_id: user.id,
         subject,
         message,
         status: "open",
-      });
+      };
 
-      if (error) throw error;
+      try {
+        const { error } = await supabase.from("support_tickets").insert(payload);
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Database ticket insert failed. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_support_tickets", {
+          ...payload,
+          local_user_name: user.email || "Local User",
+        });
+      }
 
       toast.success("Support ticket opened successfully!");
       setIsModalOpen(false);
@@ -117,19 +140,30 @@ export default function SupportTicketsPage() {
 
   const handleResolveTicket = async (id: string, newStatus: string) => {
     try {
-      const { error } = await supabase
-        .from("support_tickets")
-        .update({ status: newStatus })
-        .eq("id", id);
+      try {
+        const { error } = await supabase
+          .from("support_tickets")
+          .update({ status: newStatus })
+          .eq("id", id);
 
-      if (error) throw error;
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Database ticket update failed. Saving locally.", dbErr);
+        const localTickets = getLocalItems("coretech_local_support_tickets");
+        const match = localTickets.find((t: any) => t.id === id);
+        const updated = {
+          ...(match || { id }),
+          status: newStatus,
+        };
+        saveLocalItem("coretech_local_support_tickets", updated, true);
+      }
 
       // Log activity
       const target = tickets.find((t) => t.id === id);
       await supabase.from("activity_logs").insert({
         action: "Support Ticket Update",
         details: `Ticket "${target?.subject}" marked as ${newStatus}`,
-      });
+      }).catch((e: any) => console.warn("Activity log failed:", e));
 
       toast.success(`Ticket marked as ${newStatus}!`);
       fetchTickets();

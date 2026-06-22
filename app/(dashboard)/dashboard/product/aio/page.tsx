@@ -21,22 +21,30 @@ export default function AioProductPage() {
   const fetchProducts = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("category", "aio")
-        .order("created_at", { ascending: false });
- 
-      if (error) throw error;
- 
-      const formatted = (data || []).map((item: any, idx: number) => ({
+      let dbData: any[] = [];
+      try {
+        const { data, error } = await supabase
+          .from("products")
+          .select("*")
+          .eq("category", "aio")
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        dbData = data || [];
+      } catch (dbErr) {
+        console.warn("Failed to fetch aio products from Supabase. Using local fallback.", dbErr);
+      }
+
+      const { mergeLocalItems } = require("@/lib/supabaseLocalFallback");
+      const merged = mergeLocalItems(dbData, "coretech_local_products", (p: any) => p.category === "aio");
+
+      const formatted = merged.map((item: any, idx: number) => ({
         ...item,
         sno: String(idx + 1).padStart(2, "0"),
       }));
  
       setProducts(formatted);
     } catch (err: any) {
-      toast.error(err.message || "Failed to fetch products");
+      console.error("fetchProducts error:", err);
     } finally {
       setIsLoading(false);
     }

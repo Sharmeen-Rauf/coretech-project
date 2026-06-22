@@ -5,6 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import { X, Loader2, Plus } from "lucide-react";
 import toast from "react-hot-toast";
+import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
  
 interface RegionRow {
   id: string;
@@ -32,6 +33,7 @@ export default function RegionPage() {
  
   const fetchRegions = async () => {
     setIsLoading(true);
+    let dbData: any[] = [];
     try {
       const { data, error } = await supabase
         .from("regions")
@@ -39,9 +41,10 @@ export default function RegionPage() {
         .order("created_at", { ascending: false });
  
       if (error) throw error;
+      dbData = data || [];
  
       // If table is newly created and empty, pre-populate standard Pakistan hubs for convenience
-      if (!data || data.length === 0) {
+      if (dbData.length === 0) {
         const defaultRegions = [
           { region_code: "PK-LHR", name: "Lahore Hub", warehouse: "Lahore Central", distributors: 8, sub_dealers: 22, status: "active" },
           { region_code: "PK-KHI", name: "Karachi South", warehouse: "Port Qasim Storage", distributors: 12, sub_dealers: 35, status: "active" },
@@ -51,12 +54,16 @@ export default function RegionPage() {
         ];
  
         // Insert defaults asynchronously so they persist in DB
-        await supabase.from("regions").insert(defaultRegions);
-        setRegions(defaultRegions.map((r, i) => ({ id: String(i), ...r })));
-      } else {
-        setRegions(data);
+        await supabase.from("regions").insert(defaultRegions).catch(e => console.warn("Could not insert default regions:", e));
+        dbData = defaultRegions;
       }
     } catch (err: any) {
+      console.warn("Regions table query failed. Using local storage + memory defaults.", err);
+    }
+ 
+    // Merge database/memory items with local storage custom items
+    const merged = mergeLocalItems(dbData, "coretech_local_regions");
+    if (merged.length === 0) {
       const defaultRegions = [
         { id: "1", region_code: "PK-LHR", name: "Lahore Hub", warehouse: "Lahore Central", distributors: 8, sub_dealers: 22, status: "active" },
         { id: "2", region_code: "PK-KHI", name: "Karachi South", warehouse: "Port Qasim Storage", distributors: 12, sub_dealers: 35, status: "active" },
@@ -65,10 +72,10 @@ export default function RegionPage() {
         { id: "5", region_code: "PK-MUX", name: "Multan Central", warehouse: "Multan Bypass Yard", distributors: 3, sub_dealers: 9, status: "active" },
       ];
       setRegions(defaultRegions);
-      console.warn("Regions table missing. Loading in-memory default Pakistan hubs.", err);
-    } finally {
-      setIsLoading(false);
+    } else {
+      setRegions(merged);
     }
+    setIsLoading(false);
   };
  
   useEffect(() => {
@@ -99,27 +106,22 @@ export default function RegionPage() {
         status: "active",
       };
  
-      const { error } = await supabase.from("regions").insert(newRegion);
-      if (error) {
-        if (error.code === "PGRST116" || error.message.includes("regions") || error.message.includes("cache")) {
-          setRegions(prev => [{ id: String(prev.length + 1), ...newRegion }, ...prev]);
-          toast.success(`Region ${newRegion.region_code} registered in memory (Database table is missing)`);
-          setIsModalOpen(false);
-          setCode("");
-          setName("");
-          setWarehouse("");
-          return;
-        }
-        throw error;
+      try {
+        const { error } = await supabase.from("regions").insert(newRegion);
+        if (error) throw error;
+        toast.success(`Region ${newRegion.region_code} successfully registered!`);
+      } catch (dbErr) {
+        console.warn("Database region insert failed. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_regions", newRegion);
+        toast.success(`Region ${newRegion.region_code} registered locally (Database fallback)`);
       }
  
-      // Log audit activity
+      // Log audit activity safely
       await supabase.from("activity_logs").insert({
         action: "Region Registered",
         details: `Region Hub "${newRegion.name}" (${newRegion.region_code}) was registered`,
-      });
+      }).catch(e => console.warn("Activity log failed:", e));
  
-      toast.success(`Region ${newRegion.region_code} successfully registered!`);
       setIsModalOpen(false);
       setCode("");
       setName("");

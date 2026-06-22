@@ -4,8 +4,8 @@ import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import OrderModal from "@/components/OrderModal";
-import toast from "react-hot-toast";
 import Link from "next/link";
+import OrderStatusModal from "@/components/OrderStatusModal";
  
 interface OrderRow {
   id: string;
@@ -26,6 +26,8 @@ export default function BuzzcartOrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [userRole, setUserRole] = useState<string>("");
+  const [selectedStatusOrder, setSelectedStatusOrder] = useState<any>(null);
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
  
   // Filters
   const [distributors, setDistributors] = useState<string[]>([]);
@@ -41,72 +43,85 @@ export default function BuzzcartOrdersPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", session.user.id)
-        .single();
-
-      const roleStr = profile?.role || "sub_dealer";
+ 
+      let roleStr = "sub_dealer";
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+        if (profile?.role) roleStr = profile.role;
+      } catch (profileErr) {
+        console.warn("Failed to fetch user role. Defaulting to sub_dealer.", profileErr);
+      }
       setUserRole(roleStr);
-
-      let query = supabase
-        .from("orders")
-        .select(`
-          id,
-          order_code,
-          created_at,
-          status,
-          user:profiles!user_id(first_name, last_name),
-          product:products(name),
-          distributor:profiles!distributor_id(first_name, last_name),
-          coordinator:profiles!sales_coordinator_id(first_name, last_name)
-        `);
-
-      if (roleStr === "distributor") {
-        query = query.eq("distributor_id", session.user.id);
-      } else if (roleStr === "employee") {
-        query = query.eq("sales_coordinator_id", session.user.id);
-      } else if (roleStr === "sub_dealer") {
-        query = query.eq("user_id", session.user.id);
+ 
+      let dbData: any[] = [];
+      try {
+        let query = supabase
+          .from("orders")
+          .select(`
+            id,
+            order_code,
+            created_at,
+            status,
+            user:profiles!user_id(first_name, last_name),
+            product:products(name),
+            distributor:profiles!distributor_id(first_name, last_name),
+            coordinator:profiles!sales_coordinator_id(first_name, last_name)
+          `);
+ 
+        if (roleStr === "distributor") {
+          query = query.eq("distributor_id", session.user.id);
+        } else if (roleStr === "employee") {
+          query = query.eq("sales_coordinator_id", session.user.id);
+        } else if (roleStr === "sub_dealer") {
+          query = query.eq("user_id", session.user.id);
+        }
+ 
+        const { data, error } = await query.order("created_at", { ascending: false });
+        if (error) throw error;
+        dbData = data || [];
+      } catch (dbErr) {
+        console.warn("Failed to fetch orders from Supabase. Using local fallback.", dbErr);
       }
 
-      const { data, error } = await query.order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      const formatted = (data || []).map((row: any) => ({
+      const { mergeLocalItems } = require("@/lib/supabaseLocalFallback");
+      const merged = mergeLocalItems(dbData, "coretech_local_orders");
+ 
+      const formatted = merged.map((row: any) => ({
         id: row.id,
         order_code: row.order_code || "-",
         user_name: row.user
           ? `${row.user.first_name} ${row.user.last_name || ""}`.trim()
-          : "Unknown User",
-        product_name: row.product?.name || "-",
+          : (row.local_user_name || "Unknown User"),
+        product_name: row.product?.name || row.local_product_name || "-",
         distributor_name: row.distributor
           ? `${row.distributor.first_name} ${row.distributor.last_name || ""}`.trim()
-          : "-",
+          : (row.local_distributor_name || "-"),
         coordinator_name: row.coordinator
           ? `${row.coordinator.first_name} ${row.coordinator.last_name || ""}`.trim()
-          : "-",
+          : (row.local_coordinator_name || "-"),
         date: row.created_at ? new Date(row.created_at).toLocaleDateString() : "-",
         status: row.status || "pending",
+        rawOrder: row,
       }));
-
+ 
       setOrders(formatted);
-
+ 
       // Collect unique options for filter dropdowns
       const dists = Array.from(new Set(formatted.map((o: any) => o.distributor_name).filter(Boolean))) as string[];
       const prods = Array.from(new Set(formatted.map((o: any) => o.product_name).filter(Boolean))) as string[];
       setDistributors(dists);
       setProducts(prods);
     } catch (err: any) {
-      toast.error(err.message || "Failed to load orders");
+      console.error("fetchOrders error:", err);
     } finally {
       setIsLoading(false);
     }
   };
-
+ 
   useEffect(() => {
     fetchOrders();
 
@@ -171,7 +186,57 @@ export default function BuzzcartOrdersPage() {
     { key: "distributor_name", label: "Distributor" },
     { key: "coordinator_name", label: "Sales Coordinator" },
     { key: "date", label: "Date" },
-    { key: "status", label: "Status" },
+    {
+      key: "status",
+      label: "Status",
+      render: (val: string, row: any) => {
+        const normalized = (val || "").toLowerCase().trim();
+        let dotColor = "bg-[#0284C7]"; // default blue
+        let textColor = "text-[#0284C7]";
+        let label = "Pending";
+
+        if (normalized === "complete" || normalized === "delivered") {
+          dotColor = "bg-[#16A34A]"; // green
+          textColor = "text-[#16A34A]";
+          label = "Complete";
+        } else if (normalized === "declined") {
+          dotColor = "bg-[#64748B]"; // grey
+          textColor = "text-[#64748B]";
+          label = "Declined";
+        } else if (normalized === "purchase_invoice_pending") {
+          dotColor = "bg-[#0284C7]"; // blue
+          textColor = "text-[#0284C7]";
+          label = "Purchase Invoice Pending";
+        } else if (normalized === "gatepass_created" || normalized === "invoice_generated" || normalized === "delivery_order_created" || normalized === "payment_logged") {
+          dotColor = "bg-[#D97706]"; // orange
+          textColor = "text-[#D97706]";
+          label = normalized === "gatepass_created" ? "Gatepass Created" :
+                  normalized === "invoice_generated" ? "Gatepass Created" :
+                  normalized === "payment_logged" ? "Payment Logged" : "DO Created";
+        } else if (normalized === "approved") {
+          dotColor = "bg-[#0284C7]"; // blue
+          textColor = "text-[#0284C7]";
+          label = "Approved";
+        } else {
+          dotColor = "bg-[#0284C7]"; // blue
+          textColor = "text-[#0284C7]";
+          label = val.charAt(0).toUpperCase() + val.slice(1);
+        }
+
+        return (
+          <button
+            onClick={() => {
+              setSelectedStatusOrder(row.rawOrder);
+              setIsStatusModalOpen(true);
+            }}
+            className={`flex items-center gap-1.5 font-bold ${textColor} hover:scale-105 transition-all cursor-pointer`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`}></span>
+            <span>{label}</span>
+          </button>
+        );
+      },
+    },
   ];
 
   return (
@@ -230,6 +295,18 @@ export default function BuzzcartOrdersPage() {
         onClose={() => setIsModalOpen(false)}
         onSuccess={fetchOrders}
       />
+
+      {selectedStatusOrder && (
+        <OrderStatusModal
+          isOpen={isStatusModalOpen}
+          onClose={() => {
+            setIsStatusModalOpen(false);
+            setSelectedStatusOrder(null);
+          }}
+          order={selectedStatusOrder}
+          onSuccess={fetchOrders}
+        />
+      )}
     </div>
   );
 }

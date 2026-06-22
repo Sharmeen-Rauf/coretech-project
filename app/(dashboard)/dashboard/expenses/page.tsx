@@ -37,38 +37,50 @@ export default function ExpensesPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", session.user.id)
-        .single();
-
-      const roleStr = profile?.role || "employee";
+ 
+      let roleStr = "employee";
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+        if (profile?.role) roleStr = profile.role;
+      } catch (profileErr) {
+        console.warn("Failed to fetch user role. Defaulting to employee.", profileErr);
+      }
       setUserRole(roleStr);
-
-      let query = supabase
-        .from("expenses")
-        .select(`
-          id,
-          title,
-          amount,
-          category,
-          date,
-          status,
-          description,
-          profile:profiles!user_id(first_name, last_name)
-        `);
-
-      if (roleStr === "employee") {
-        query = query.eq("user_id", session.user.id);
+ 
+      let dbData: any[] = [];
+      try {
+        let query = supabase
+          .from("expenses")
+          .select(`
+            id,
+            title,
+            amount,
+            category,
+            date,
+            status,
+            description,
+            profile:profiles!user_id(first_name, last_name)
+          `);
+ 
+        if (roleStr === "employee") {
+          query = query.eq("user_id", session.user.id);
+        }
+ 
+        const { data, error } = await query.order("date", { ascending: false });
+        if (error) throw error;
+        dbData = data || [];
+      } catch (dbErr) {
+        console.warn("Failed to fetch expenses from Supabase. Using local fallback.", dbErr);
       }
 
-      const { data, error } = await query.order("date", { ascending: false });
-
-      if (error) throw error;
-
-      const formatted: ExpenseRow[] = (data || []).map((row: any) => ({
+      const { mergeLocalItems } = require("@/lib/supabaseLocalFallback");
+      const merged = mergeLocalItems(dbData, "coretech_local_expenses");
+ 
+      const formatted: ExpenseRow[] = merged.map((row: any) => ({
         id: row.id,
         user_name: row.profile ? `${row.profile.first_name} ${row.profile.last_name || ""}`.trim() : "System User",
         title: row.title,
@@ -78,32 +90,32 @@ export default function ExpensesPage() {
         status: row.status,
         description: row.description || "-",
       }));
-
+ 
       setExpenses(formatted);
     } catch (err: any) {
-      console.error("Failed to fetch expenses", err.message);
+      console.error("fetchExpenses error:", err);
     } finally {
       setIsLoading(false);
     }
   };
-
+ 
   useEffect(() => {
     fetchExpenses();
   }, []);
-
+ 
   const handleCreateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !amount || !date) {
       toast.error("Please fill in all required fields");
       return;
     }
-
+ 
     setIsSubmitting(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No authenticated user session found");
-
-      const { error } = await supabase.from("expenses").insert({
+ 
+      const newExpense = {
         user_id: user.id,
         title,
         amount: parseFloat(amount),
@@ -111,11 +123,19 @@ export default function ExpensesPage() {
         date,
         description,
         status: "pending",
-      });
+      };
 
-      if (error) throw error;
-
-      toast.success("Expense claim successfully submitted!");
+      try {
+        const { error } = await supabase.from("expenses").insert(newExpense);
+        if (error) throw error;
+        toast.success("Expense claim successfully submitted!");
+      } catch (dbErr) {
+        console.warn("Supabase expense insert failed. Falling back to local storage.", dbErr);
+        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
+        saveLocalItem("coretech_local_expenses", newExpense);
+        toast.success("Expense claim successfully submitted locally (Database fallback)!");
+      }
+ 
       setIsModalOpen(false);
       setTitle("");
       setAmount("");
@@ -127,23 +147,31 @@ export default function ExpensesPage() {
       setIsSubmitting(false);
     }
   };
-
+ 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     try {
-      const { error } = await supabase
-        .from("expenses")
-        .update({ status: newStatus })
-        .eq("id", id);
-
-      if (error) throw error;
-
+      try {
+        const { error } = await supabase
+          .from("expenses")
+          .update({ status: newStatus })
+          .eq("id", id);
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Supabase expense status update failed. Falling back to local storage.", dbErr);
+        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
+        const target = expenses.find((e) => e.id === id);
+        if (target) {
+          saveLocalItem("coretech_local_expenses", { ...target, status: newStatus }, true);
+        }
+      }
+ 
       // Log activity
       const target = expenses.find((e) => e.id === id);
       await supabase.from("activity_logs").insert({
         action: "Expense Audit Update",
         details: `Expense claim "${target?.title}" was ${newStatus}d`,
-      });
-
+      }).catch((e: any) => console.warn("Activity log insert failed:", e));
+ 
       toast.success(`Expense successfully ${newStatus}d!`);
       fetchExpenses();
     } catch (err: any) {

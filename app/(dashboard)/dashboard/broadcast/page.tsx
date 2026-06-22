@@ -5,6 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import { Loader2, Plus, X, Megaphone } from "lucide-react";
 import toast from "react-hot-toast";
+import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
  
 interface AnnouncementRow {
   id: string;
@@ -34,21 +35,33 @@ export default function BroadcastPage() {
       if (!session) return;
  
       // Get role
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", session.user.id)
-        .single();
-      if (profile) setUserRole(profile.role);
+      try {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+        if (profile) setUserRole(profile.role);
+      } catch (roleErr) {
+        console.warn("Failed to get profile role. Defaulting to empty.", roleErr);
+      }
  
       // Fetch announcements
-      const { data, error } = await supabase
-        .from("announcements")
-        .select("*")
-        .order("created_at", { ascending: false });
+      let dbData: any[] = [];
+      try {
+        const { data, error } = await supabase
+          .from("announcements")
+          .select("*")
+          .order("created_at", { ascending: false });
  
-      if (error) throw error;
-      setAnnouncements(data || []);
+        if (error) throw error;
+        dbData = data || [];
+      } catch (dbErr) {
+        console.warn("Failed to load announcements from database. Using local fallback.", dbErr);
+      }
+
+      const merged = mergeLocalItems(dbData, "coretech_local_announcements");
+      setAnnouncements(merged);
     } catch (err: any) {
       console.error("Failed to load announcements", err.message);
     } finally {
@@ -72,20 +85,26 @@ export default function BroadcastPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("No authenticated session found");
  
-      const { error } = await supabase.from("announcements").insert({
+      const payload = {
         title: title.trim(),
         content: content.trim(),
         role_target: roleTarget,
         created_by: user.id,
-      });
- 
-      if (error) throw error;
+      };
+
+      try {
+        const { error } = await supabase.from("announcements").insert(payload);
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Database announcement insert failed. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_announcements", payload);
+      }
  
       // Log activity
       await supabase.from("activity_logs").insert({
         action: "Announcement Broadcast",
         details: `Announcement "${title}" was posted to ${roleTarget} users`,
-      });
+      }).catch((e: any) => console.warn("Activity log failed:", e));
  
       toast.success("Notice broadcasted successfully!");
       setIsModalOpen(false);
