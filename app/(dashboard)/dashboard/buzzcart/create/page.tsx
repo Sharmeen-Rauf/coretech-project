@@ -58,13 +58,13 @@ export default function CreateOrderPage() {
 
   // Loaded DB data
   const [currentRsm, setCurrentRsm] = useState<Profile | null>(null);
-  const [dealers, setDealers] = useState<Profile[]>([]);
+  const [employees, setEmployees] = useState<Profile[]>([]);
   const [distributors, setDistributors] = useState<Profile[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [stockData, setStockData] = useState<Stock[]>([]);
 
   // Form selections
-  const [selectedDealerId, setSelectedDealerId] = useState("");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
   const [selectedDistributorId, setSelectedDistributorId] = useState("");
   const [orderItems, setOrderItems] = useState<Record<string, { quantity: number; price: number }>>({});
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
@@ -150,15 +150,11 @@ export default function CreateOrderPage() {
         const activeProfile = profiles.find(p => p.id === currentUserId) || null;
         setCurrentRsm(activeProfile);
 
-        // Filter dealers (role === "sub_dealer") aligned to this RSM
-        let alignedDealers = profiles.filter(
-          p => p.role === "sub_dealer" && p.rsm_id === currentUserId
+        // Filter employees (role === "employee" || role === "admin")
+        const emps = profiles.filter(
+          p => p.role === "employee" || p.role === "admin"
         );
-
-        if (alignedDealers.length === 0) {
-          alignedDealers = profiles.filter(p => p.role === "sub_dealer");
-        }
-        setDealers(alignedDealers);
+        setEmployees(emps);
 
         // Filter distributors
         const dists = profiles.filter(p => p.role === "distributor");
@@ -212,14 +208,13 @@ export default function CreateOrderPage() {
     fetchOptions();
   }, [supabase, router]);
 
-  // Determine if a product is in stock based on the dealer's warehouse or general stock
+  // Determine if a product is in stock based on the logged in user's warehouse or general stock
   const checkStockStatus = (productId: string) => {
-    const selectedDealer = dealers.find(d => d.id === selectedDealerId);
     let filtered = stockData;
 
-    if (selectedDealer?.warehouse) {
+    if (currentRsm?.warehouse) {
       filtered = stockData.filter(
-        s => s.warehouse_name?.toLowerCase() === selectedDealer.warehouse?.toLowerCase()
+        s => s.warehouse_name?.toLowerCase() === currentRsm.warehouse?.toLowerCase()
       );
     }
 
@@ -314,8 +309,8 @@ export default function CreateOrderPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedDealerId) {
-      toast.error("Please select a Dealer");
+    if (!selectedEmployeeId) {
+      toast.error("Please select an Employee / RSM");
       return;
     }
     if (!selectedDistributorId) {
@@ -339,18 +334,22 @@ export default function CreateOrderPage() {
       const activeDist = getDisplayDistributors().find(d => d.id === selectedDistributorId);
       const distName = activeDist ? `${activeDist.first_name} ${activeDist.last_name || ""}`.trim() : "";
 
+      // Selected employee label
+      const activeEmp = employees.find(emp => emp.id === selectedEmployeeId);
+      const empName = activeEmp ? `${activeEmp.first_name} ${activeEmp.last_name || ""}`.trim() : "";
+
       const payload = {
         order_code: orderCode,
-        user_id: selectedDealerId,
+        user_id: currentRsm?.id || null,
         product_id: submittable[0].productId,
         distributor_id: selectedDistributorId.startsWith("mock_") ? null : selectedDistributorId,
-        sales_coordinator_id: currentRsm?.id || null,
+        sales_coordinator_id: selectedEmployeeId.startsWith("mock_") ? null : selectedEmployeeId,
         status: "pending",
         items: submittable,
-        local_user_name: dealers.find(d => d.id === selectedDealerId)?.first_name || "",
+        local_user_name: currentRsm ? `${currentRsm.first_name} ${currentRsm.last_name || ""}`.trim() : "",
         local_product_name: submittable[0].productName,
         local_distributor_name: distName,
-        local_coordinator_name: currentRsm ? `${currentRsm.first_name} ${currentRsm.last_name || ""}`.trim() : "",
+        local_coordinator_name: empName,
       };
 
       try {
@@ -366,7 +365,7 @@ export default function CreateOrderPage() {
       try {
         await supabase.from("activity_logs").insert({
           action: "Create Buzzcart Order",
-          details: `RSM ${currentRsm?.first_name} created order ${orderCode} for Dealer. Total PKR ${totalAmount.toLocaleString()}`,
+          details: `User ${currentRsm?.first_name} created order ${orderCode} assigned to RSM ${empName}. Total PKR ${totalAmount.toLocaleString()}`,
         });
       } catch (logErr) {
         console.warn("Activity log failed:", logErr);
@@ -426,21 +425,21 @@ export default function CreateOrderPage() {
         {/* Figma 3-Column Dropdowns Container */}
         <div className="bg-white border border-slate-200 rounded-[12px] p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-5 relative z-20">
           
-          {/* 1. Dealer Select (Business Requirement) */}
+          {/* 1. Employee Select (Business Requirement) */}
           <div className="flex-1 min-w-[200px]">
             <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
-              Select Dealer*
+              Select Employee / RSM*
             </label>
             <select
-              value={selectedDealerId}
-              onChange={(e) => setSelectedDealerId(e.target.value)}
+              value={selectedEmployeeId}
+              onChange={(e) => setSelectedEmployeeId(e.target.value)}
               className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:border-[#00B4D8] cursor-pointer"
               required
             >
-              <option value="">Select Dealer</option>
-              {dealers.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.first_name} {d.last_name || ""} {d.warehouse ? `(${d.warehouse})` : ""}
+              <option value="">Select Employee / RSM</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>
+                  {emp.first_name} {emp.last_name || ""} {emp.warehouse ? `(${emp.warehouse})` : ""}
                 </option>
               ))}
             </select>
