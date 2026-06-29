@@ -5,6 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
+import { deleteUserAction } from "@/app/actions/users";
 
 interface InstallerProfile {
   id: string;
@@ -61,6 +62,18 @@ export default function InstallerListPage() {
   const handleEditClick = (user: any) => {
     setEditingUser(user);
     setIsModalOpen(true);
+  };
+
+  const handleDeleteClick = async (user: any) => {
+    if (window.confirm(`Are you sure you want to delete installer ${user.installer_name}?`)) {
+      const res = await deleteUserAction(user.id);
+      if (res.success) {
+        toast.success(res.message);
+        fetchInstallers();
+      } else {
+        toast.error(res.error || "Failed to delete user");
+      }
+    }
   };
 
   const filtered = installers.filter((item) => {
@@ -122,7 +135,15 @@ export default function InstallerListPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        actionButton={{
+          label: "Add Installer",
+          onClick: () => {
+            setEditingUser(undefined);
+            setIsModalOpen(true);
+          }
+        }}
         onEditClick={handleEditClick}
+        onDeleteClick={handleDeleteClick}
       />
 
       <UserModal

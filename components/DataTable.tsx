@@ -40,6 +40,7 @@ interface DataTableProps {
   actionButton?: ActionButton;
   pagination: Pagination;
   onEditClick?: (row: any) => void;
+  onDeleteClick?: (row: any) => void;
 }
 
 export default function DataTable({
@@ -53,6 +54,7 @@ export default function DataTable({
   actionButton,
   pagination,
   onEditClick,
+  onDeleteClick,
 }: DataTableProps) {
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [searchValue, setSearchValue] = useState("");
@@ -191,7 +193,7 @@ export default function DataTable({
                 </th>
               ))}
               {onEditClick && (
-                <th className="w-20 px-5 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                <th className="w-24 px-5 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                   Actions
                 </th>
               )}
@@ -270,13 +272,25 @@ export default function DataTable({
                     })}
                     {/* Inline Actions */}
                     {onEditClick && (
-                      <td className="px-5 py-3.5 text-right">
+                      <td className="px-5 py-3.5 text-right flex items-center justify-end gap-2">
                         <button
                           onClick={() => onEditClick(row)}
-                          className="p-1 text-[#00B4D8] hover:text-[#0077B6] hover:bg-[#F0FAFE] rounded transition-all duration-200 inline-flex"
+                          className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-[#00B4D8] rounded-[6px] transition-colors"
+                          title="Edit"
                         >
-                          <Edit2 className="w-3.5 h-3.5" />
+                          <Edit2 className="w-4 h-4" />
                         </button>
+                        {onDeleteClick && (
+                          <button
+                            onClick={() => onDeleteClick(row)}
+                            className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-rose-500 rounded-[6px] transition-colors"
+                            title="Delete"
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
                       </td>
                     )}
                   </tr>

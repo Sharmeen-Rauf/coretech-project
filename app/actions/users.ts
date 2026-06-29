@@ -47,6 +47,7 @@ export async function createUserAction(formData: any) {
     bankName,
     bankAccount,
     accountHolderName,
+    cnic,
   } = formData;
 
   try {
@@ -79,12 +80,13 @@ export async function createUserAction(formData: any) {
           bank_name: bankName || null,
           bank_account: bankAccount || null,
           account_holder_name: accountHolderName || null,
+          cnic: cnic || null,
         };
 
         let { error: profileError } = await supabase.from("profiles").insert(profileInsertData);
 
         if (profileError && (profileError.message.includes("column") || profileError.code === "PGRST204" || profileError.code === "42703")) {
-          const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName };
+          const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic };
           const cleanInsertData = {
             id: tempId,
             first_name: firstName,
@@ -172,6 +174,7 @@ export async function updateUserAction(id: string, formData: any) {
     bankName,
     bankAccount,
     accountHolderName,
+    cnic,
   } = formData;
 
   try {
@@ -190,6 +193,7 @@ export async function updateUserAction(id: string, formData: any) {
       bank_name: bankName || null,
       bank_account: bankAccount || null,
       account_holder_name: accountHolderName || null,
+      cnic: cnic || null,
     };
 
     let { data, error } = await supabase
@@ -200,7 +204,7 @@ export async function updateUserAction(id: string, formData: any) {
       .single();
 
     if (error && (error.message.includes("column") || error.code === "PGRST204" || error.code === "42703")) {
-      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName };
+      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic };
       const cleanUpdateData = {
         first_name: firstName,
         last_name: lastName,
@@ -224,5 +228,20 @@ export async function updateUserAction(id: string, formData: any) {
     return { success: true, message: "User profile successfully updated", data };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to update profile" };
+  }
+}
+
+export async function deleteUserAction(id: string) {
+  const supabase = getAdminClient();
+  try {
+    const { error } = await supabase.from("profiles").delete().eq("id", id);
+    if (error) throw error;
+    
+    // Attempt to delete auth user as well if permissions allow
+    await supabase.auth.admin.deleteUser(id); 
+
+    return { success: true, message: "User deleted successfully" };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete user" };
   }
 }
