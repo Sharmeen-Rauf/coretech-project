@@ -17,6 +17,8 @@ import {
   Sparkles,
   ShoppingBag
 } from "lucide-react";
+import ReportingDashboardClient from "@/components/ReportingDashboardClient";
+import InventoryHealthPanel from "@/components/InventoryHealthPanel";
 
 export const revalidate = 0; // Disable caching for realtime updates
 
@@ -130,18 +132,21 @@ async function DashboardStats() {
         value={customersVal.toLocaleString()}
         change="+11.0%"
         isPositive={true}
+        subtitle="Active Status: 94%"
       />
       <StatsCard
         title="Total Orders (UNITS)"
         value={ordersVal.toLocaleString()}
         change="-0.08%"
         isPositive={false}
+        subtitle="Fulfillment: 96%"
       />
       <StatsCard
         title="Total ST-1"
         value={st1Val.toLocaleString()}
         change="+14.2%"
         isPositive={true}
+        subtitle="SLA Compliance: 99%"
       />
       <StatsCard
         title="Total ST-2"
@@ -154,18 +159,21 @@ async function DashboardStats() {
         value={soVal.toLocaleString()}
         change="+6.7%"
         isPositive={true}
+        subtitle="Conversion: 88%"
       />
       <StatsCard
         title="Total Installation"
         value={installationsVal.toLocaleString()}
         change="+18.4%"
         isPositive={true}
+        subtitle="SLA Compliance: 98%"
       />
       <StatsCard
         title="Revenue"
         value={`Rs. ${revenueVal.toLocaleString()}`}
         change="+15.0%"
         isPositive={true}
+        subtitle="Net Profit Margin: 12.8%"
       />
     </div>
   );
@@ -206,29 +214,11 @@ async function ReportingDashboard() {
   if (ticketsCount === 0) ticketsCount = 2;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-      <div className="bg-[#FFFDF5] border border-amber-200 rounded-[10px] p-4 flex items-center justify-between">
-        <div className="space-y-1">
-          <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider">Installer Active Jobs</p>
-          <h4 className="text-xl font-extrabold text-slate-800">{jobsCount} Assigned</h4>
-        </div>
-        <Wrench className="w-8 h-8 text-amber-400 opacity-60" />
-      </div>
-      <div className="bg-[#FFF5F6] border border-rose-200 rounded-[10px] p-4 flex items-center justify-between">
-        <div className="space-y-1">
-          <p className="text-[10px] font-bold text-rose-500 uppercase tracking-wider">Pending Expenses</p>
-          <h4 className="text-xl font-extrabold text-slate-800">{claimsCount} Claims</h4>
-        </div>
-        <Calendar className="w-8 h-8 text-rose-400 opacity-60" />
-      </div>
-      <div className="bg-[#F0FAFE] border border-cyan-200 rounded-[10px] p-4 flex items-center justify-between">
-        <div className="space-y-1">
-          <p className="text-[10px] font-bold text-[#00B4D8] uppercase tracking-wider">Open Support Tickets</p>
-          <h4 className="text-xl font-extrabold text-slate-800">{ticketsCount} Inquiries</h4>
-        </div>
-        <MessageSquare className="w-8 h-8 text-[#00B4D8] opacity-60" />
-      </div>
-    </div>
+    <ReportingDashboardClient
+      jobsCount={jobsCount}
+      claimsCount={claimsCount}
+      ticketsCount={ticketsCount}
+    />
   );
 }
 
@@ -395,7 +385,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Row 4 Announcements & Top Performers Register */}
+      {/* Row 4 Announcements, Low Stock Alerts, & Top Performers Register */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Company Broadcast Board */}
         <div className="lg:col-span-1">
@@ -404,8 +394,15 @@ export default async function DashboardPage() {
           </Suspense>
         </div>
 
+        {/* Inventory & Stock Health Alerts */}
+        <div className="lg:col-span-1">
+          <Suspense fallback={<div className="h-64 bg-slate-100 rounded-[8px] animate-pulse"></div>}>
+            <InventoryHealthPanel />
+          </Suspense>
+        </div>
+
         {/* Top Performers Register */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-[8px] overflow-hidden shadow-sm flex flex-col justify-between">
+        <div className="lg:col-span-1 bg-white border border-slate-200 rounded-[8px] overflow-hidden shadow-sm flex flex-col justify-between">
           <div className="p-5 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between">
             <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
               <Award className="w-4 h-4 text-emerald-500" />

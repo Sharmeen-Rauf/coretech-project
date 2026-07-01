@@ -8,9 +8,10 @@ interface StatsCardProps {
   value: string | number;
   change: string;
   isPositive: boolean;
+  subtitle?: string;
 }
 
-export default function StatsCard({ title, value, change, isPositive }: StatsCardProps) {
+export default function StatsCard({ title, value, change, isPositive, subtitle }: StatsCardProps) {
   return (
     <div className="bg-white border border-slate-150 rounded-[8px] p-6 flex flex-col justify-between shadow-sm relative overflow-hidden group hover:border-[#00B4D8] transition-all duration-200">
       {/* Title */}
@@ -21,6 +22,11 @@ export default function StatsCard({ title, value, change, isPositive }: StatsCar
         <p className="text-3xl font-extrabold text-slate-800 tracking-tight">
           {value}
         </p>
+        {subtitle && (
+          <p className="text-[10px] text-slate-500 font-semibold mt-1">
+            {subtitle}
+          </p>
+        )}
       </div>
 
       {/* Change indicator */}

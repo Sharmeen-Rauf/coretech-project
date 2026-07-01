@@ -16,6 +16,8 @@ import {
   CheckCircle2,
   LogOut,
   Shield,
+  Plus,
+  ChevronDown,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
@@ -38,6 +40,7 @@ export default function Topbar() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const [profile, setProfile] = useState<any>({
     first_name: "",
     last_name: "",
@@ -190,6 +193,67 @@ export default function Topbar() {
 
         {/* Right Side Actions */}
         <div className="flex items-center gap-4">
+          {/* Quick Actions Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setIsQuickAddOpen(!isQuickAddOpen)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Quick Add</span>
+              <ChevronDown className="w-3 h-3" />
+            </button>
+
+            {isQuickAddOpen && (
+              <>
+                <div
+                  onClick={() => setIsQuickAddOpen(false)}
+                  className="fixed inset-0 z-30"
+                ></div>
+                <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-100 rounded-[12px] shadow-xl py-2 z-40 animate-in fade-in slide-in-from-top-2 duration-150 text-xs">
+                  <div className="px-4 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Create New
+                  </div>
+                  <Link
+                    href="/dashboard/invoices"
+                    onClick={() => setIsQuickAddOpen(false)}
+                    className="flex items-center px-4 py-2 hover:bg-slate-50 text-slate-700 font-medium transition-colors"
+                  >
+                    Create Invoice
+                  </Link>
+                  <Link
+                    href="/dashboard/support"
+                    onClick={() => setIsQuickAddOpen(false)}
+                    className="flex items-center px-4 py-2 hover:bg-slate-50 text-slate-700 font-medium transition-colors"
+                  >
+                    Open Support Ticket
+                  </Link>
+                  <Link
+                    href="/dashboard/users?role=employee"
+                    onClick={() => setIsQuickAddOpen(false)}
+                    className="flex items-center px-4 py-2 hover:bg-slate-50 text-slate-700 font-medium transition-colors"
+                  >
+                    Add Employee
+                  </Link>
+                  <Link
+                    href="/dashboard/installer/list"
+                    onClick={() => setIsQuickAddOpen(false)}
+                    className="flex items-center px-4 py-2 hover:bg-slate-50 text-slate-700 font-medium transition-colors"
+                  >
+                    Register Installer
+                  </Link>
+                  <Link
+                    href="/dashboard/purchase/warehouse"
+                    onClick={() => setIsQuickAddOpen(false)}
+                    className="flex items-center px-4 py-2 hover:bg-slate-50 text-slate-700 font-medium transition-colors"
+                  >
+                    Add Warehouse
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+
           {/* Today Dropdown Filter */}
           <div className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors bg-white">
             <Calendar className="w-3.5 h-3.5 text-[#00B4D8]" />
