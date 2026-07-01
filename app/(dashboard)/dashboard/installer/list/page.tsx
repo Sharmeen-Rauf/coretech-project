@@ -5,6 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
+import { deleteUserAction } from "@/app/actions/users";
 
 interface InstallerProfile {
   id: string;
@@ -63,17 +64,15 @@ export default function InstallerListPage() {
     setIsModalOpen(true);
   };
 
-  const handleDeleteInstaller = async (user: any) => {
-    if (!window.confirm(`Are you sure you want to delete installer ${user.first_name} ${user.last_name}?`)) return;
-
-    try {
-      const { error } = await supabase.from("profiles").delete().eq("id", user.id);
-      if (error) throw error;
-      
-      toast.success(`Installer deleted successfully!`);
-      fetchInstallers();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to delete installer");
+  const handleDeleteClick = async (user: any) => {
+    if (window.confirm(`Are you sure you want to delete installer ${user.installer_name}?`)) {
+      const res = await deleteUserAction(user.id);
+      if (res.success) {
+        toast.success(res.message);
+        fetchInstallers();
+      } else {
+        toast.error(res.error || "Failed to delete user");
+      }
     }
   };
 
@@ -136,8 +135,15 @@ export default function InstallerListPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        actionButton={{
+          label: "Add Installer",
+          onClick: () => {
+            setEditingUser(undefined);
+            setIsModalOpen(true);
+          }
+        }}
         onEditClick={handleEditClick}
-        onDeleteClick={handleDeleteInstaller}
+        onDeleteClick={handleDeleteClick}
       />
 
       <UserModal

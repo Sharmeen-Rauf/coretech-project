@@ -18,12 +18,29 @@ export default function ImportStockPage() {
   const [warehouseName, setWarehouseName] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [modelsList, setModelsList] = useState<string[]>([]);
+  const [userRole, setUserRole] = useState("");
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const fetchModels = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("role")
+            .eq("id", session.user.id)
+            .single();
+          if (profile?.role) {
+            setUserRole(profile.role);
+          }
+        }
+      } catch (err) {
+        console.warn("Failed to fetch user role", err);
+      }
+
       try {
         let dbModels: any[] = [];
         try {
@@ -180,9 +197,13 @@ export default function ImportStockPage() {
   return (
     <div className="space-y-6 select-none max-w-4xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Import Stock</h1>
+        <h1 className="text-2xl font-bold text-slate-800">
+          {userRole === "distributor" ? "Consignment Import" : "Import Stock"}
+        </h1>
         <p className="text-xs text-slate-500">
-          Upload products CSV inventory files and associate them to warehouses.
+          {userRole === "distributor" 
+            ? "Upload consignment CSV inventory files and associate them to warehouses."
+            : "Upload products CSV inventory files and associate them to warehouses."}
         </p>
       </div>
 

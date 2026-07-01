@@ -41,6 +41,7 @@ export default function UserModal({
   const [bankName, setBankName] = useState("");
   const [bankAccount, setBankAccount] = useState("");
   const [accountHolderName, setAccountHolderName] = useState("");
+  const [cnic, setCnic] = useState("");
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -72,6 +73,7 @@ export default function UserModal({
         setBankName(editingUser.bank_name || meta.bankName || "");
         setBankAccount(editingUser.bank_account || meta.bankAccount || "");
         setAccountHolderName(editingUser.account_holder_name || meta.accountHolderName || "");
+        setCnic(editingUser.cnic || meta.cnic || "");
       } else {
         setFirstName("");
         setLastName("");
@@ -89,6 +91,7 @@ export default function UserModal({
         setBankName("");
         setBankAccount("");
         setAccountHolderName("");
+        setCnic("");
       }
       setErrors({});
     }
@@ -101,7 +104,7 @@ export default function UserModal({
     if (!firstName.trim()) {
       errs.firstName = role === "Distributor" ? "Distributor name is required" : "First name is required";
     }
-    if (!lastName.trim()) {
+    if (!lastName.trim() && role !== "Installer") {
       errs.lastName = role === "Distributor" ? "Owner name is required" : "Last name is required";
     }
     
@@ -148,6 +151,7 @@ export default function UserModal({
       bankName,
       bankAccount,
       accountHolderName,
+      cnic,
     };
 
     try {
@@ -428,6 +432,127 @@ export default function UserModal({
                   </div>
                 </div>
               </div>
+            </div>
+          ) : role === "Installer" ? (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Name*
+                </label>
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                    errors.firstName ? "border-rose-500" : "border-slate-200"
+                  }`}
+                />
+                {errors.firstName && (
+                  <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.firstName}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Contact Number*
+                </label>
+                <input
+                  type="text"
+                  value={contact}
+                  onChange={(e) => setContact(e.target.value)}
+                  placeholder="0300-1234567"
+                  className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                    errors.contact ? "border-rose-500" : "border-slate-200"
+                  }`}
+                />
+                {errors.contact && (
+                  <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.contact}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  City
+                </label>
+                <input
+                  type="text"
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Region
+                </label>
+                <input
+                  type="text"
+                  value={region}
+                  onChange={(e) => setRegion(e.target.value)}
+                  className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Address
+                </label>
+                <input
+                  type="text"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  CNIC Number
+                </label>
+                <input
+                  type="text"
+                  value={cnic}
+                  onChange={(e) => setCnic(e.target.value)}
+                  placeholder="12345-1234567-1"
+                  className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                />
+              </div>
+              
+              {!isEdit && (
+                <>
+                  <div className="col-span-2 border-t pt-4 mt-2">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">System Credentials</h4>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      Email Address*
+                    </label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                        errors.email ? "border-rose-500" : "border-slate-200"
+                      }`}
+                    />
+                    {errors.email && (
+                      <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.email}</p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      Password*
+                    </label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                        errors.password ? "border-rose-500" : "border-slate-200"
+                      }`}
+                    />
+                    {errors.password && (
+                      <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.password}</p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <>
