@@ -14,8 +14,11 @@ import {
   X,
   User,
   CheckCircle2,
+  LogOut,
+  Shield,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import { useRouter } from "next/navigation";
 
 interface NotificationItem {
   id: string;
@@ -28,11 +31,19 @@ interface NotificationItem {
 
 export default function Topbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const supabase = createClientComponentClient();
   
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [profile, setProfile] = useState<any>({
+    first_name: "",
+    last_name: "",
+    email: "",
+    role: "",
+  });
 
   // Parse path to breadcrumbs
   const getBreadcrumbs = () => {
@@ -66,7 +77,29 @@ export default function Topbar() {
       }
     };
 
+    const fetchUserProfile = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .single();
+
+        if (error) throw error;
+        setProfile({
+          ...data,
+          email: session.user.email,
+        });
+      } catch (err: any) {
+        console.warn("Failed to fetch user profile in Topbar", err.message);
+      }
+    };
+
     fetchNotifications();
+    fetchUserProfile();
 
     // Subscribe to realtime changes
     const channel = supabase
@@ -111,6 +144,11 @@ export default function Topbar() {
     } catch (err: any) {
       toast.error(err.message);
     }
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
   };
 
   const formatDate = (isoString: string) => {
@@ -196,9 +234,66 @@ export default function Topbar() {
 
           <div className="w-px h-6 bg-slate-200 my-auto"></div>
 
-          {/* User Profile Avatar */}
-          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 border border-slate-300 shadow-sm cursor-pointer hover:border-[#00B4D8] transition-colors">
-            <User className="w-4 h-4" />
+          {/* User Profile Avatar with Dropdown */}
+          <div className="relative">
+            <div
+              onClick={() => setIsProfileOpen(!isProfileOpen)}
+              className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 border border-slate-300 shadow-sm cursor-pointer hover:border-[#00B4D8] transition-colors"
+            >
+              <User className="w-4 h-4" />
+            </div>
+
+            {isProfileOpen && (
+              <>
+                {/* Overlay for clicking outside */}
+                <div
+                  onClick={() => setIsProfileOpen(false)}
+                  className="fixed inset-0 z-30"
+                ></div>
+
+                {/* Dropdown Menu */}
+                <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-100 rounded-[12px] shadow-xl py-2 z-40 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <div className="px-4 py-2.5 border-b border-slate-50 flex flex-col">
+                    <span className="font-bold text-slate-800 text-xs">
+                      {profile.first_name ? `${profile.first_name} ${profile.last_name || ""}`.trim() : "CoreTECH User"}
+                    </span>
+                    <span className="text-[10px] text-slate-400 truncate mt-0.5">
+                      {profile.email}
+                    </span>
+                    <span className="inline-flex items-center gap-1 mt-1.5 self-start px-2 py-0.5 bg-[#F0FAFE] text-[#00B4D8] text-[9px] font-bold uppercase rounded-full">
+                      <Shield className="w-2.5 h-2.5" />
+                      {profile.role || "User"}
+                    </span>
+                  </div>
+                  
+                  <div className="py-1">
+                    <Link
+                      href="/dashboard/account"
+                      onClick={() => setIsProfileOpen(false)}
+                      className="flex items-center px-4 py-2 text-xs font-semibold text-slate-650 hover:bg-slate-50 transition-colors"
+                    >
+                      <Settings className="w-3.5 h-3.5 mr-2 text-slate-450" />
+                      Account Settings
+                    </Link>
+                  </div>
+
+                  <div className="border-t border-slate-50 my-1"></div>
+
+                  <div className="py-1">
+                    <button
+                      onClick={() => {
+                        setIsProfileOpen(false);
+                        handleSignOut();
+                      }}
+                      className="w-full flex items-center px-4 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition-colors text-left"
+                    >
+                      <LogOut className="w-3.5 h-3.5 mr-2" />
+                      Log Out
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </header>
