@@ -125,7 +125,7 @@ export default function UserModal({
       }
     }
     
-    if (role !== "Distributor" && !designation.trim()) errs.designation = "Designation is required";
+    if (role !== "Distributor" && role !== "Installer" && !designation.trim()) errs.designation = "Designation is required";
     if (!contact.trim()) errs.contact = "Contact number is required";
     
     setErrors(errs);
@@ -142,7 +142,7 @@ export default function UserModal({
       lastName,
       email,
       password,
-      designation: role === "Distributor" ? "Distributor" : designation,
+      designation: role === "Distributor" ? "Distributor" : role === "Installer" ? "Installer" : designation,
       contact,
       role: role.toLowerCase().replace(" ", "_"),
       group: role === "Distributor" ? "sales" : group,
