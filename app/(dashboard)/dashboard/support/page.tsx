@@ -5,7 +5,8 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import { Loader2, Plus, X, MessageSquare, HelpCircle, CheckCircle2 } from "lucide-react";
 import toast from "react-hot-toast";
-import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
+import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
+import { deleteRecordAction } from "@/app/actions/users";
 
 interface SupportTicketRow {
   id: string;
@@ -176,6 +177,26 @@ export default function SupportTicketsPage() {
     }
   };
 
+  const handleDeleteTicket = async (row: any) => {
+    if (!window.confirm(`Are you sure you want to delete this ticket?`)) return;
+
+    try {
+      if (row.id) {
+        const res = await deleteRecordAction("support_tickets", row.id);
+        if (!res.success) {
+          console.warn("DB delete failed, attempting local delete", res.error);
+        }
+      }
+      
+      deleteLocalItem("coretech_local_support_tickets", row.id);
+      
+      toast.success(`Ticket deleted successfully!`);
+      fetchTickets();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete ticket");
+    }
+  };
+
   const baseColumns = [
     { key: "user_name", label: "User" },
     { key: "subject", label: "Subject" },
@@ -273,6 +294,7 @@ export default function SupportTicketsPage() {
             perPage: perPage,
             onChange: (page) => setCurrentPage(page),
           }}
+          onDeleteClick={handleDeleteTicket}
         />
       )}
 

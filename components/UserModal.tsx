@@ -52,7 +52,6 @@ export default function UserModal({
         setFirstName(editingUser.first_name || "");
         setLastName(editingUser.last_name || "");
         setEmail(editingUser.email || "");
-        setDesignation(editingUser.designation || "");
         setContact(editingUser.contact || "");
         setGroup(editingUser.group_name || "sales");
         setStatus(editingUser.status || "active");
@@ -60,11 +59,16 @@ export default function UserModal({
 
         // Check for serialized metadata fallback in designation
         let meta: any = {};
+        let cleanDesignation = editingUser.designation || "";
         if (editingUser.designation && editingUser.designation.startsWith("[DISTRIBUTOR_METADATA]")) {
           try {
             meta = JSON.parse(editingUser.designation.replace("[DISTRIBUTOR_METADATA]", ""));
-          } catch (e) {}
+            cleanDesignation = meta.designation || (role === "Distributor" ? "Distributor" : "");
+          } catch (e) {
+            cleanDesignation = "";
+          }
         }
+        setDesignation(cleanDesignation);
         setState(editingUser.state || meta.state || "");
         setRegion(editingUser.region || meta.region || "");
         setWarehouse(editingUser.warehouse || meta.warehouse || "");

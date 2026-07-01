@@ -6,6 +6,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
+import { deleteUserAction } from "@/app/actions/users";
 
 interface UserProfile {
   id: string;
@@ -76,6 +77,23 @@ export default function UsersPage() {
     setIsModalOpen(true);
   };
 
+  // Handle Delete Action
+  const handleDeleteUser = async (user: UserProfile) => {
+    if (!window.confirm(`Are you sure you want to delete ${user.first_name} ${user.last_name}?`)) return;
+
+    try {
+      const res = await deleteUserAction(user.id);
+      if (res.success) {
+        toast.success(res.message || `${user.first_name} deleted successfully!`);
+        fetchUsers();
+      } else {
+        toast.error(res.error || "Failed to delete user");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete user");
+    }
+  };
+
   // Handle Create Action
   const handleAddClick = () => {
     setEditingUser(undefined);
@@ -106,7 +124,21 @@ export default function UsersPage() {
     { key: "first_name", label: "First Name" },
     { key: "last_name", label: "Last Name" },
     { key: "email", label: "Email Address" },
-    { key: "designation", label: "Designation" },
+    {
+      key: "designation",
+      label: "Designation",
+      render: (val: string, row: any) => {
+        if (val && val.startsWith("[DISTRIBUTOR_METADATA]")) {
+          try {
+            const meta = JSON.parse(val.replace("[DISTRIBUTOR_METADATA]", ""));
+            return meta.designation || (row.role === "distributor" ? "Distributor" : "");
+          } catch (e) {
+            return row.role === "distributor" ? "Distributor" : "";
+          }
+        }
+        return val;
+      }
+    },
     { key: "contact", label: "Contact" },
     {
       key: "group_name",
@@ -170,6 +202,7 @@ export default function UsersPage() {
           onChange: (page) => setCurrentPage(page),
         }}
         onEditClick={handleEditClick}
+        onDeleteClick={handleDeleteUser}
       />
 
       {/* User Management Form Modal */}

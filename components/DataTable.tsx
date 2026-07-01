@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Search, ChevronLeft, ChevronRight, Edit2, Info, ArrowUpDown } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Edit2, Info, ArrowUpDown, Trash2 } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 
 interface Column {
@@ -41,6 +41,7 @@ interface DataTableProps {
   pagination: Pagination;
   onEditClick?: (row: any) => void;
   onDeleteClick?: (row: any) => void;
+  onRowClick?: (row: any) => void;
 }
 
 export default function DataTable({
@@ -55,6 +56,7 @@ export default function DataTable({
   pagination,
   onEditClick,
   onDeleteClick,
+  onRowClick,
 }: DataTableProps) {
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [searchValue, setSearchValue] = useState("");
@@ -192,7 +194,7 @@ export default function DataTable({
                   </div>
                 </th>
               ))}
-              {onEditClick && (
+              {(onEditClick || onDeleteClick) && (
                 <th className="w-24 px-5 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                   Actions
                 </th>
@@ -212,7 +214,7 @@ export default function DataTable({
                       <div className="h-4 bg-slate-200 rounded w-24"></div>
                     </td>
                   ))}
-                  {onEditClick && (
+                  {(onEditClick || onDeleteClick) && (
                     <td className="px-5 py-4">
                       <div className="h-4 bg-slate-200 rounded w-8 ml-auto"></div>
                     </td>
@@ -223,7 +225,7 @@ export default function DataTable({
               // Empty State UI
               <tr>
                 <td
-                  colSpan={columns.length + (onEditClick ? 2 : 1)}
+                  colSpan={columns.length + ((onEditClick || onDeleteClick) ? 2 : 1)}
                   className="px-5 py-12 text-center"
                 >
                   <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
@@ -243,12 +245,13 @@ export default function DataTable({
                 return (
                   <tr
                     key={rowId}
+                    onClick={() => onRowClick && onRowClick(row)}
                     className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors ${
                       isSelected ? "bg-[#F0FAFE]/20" : ""
-                    }`}
+                    } ${onRowClick ? "cursor-pointer" : ""}`}
                   >
                     {/* Row Select */}
-                    <td className="px-5 py-3.5 text-center">
+                    <td className="px-5 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -271,15 +274,17 @@ export default function DataTable({
                       );
                     })}
                     {/* Inline Actions */}
-                    {onEditClick && (
-                      <td className="px-5 py-3.5 text-right flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => onEditClick(row)}
-                          className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-[#00B4D8] rounded-[6px] transition-colors"
-                          title="Edit"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
+                    {(onEditClick || onDeleteClick) && (
+                      <td className="px-5 py-3.5 text-right flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                        {onEditClick && (
+                          <button
+                            onClick={() => onEditClick(row)}
+                            className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-[#00B4D8] rounded-[6px] transition-colors"
+                            title="Edit"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
                         {onDeleteClick && (
                           <button
                             onClick={() => onDeleteClick(row)}

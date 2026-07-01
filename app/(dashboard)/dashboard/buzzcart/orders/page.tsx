@@ -6,6 +6,8 @@ import DataTable from "@/components/DataTable";
 import OrderModal from "@/components/OrderModal";
 import Link from "next/link";
 import OrderStatusModal from "@/components/OrderStatusModal";
+import toast from "react-hot-toast";
+import { deleteRecordAction } from "@/app/actions/users";
  
 interface OrderRow {
   id: string;
@@ -141,6 +143,27 @@ export default function BuzzcartOrdersPage() {
       supabase.removeChannel(channel);
     };
   }, [supabase]);
+
+  const handleDeleteOrder = async (row: any) => {
+    if (!window.confirm(`Are you sure you want to delete order ${row.order_code}?`)) return;
+
+    try {
+      if (row.id) {
+        const res = await deleteRecordAction("orders", row.id);
+        if (!res.success) {
+          console.warn("DB delete failed, attempting local delete", res.error);
+        }
+      }
+      
+      const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
+      deleteLocalItem("coretech_local_orders", row.id || row.order_code, row.id ? "id" : "order_code");
+      
+      toast.success(`Order deleted successfully!`);
+      fetchOrders();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete order");
+    }
+  };
 
   // Filter logic
   const filtered = orders.filter((o) => {
@@ -288,6 +311,7 @@ export default function BuzzcartOrdersPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        onDeleteClick={handleDeleteOrder}
       />
 
       <OrderModal

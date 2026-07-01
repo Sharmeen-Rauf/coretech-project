@@ -5,6 +5,8 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import ProductModal from "@/components/ProductModal";
 import toast from "react-hot-toast";
+import { deleteRecordAction } from "@/app/actions/users";
+import { fetchProductsAction } from "@/app/actions/products";
  
 export default function AioProductPage() {
   const supabase = createClientComponentClient();
@@ -21,17 +23,13 @@ export default function AioProductPage() {
   const fetchProducts = async () => {
     setIsLoading(true);
     try {
+      // Use server action to bypass RLS
+      const res = await fetchProductsAction("aio");
       let dbData: any[] = [];
-      try {
-        const { data, error } = await supabase
-          .from("products")
-          .select("*")
-          .eq("category", "aio")
-          .order("created_at", { ascending: false });
-        if (error) throw error;
-        dbData = data || [];
-      } catch (dbErr) {
-        console.warn("Failed to fetch aio products from Supabase. Using local fallback.", dbErr);
+      if (res.success) {
+        dbData = res.data || [];
+      } else {
+        console.warn("Failed to fetch aio products from server action.", res.error);
       }
 
       const { mergeLocalItems } = require("@/lib/supabaseLocalFallback");
@@ -92,6 +90,27 @@ export default function AioProductPage() {
     setEditingProduct(prod);
     setIsModalOpen(true);
   };
+
+  const handleDeleteProduct = async (prod: any) => {
+    if (!window.confirm(`Are you sure you want to delete ${prod.name}?`)) return;
+
+    try {
+      if (prod.id) {
+        const res = await deleteRecordAction("products", prod.id);
+        if (!res.success) {
+          console.warn("DB delete failed, attempting local delete", res.error);
+        }
+      }
+      
+      const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
+      deleteLocalItem("coretech_local_products", prod.id || prod.code, prod.id ? "id" : "code");
+      
+      toast.success(`${prod.name} deleted successfully!`);
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete product");
+    }
+  };
  
   return (
     <div className="space-y-6 select-none">
@@ -126,6 +145,7 @@ export default function AioProductPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        onDeleteClick={handleDeleteProduct}
       />
  
       <ProductModal

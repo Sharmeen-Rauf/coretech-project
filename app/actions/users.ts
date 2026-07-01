@@ -2,14 +2,26 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { createClient as createJSClient } from "@supabase/supabase-js";
 
 function getAdminClient() {
-  const cookieStore = cookies();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  // Use service role key if available for admin auth privileges, otherwise fallback to anon key
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  return createServerClient(supabaseUrl, supabaseServiceKey, {
+  if (supabaseServiceKey) {
+    // If service role key is present, bypass SSR cookies to run as superuser
+    return createJSClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+  }
+
+  const cookieStore = cookies();
+  const fallbackKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+  return createServerClient(supabaseUrl, fallbackKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -86,7 +98,7 @@ export async function createUserAction(formData: any) {
         let { error: profileError } = await supabase.from("profiles").insert(profileInsertData);
 
         if (profileError && (profileError.message.includes("column") || profileError.code === "PGRST204" || profileError.code === "42703")) {
-          const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic };
+          const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic, designation };
           const cleanInsertData = {
             id: tempId,
             first_name: firstName,
@@ -130,7 +142,7 @@ export async function createUserAction(formData: any) {
     let { error: profileError } = await supabase.from("profiles").insert(profileInsertData);
 
     if (profileError && (profileError.message.includes("column") || profileError.code === "PGRST204" || profileError.code === "42703")) {
-      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName };
+      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, designation };
       const cleanInsertData = {
         id: authUser.user.id,
         first_name: firstName,
@@ -201,10 +213,16 @@ export async function updateUserAction(id: string, formData: any) {
       .update(updateData)
       .eq("id", id)
       .select()
-      .single();
+      .maybeSingle();
+
+    if (error) {
+      // If RLS or other errors happened, let's keep going to column-missing checks
+    } else if (!data) {
+      throw new Error(`Profile not found in database for ID ${id}`);
+    }
 
     if (error && (error.message.includes("column") || error.code === "PGRST204" || error.code === "42703")) {
-      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic };
+      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic, designation };
       const cleanUpdateData = {
         first_name: firstName,
         last_name: lastName,
@@ -218,9 +236,13 @@ export async function updateUserAction(id: string, formData: any) {
         .update(cleanUpdateData)
         .eq("id", id)
         .select()
-        .single();
+        .maybeSingle();
       error = retryError;
       data = retryData;
+
+      if (!error && !data) {
+        throw new Error(`Profile not found in database during metadata fallback update for ID ${id}`);
+      }
     }
 
     if (error) throw error;
@@ -245,3 +267,51 @@ export async function deleteUserAction(id: string) {
     return { success: false, error: err.message || "Failed to delete user" };
   }
 }
+
+export async function deleteRecordAction(table: string, id: string) {
+  const supabase = getAdminClient();
+  try {
+    const { error } = await supabase.from(table).delete().eq("id", id);
+    if (error) throw error;
+    return { success: true, message: "Record deleted successfully" };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete record" };
+  }
+}
+
+export async function fetchRecordsAction(table: string, filters?: { column: string; value: string }[], orderBy?: string) {
+  const supabase = getAdminClient();
+  try {
+    let query = supabase.from(table).select("*");
+    if (filters) {
+      for (const f of filters) {
+        query = query.eq(f.column, f.value);
+      }
+    }
+    if (orderBy) {
+      query = query.order(orderBy, { ascending: false });
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    return { success: true, data: data || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch records", data: [] };
+  }
+}
+
+export async function fetchProfilesAction(role?: string) {
+  const supabase = getAdminClient();
+  try {
+    let query = supabase.from("profiles").select("*");
+    if (role) {
+      query = query.eq("role", role);
+    }
+    query = query.order("created_at", { ascending: false });
+    const { data, error } = await query;
+    if (error) throw error;
+    return { success: true, data: data || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch profiles", data: [] };
+  }
+}
+

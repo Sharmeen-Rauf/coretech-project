@@ -71,3 +71,14 @@ export function mergeLocalItems(
 
   return merged;
 }
+
+export function deleteLocalItem(key: string, id: string, idField = "id"): void {
+  if (typeof window === "undefined") return;
+  try {
+    const items = getLocalItems(key);
+    const updatedItems = items.filter((item: any) => item[idField] !== id);
+    localStorage.setItem(key, JSON.stringify(updatedItems));
+  } catch (e) {
+    console.error(`Failed to delete local item for key "${key}":`, e);
+  }
+}

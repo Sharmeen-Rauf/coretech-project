@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
+import { deleteRecordAction } from "@/app/actions/users";
 
 interface StockItem {
   id: string;
@@ -67,6 +68,21 @@ export default function InventoryPage() {
     fetchInventory();
   }, []);
 
+  const handleDeleteStock = async (row: any) => {
+    if (!window.confirm(`Are you sure you want to delete ${row.product_name} (${row.serial_no})?`)) return;
+
+    try {
+      if (row.id) {
+        const res = await deleteRecordAction("stock", row.id);
+        if (!res.success) throw new Error(res.error || "Failed to delete from DB");
+      }
+      toast.success(`Stock item deleted successfully!`);
+      fetchInventory();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete stock");
+    }
+  };
+
   const filtered = stock.filter((item) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
@@ -119,6 +135,7 @@ export default function InventoryPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        onDeleteClick={handleDeleteStock}
       />
     </div>
   );

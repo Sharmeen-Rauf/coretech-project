@@ -130,7 +130,7 @@ export default function AdminJobsPage() {
             // Format: [METADATA] SN:xxx | INC:xxx | REM:xxx
             const metaStr = firstLine.replace("[METADATA] ", "");
             const parts = metaStr.split(" | ");
-            parts.forEach(part => {
+            parts.forEach((part: string) => {
               const [key, val] = part.split(":");
               if (key === "SN") sn = val;
               else if (key === "INC") inc = parseFloat(val) || 0;
