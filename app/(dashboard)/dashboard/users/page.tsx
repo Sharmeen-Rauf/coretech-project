@@ -124,7 +124,21 @@ export default function UsersPage() {
     { key: "first_name", label: "First Name" },
     { key: "last_name", label: "Last Name" },
     { key: "email", label: "Email Address" },
-    { key: "designation", label: "Designation" },
+    {
+      key: "designation",
+      label: "Designation",
+      render: (val: string, row: any) => {
+        if (val && val.startsWith("[DISTRIBUTOR_METADATA]")) {
+          try {
+            const meta = JSON.parse(val.replace("[DISTRIBUTOR_METADATA]", ""));
+            return meta.designation || (row.role === "distributor" ? "Distributor" : "");
+          } catch (e) {
+            return row.role === "distributor" ? "Distributor" : "";
+          }
+        }
+        return val;
+      }
+    },
     { key: "contact", label: "Contact" },
     {
       key: "group_name",

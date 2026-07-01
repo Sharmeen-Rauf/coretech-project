@@ -7,6 +7,7 @@ import OrderModal from "@/components/OrderModal";
 import Link from "next/link";
 import OrderStatusModal from "@/components/OrderStatusModal";
 import toast from "react-hot-toast";
+import { deleteRecordAction } from "@/app/actions/users";
  
 interface OrderRow {
   id: string;
@@ -148,9 +149,9 @@ export default function BuzzcartOrdersPage() {
 
     try {
       if (row.id) {
-        const { error } = await supabase.from("orders").delete().eq("id", row.id);
-        if (error) {
-          console.warn("DB delete failed, attempting local delete", error);
+        const res = await deleteRecordAction("orders", row.id);
+        if (!res.success) {
+          console.warn("DB delete failed, attempting local delete", res.error);
         }
       }
       
