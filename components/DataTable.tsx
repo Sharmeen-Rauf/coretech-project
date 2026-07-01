@@ -41,6 +41,7 @@ interface DataTableProps {
   pagination: Pagination;
   onEditClick?: (row: any) => void;
   onDeleteClick?: (row: any) => void;
+  onRowClick?: (row: any) => void;
 }
 
 export default function DataTable({
@@ -55,6 +56,7 @@ export default function DataTable({
   pagination,
   onEditClick,
   onDeleteClick,
+  onRowClick,
 }: DataTableProps) {
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [searchValue, setSearchValue] = useState("");
@@ -243,12 +245,13 @@ export default function DataTable({
                 return (
                   <tr
                     key={rowId}
+                    onClick={() => onRowClick && onRowClick(row)}
                     className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors ${
                       isSelected ? "bg-[#F0FAFE]/20" : ""
-                    }`}
+                    } ${onRowClick ? "cursor-pointer" : ""}`}
                   >
                     {/* Row Select */}
-                    <td className="px-5 py-3.5 text-center">
+                    <td className="px-5 py-3.5 text-center" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -272,7 +275,7 @@ export default function DataTable({
                     })}
                     {/* Inline Actions */}
                     {(onEditClick || onDeleteClick) && (
-                      <td className="px-5 py-3.5 text-right flex items-center justify-end gap-2">
+                      <td className="px-5 py-3.5 text-right flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                         {onEditClick && (
                           <button
                             onClick={() => onEditClick(row)}

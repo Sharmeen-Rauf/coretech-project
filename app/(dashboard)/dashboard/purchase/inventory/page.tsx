@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
+import { deleteRecordAction } from "@/app/actions/users";
 
 interface StockItem {
   id: string;
@@ -72,8 +73,8 @@ export default function InventoryPage() {
 
     try {
       if (row.id) {
-        const { error } = await supabase.from("stock").delete().eq("id", row.id);
-        if (error) throw error;
+        const res = await deleteRecordAction("stock", row.id);
+        if (!res.success) throw new Error(res.error || "Failed to delete from DB");
       }
       toast.success(`Stock item deleted successfully!`);
       fetchInventory();

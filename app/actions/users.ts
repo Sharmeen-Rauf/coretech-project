@@ -267,3 +267,14 @@ export async function deleteUserAction(id: string) {
     return { success: false, error: err.message || "Failed to delete user" };
   }
 }
+
+export async function deleteRecordAction(table: string, id: string) {
+  const supabase = getAdminClient();
+  try {
+    const { error } = await supabase.from(table).delete().eq("id", id);
+    if (error) throw error;
+    return { success: true, message: "Record deleted successfully" };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete record" };
+  }
+}

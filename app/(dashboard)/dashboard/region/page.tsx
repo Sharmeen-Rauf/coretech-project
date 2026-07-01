@@ -6,6 +6,7 @@ import DataTable from "@/components/DataTable";
 import { X, Loader2, Plus } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
+import { deleteRecordAction } from "@/app/actions/users";
  
 interface RegionRow {
   id: string;
@@ -148,9 +149,9 @@ export default function RegionPage() {
     try {
       // Assuming row.id exists for DB records
       if (row.id) {
-        const { error } = await supabase.from("regions").delete().eq("id", row.id);
-        if (error) {
-          console.warn("DB delete failed, attempting local delete", error);
+        const res = await deleteRecordAction("regions", row.id);
+        if (!res.success) {
+          console.warn("DB delete failed, attempting local delete", res.error);
         }
       }
       

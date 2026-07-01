@@ -6,6 +6,7 @@ import DataTable from "@/components/DataTable";
 import OrderModal from "@/components/OrderModal";
 import Link from "next/link";
 import OrderStatusModal from "@/components/OrderStatusModal";
+import toast from "react-hot-toast";
  
 interface OrderRow {
   id: string;

@@ -6,6 +6,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
+import { deleteUserAction } from "@/app/actions/users";
 
 interface UserProfile {
   id: string;
@@ -81,11 +82,13 @@ export default function UsersPage() {
     if (!window.confirm(`Are you sure you want to delete ${user.first_name} ${user.last_name}?`)) return;
 
     try {
-      const { error } = await supabase.from("profiles").delete().eq("id", user.id);
-      if (error) throw error;
-      
-      toast.success(`${user.first_name} deleted successfully!`);
-      fetchUsers();
+      const res = await deleteUserAction(user.id);
+      if (res.success) {
+        toast.success(res.message || `${user.first_name} deleted successfully!`);
+        fetchUsers();
+      } else {
+        toast.error(res.error || "Failed to delete user");
+      }
     } catch (err: any) {
       toast.error(err.message || "Failed to delete user");
     }

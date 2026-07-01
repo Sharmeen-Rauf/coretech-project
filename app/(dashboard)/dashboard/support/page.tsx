@@ -6,6 +6,7 @@ import DataTable from "@/components/DataTable";
 import { Loader2, Plus, X, MessageSquare, HelpCircle, CheckCircle2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
+import { deleteRecordAction } from "@/app/actions/users";
 
 interface SupportTicketRow {
   id: string;
@@ -181,9 +182,9 @@ export default function SupportTicketsPage() {
 
     try {
       if (row.id) {
-        const { error } = await supabase.from("support_tickets").delete().eq("id", row.id);
-        if (error) {
-          console.warn("DB delete failed, attempting local delete", error);
+        const res = await deleteRecordAction("support_tickets", row.id);
+        if (!res.success) {
+          console.warn("DB delete failed, attempting local delete", res.error);
         }
       }
       

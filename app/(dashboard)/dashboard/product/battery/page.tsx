@@ -5,6 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import ProductModal from "@/components/ProductModal";
 import toast from "react-hot-toast";
+import { deleteRecordAction } from "@/app/actions/users";
  
 export default function BatteryProductPage() {
   const supabase = createClientComponentClient();
@@ -98,9 +99,9 @@ export default function BatteryProductPage() {
 
     try {
       if (prod.id) {
-        const { error } = await supabase.from("products").delete().eq("id", prod.id);
-        if (error) {
-          console.warn("DB delete failed, attempting local delete", error);
+        const res = await deleteRecordAction("products", prod.id);
+        if (!res.success) {
+          console.warn("DB delete failed, attempting local delete", res.error);
         }
       }
       

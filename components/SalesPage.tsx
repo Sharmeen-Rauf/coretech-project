@@ -121,7 +121,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
           .from("regions")
           .select("warehouse");
         
-        uniqueWHs = Array.from(new Set((regionData || []).map(r => r.warehouse).filter(Boolean))) as string[];
+        uniqueWHs = Array.from(new Set((regionData || []).map((r: any) => r.warehouse).filter(Boolean))) as string[];
       } catch (regionErr) {
         console.warn("Failed to fetch regions. Using local fallback.", regionErr);
         uniqueWHs = ["Lahore Central", "Port Qasim Storage", "I-9 Industrial Area"];

@@ -68,7 +68,7 @@ export default function InstallerListPage() {
     if (window.confirm(`Are you sure you want to delete installer ${user.installer_name}?`)) {
       const res = await deleteUserAction(user.id);
       if (res.success) {
-        toast.success(res.message);
+        toast.success(res.message || "Installer deleted successfully");
         fetchInstallers();
       } else {
         toast.error(res.error || "Failed to delete user");
