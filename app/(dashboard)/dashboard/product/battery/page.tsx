@@ -6,6 +6,7 @@ import DataTable from "@/components/DataTable";
 import ProductModal from "@/components/ProductModal";
 import toast from "react-hot-toast";
 import { deleteRecordAction } from "@/app/actions/users";
+import { fetchProductsAction } from "@/app/actions/products";
  
 export default function BatteryProductPage() {
   const supabase = createClientComponentClient();
@@ -22,17 +23,13 @@ export default function BatteryProductPage() {
   const fetchProducts = async () => {
     setIsLoading(true);
     try {
+      // Use server action to bypass RLS
+      const res = await fetchProductsAction("battery");
       let dbData: any[] = [];
-      try {
-        const { data, error } = await supabase
-          .from("products")
-          .select("*")
-          .eq("category", "battery")
-          .order("created_at", { ascending: false });
-        if (error) throw error;
-        dbData = data || [];
-      } catch (dbErr) {
-        console.warn("Failed to fetch battery products from Supabase. Using local fallback.", dbErr);
+      if (res.success) {
+        dbData = res.data || [];
+      } else {
+        console.warn("Failed to fetch battery products from server action.", res.error);
       }
 
       const { mergeLocalItems } = require("@/lib/supabaseLocalFallback");

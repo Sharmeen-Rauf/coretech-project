@@ -278,3 +278,40 @@ export async function deleteRecordAction(table: string, id: string) {
     return { success: false, error: err.message || "Failed to delete record" };
   }
 }
+
+export async function fetchRecordsAction(table: string, filters?: { column: string; value: string }[], orderBy?: string) {
+  const supabase = getAdminClient();
+  try {
+    let query = supabase.from(table).select("*");
+    if (filters) {
+      for (const f of filters) {
+        query = query.eq(f.column, f.value);
+      }
+    }
+    if (orderBy) {
+      query = query.order(orderBy, { ascending: false });
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    return { success: true, data: data || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch records", data: [] };
+  }
+}
+
+export async function fetchProfilesAction(role?: string) {
+  const supabase = getAdminClient();
+  try {
+    let query = supabase.from("profiles").select("*");
+    if (role) {
+      query = query.eq("role", role);
+    }
+    query = query.order("created_at", { ascending: false });
+    const { data, error } = await query;
+    if (error) throw error;
+    return { success: true, data: data || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch profiles", data: [] };
+  }
+}
+

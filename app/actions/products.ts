@@ -103,3 +103,20 @@ export async function getOrCreateProductByCode(code: string, fallbackData: any) 
     return { success: false, error: err.message || "Failed to get or create product" };
   }
 }
+
+export async function fetchProductsAction(category?: string) {
+  const supabase = getAdminClient();
+  try {
+    let query = supabase.from("products").select("*");
+    if (category) {
+      query = query.eq("category", category);
+    }
+    query = query.order("created_at", { ascending: false });
+    const { data, error } = await query;
+    if (error) throw error;
+    return { success: true, data: data || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch products", data: [] };
+  }
+}
+
