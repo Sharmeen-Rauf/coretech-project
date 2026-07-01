@@ -127,7 +127,7 @@ export default function WebInstallerPage() {
   // Parse instructions from notes
   const getJobInstructions = (jobNotes?: string) => {
     if (!jobNotes) return [];
-    let lines = jobNotes.split("\n");
+    const lines = jobNotes.split("\n");
     // Filter out [METADATA] line if present
     return lines
       .map(l => l.trim())
