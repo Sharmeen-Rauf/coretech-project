@@ -5,7 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import { X, Loader2, Plus, Home } from "lucide-react";
 import toast from "react-hot-toast";
-import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
+import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
 
 interface WarehouseRow {
   id: string;
@@ -120,6 +120,26 @@ export default function WarehousePage() {
     }
   };
 
+  const handleDeleteWarehouse = async (row: any) => {
+    if (!window.confirm(`Are you sure you want to delete warehouse ${row.warehouse}?`)) return;
+
+    try {
+      if (row.id) {
+        const { error } = await supabase.from("regions").delete().eq("id", row.id);
+        if (error) {
+          console.warn("DB delete failed, attempting local delete", error);
+        }
+      }
+      
+      deleteLocalItem("coretech_local_regions", row.id || row.region_code, row.id ? "id" : "region_code");
+      
+      toast.success(`Warehouse ${row.warehouse} deleted successfully!`);
+      fetchWarehouses();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete warehouse");
+    }
+  };
+
   const columns = [
     { key: "region_code", label: "Warehouse Code" },
     { key: "warehouse", label: "Warehouse Name" },
@@ -174,6 +194,7 @@ export default function WarehousePage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        onDeleteClick={handleDeleteWarehouse}
       />
 
       {/* Create Warehouse Modal */}

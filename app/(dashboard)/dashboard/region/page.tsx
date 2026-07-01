@@ -5,7 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import { X, Loader2, Plus } from "lucide-react";
 import toast from "react-hot-toast";
-import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
+import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
  
 interface RegionRow {
   id: string;
@@ -142,6 +142,39 @@ export default function RegionPage() {
     }
   };
  
+  const handleDeleteRegion = async (row: any) => {
+    if (!window.confirm(`Are you sure you want to delete region ${row.region_code}?`)) return;
+
+    try {
+      // Assuming row.id exists for DB records
+      if (row.id) {
+        const { error } = await supabase.from("regions").delete().eq("id", row.id);
+        if (error) {
+          console.warn("DB delete failed, attempting local delete", error);
+        }
+      }
+      
+      // Also remove locally to be safe or if it was only a local record
+      deleteLocalItem("coretech_local_regions", row.id || row.region_code, row.id ? "id" : "region_code");
+      
+      toast.success(`Region ${row.region_code} deleted successfully!`);
+      
+      // Log audit activity safely
+      try {
+        await supabase.from("activity_logs").insert({
+          action: "Region Deleted",
+          details: `Region Hub "${row.name}" (${row.region_code}) was deleted`,
+        });
+      } catch (logErr) {
+        console.warn("Activity log failed:", logErr);
+      }
+
+      fetchRegions();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete region");
+    }
+  };
+
   const columns = [
     { key: "region_code", label: "Region Code" },
     { key: "name", label: "Region Name" },
@@ -193,6 +226,7 @@ export default function RegionPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        onDeleteClick={handleDeleteRegion}
       />
  
       {/* Create Region Modal */}

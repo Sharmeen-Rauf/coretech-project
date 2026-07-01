@@ -92,6 +92,27 @@ export default function InverterProductPage() {
     setEditingProduct(prod);
     setIsModalOpen(true);
   };
+
+  const handleDeleteProduct = async (prod: any) => {
+    if (!window.confirm(`Are you sure you want to delete ${prod.name}?`)) return;
+
+    try {
+      if (prod.id) {
+        const { error } = await supabase.from("products").delete().eq("id", prod.id);
+        if (error) {
+          console.warn("DB delete failed, attempting local delete", error);
+        }
+      }
+      
+      const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
+      deleteLocalItem("coretech_local_products", prod.id || prod.code, prod.id ? "id" : "code");
+      
+      toast.success(`${prod.name} deleted successfully!`);
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete product");
+    }
+  };
  
   return (
     <div className="space-y-6 select-none">
@@ -126,6 +147,7 @@ export default function InverterProductPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        onDeleteClick={handleDeleteProduct}
       />
  
       <ProductModal

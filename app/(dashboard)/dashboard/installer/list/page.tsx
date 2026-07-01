@@ -63,6 +63,20 @@ export default function InstallerListPage() {
     setIsModalOpen(true);
   };
 
+  const handleDeleteInstaller = async (user: any) => {
+    if (!window.confirm(`Are you sure you want to delete installer ${user.first_name} ${user.last_name}?`)) return;
+
+    try {
+      const { error } = await supabase.from("profiles").delete().eq("id", user.id);
+      if (error) throw error;
+      
+      toast.success(`Installer deleted successfully!`);
+      fetchInstallers();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete installer");
+    }
+  };
+
   const filtered = installers.filter((item) => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
@@ -123,6 +137,7 @@ export default function InstallerListPage() {
           onChange: (page) => setCurrentPage(page),
         }}
         onEditClick={handleEditClick}
+        onDeleteClick={handleDeleteInstaller}
       />
 
       <UserModal

@@ -76,6 +76,21 @@ export default function UsersPage() {
     setIsModalOpen(true);
   };
 
+  // Handle Delete Action
+  const handleDeleteUser = async (user: UserProfile) => {
+    if (!window.confirm(`Are you sure you want to delete ${user.first_name} ${user.last_name}?`)) return;
+
+    try {
+      const { error } = await supabase.from("profiles").delete().eq("id", user.id);
+      if (error) throw error;
+      
+      toast.success(`${user.first_name} deleted successfully!`);
+      fetchUsers();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete user");
+    }
+  };
+
   // Handle Create Action
   const handleAddClick = () => {
     setEditingUser(undefined);
@@ -170,6 +185,7 @@ export default function UsersPage() {
           onChange: (page) => setCurrentPage(page),
         }}
         onEditClick={handleEditClick}
+        onDeleteClick={handleDeleteUser}
       />
 
       {/* User Management Form Modal */}

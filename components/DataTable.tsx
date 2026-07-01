@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Search, ChevronLeft, ChevronRight, Edit2, Info, ArrowUpDown } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Edit2, Info, ArrowUpDown, Trash2 } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 
 interface Column {
@@ -40,6 +40,7 @@ interface DataTableProps {
   actionButton?: ActionButton;
   pagination: Pagination;
   onEditClick?: (row: any) => void;
+  onDeleteClick?: (row: any) => void;
 }
 
 export default function DataTable({
@@ -53,6 +54,7 @@ export default function DataTable({
   actionButton,
   pagination,
   onEditClick,
+  onDeleteClick,
 }: DataTableProps) {
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [searchValue, setSearchValue] = useState("");
@@ -190,7 +192,7 @@ export default function DataTable({
                   </div>
                 </th>
               ))}
-              {onEditClick && (
+              {(onEditClick || onDeleteClick) && (
                 <th className="w-20 px-5 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                   Actions
                 </th>
@@ -210,7 +212,7 @@ export default function DataTable({
                       <div className="h-4 bg-slate-200 rounded w-24"></div>
                     </td>
                   ))}
-                  {onEditClick && (
+                  {(onEditClick || onDeleteClick) && (
                     <td className="px-5 py-4">
                       <div className="h-4 bg-slate-200 rounded w-8 ml-auto"></div>
                     </td>
@@ -221,7 +223,7 @@ export default function DataTable({
               // Empty State UI
               <tr>
                 <td
-                  colSpan={columns.length + (onEditClick ? 2 : 1)}
+                  colSpan={columns.length + ((onEditClick || onDeleteClick) ? 2 : 1)}
                   className="px-5 py-12 text-center"
                 >
                   <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
@@ -269,14 +271,28 @@ export default function DataTable({
                       );
                     })}
                     {/* Inline Actions */}
-                    {onEditClick && (
+                    {(onEditClick || onDeleteClick) && (
                       <td className="px-5 py-3.5 text-right">
-                        <button
-                          onClick={() => onEditClick(row)}
-                          className="p-1 text-[#00B4D8] hover:text-[#0077B6] hover:bg-[#F0FAFE] rounded transition-all duration-200 inline-flex"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex justify-end gap-2">
+                          {onEditClick && (
+                            <button
+                              onClick={() => onEditClick(row)}
+                              className="p-1 text-[#00B4D8] hover:text-[#0077B6] hover:bg-[#F0FAFE] rounded transition-all duration-200 inline-flex"
+                              title="Edit"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {onDeleteClick && (
+                            <button
+                              onClick={() => onDeleteClick(row)}
+                              className="p-1 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded transition-all duration-200 inline-flex"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>

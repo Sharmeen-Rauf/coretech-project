@@ -142,6 +142,27 @@ export default function BuzzcartOrdersPage() {
     };
   }, [supabase]);
 
+  const handleDeleteOrder = async (row: any) => {
+    if (!window.confirm(`Are you sure you want to delete order ${row.order_code}?`)) return;
+
+    try {
+      if (row.id) {
+        const { error } = await supabase.from("orders").delete().eq("id", row.id);
+        if (error) {
+          console.warn("DB delete failed, attempting local delete", error);
+        }
+      }
+      
+      const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
+      deleteLocalItem("coretech_local_orders", row.id || row.order_code, row.id ? "id" : "order_code");
+      
+      toast.success(`Order deleted successfully!`);
+      fetchOrders();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete order");
+    }
+  };
+
   // Filter logic
   const filtered = orders.filter((o) => {
     const q = searchQuery.toLowerCase().trim();
@@ -288,6 +309,7 @@ export default function BuzzcartOrdersPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        onDeleteClick={handleDeleteOrder}
       />
 
       <OrderModal
