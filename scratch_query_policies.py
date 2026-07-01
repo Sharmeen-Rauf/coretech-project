@@ -15,15 +15,15 @@ def run_query():
         cur = conn.cursor()
         
         # Query policies
-        print("Querying RLS policies for 'products' table...")
-        cur.execute("SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check FROM pg_policies WHERE tablename = 'products';")
+        print("Querying RLS policies for 'profiles' table...")
+        cur.execute("SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check FROM pg_policies WHERE tablename = 'profiles';")
         rows = cur.fetchall()
         for row in rows:
             print(f"Policy: {row[2]} | Permissive: {row[3]} | Roles: {row[4]} | Cmd: {row[5]} | Qual: {row[6]} | WithCheck: {row[7]}")
             
-        # Also, check if RLS is enabled on products
-        print("\nChecking if RLS is enabled on 'products' table...")
-        cur.execute("SELECT relname, relrowsecurity FROM pg_class WHERE relname = 'products';")
+        # Also, check if RLS is enabled on profiles
+        print("\nChecking if RLS is enabled on 'profiles' table...")
+        cur.execute("SELECT relname, relrowsecurity FROM pg_class WHERE relname = 'profiles';")
         row = cur.fetchone()
         if row:
             print(f"Table: {row[0]} | Row Security Enabled: {row[1]}")

@@ -2,13 +2,26 @@
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { createClient as createJSClient } from "@supabase/supabase-js";
 
 function getAdminClient() {
-  const cookieStore = cookies();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  return createServerClient(supabaseUrl, supabaseServiceKey, {
+  if (supabaseServiceKey) {
+    // If service role key is present, bypass SSR cookies to run as superuser
+    return createJSClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+  }
+
+  const cookieStore = cookies();
+  const fallbackKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+  return createServerClient(supabaseUrl, fallbackKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -50,9 +63,12 @@ export async function updateProductAction(id: string, data: any) {
       .update(data)
       .eq("id", id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
+    if (!updatedProd) {
+      throw new Error(`Product not found in database for ID ${id}`);
+    }
     return { success: true, data: updatedProd };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to update product" };
