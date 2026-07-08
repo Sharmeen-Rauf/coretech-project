@@ -6,7 +6,7 @@ import DataTable from "@/components/DataTable";
 import { X, Loader2, Plus, Home } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
-import { deleteRecordAction } from "@/app/actions/users";
+import { deleteRecordAction, fetchRecordsAction } from "@/app/actions/users";
 
 interface WarehouseRow {
   id: string;
@@ -35,29 +35,19 @@ export default function WarehousePage() {
     setIsLoading(true);
     let dbData: any[] = [];
     try {
-      const { data, error } = await supabase
-        .from("regions")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      dbData = data || [];
+      // Use server action to bypass RLS
+      const res = await fetchRecordsAction("regions", undefined, "created_at");
+      if (res.success) {
+        dbData = res.data || [];
+      } else {
+        console.warn("Failed to fetch warehouses from server action.", res.error);
+      }
     } catch (err: any) {
-      console.warn("Failed to fetch warehouses/regions from database. Using local fallback.", err);
+      console.warn("Failed to fetch warehouses/regions from database.", err);
     }
 
     const merged = mergeLocalItems(dbData, "coretech_local_regions");
-    if (merged.length === 0) {
-      // Default fallback hubs
-      const defaultWarehouses = [
-        { id: "1", region_code: "WH-LHR-01", name: "Lahore Central", warehouse: "Lahore Central Warehouse", status: "active", created_at: new Date().toISOString() },
-        { id: "2", region_code: "WH-KHI-01", name: "Karachi South", warehouse: "Port Qasim Storage Depot", status: "active", created_at: new Date().toISOString() },
-        { id: "3", region_code: "WH-ISB-01", name: "Islamabad Capital", warehouse: "I-9 Industrial Area Depot", status: "active", created_at: new Date().toISOString() },
-      ];
-      setWarehousesList(defaultWarehouses);
-    } else {
-      setWarehousesList(merged);
-    }
+    setWarehousesList(merged);
     setIsLoading(false);
   };
 
@@ -125,16 +115,26 @@ export default function WarehousePage() {
     if (!window.confirm(`Are you sure you want to delete warehouse ${row.warehouse}?`)) return;
 
     try {
+      let dbDeleteOk = false;
       if (row.id) {
         const res = await deleteRecordAction("regions", row.id);
-        if (!res.success) {
-          console.warn("DB delete failed, attempting local delete", res.error);
+        if (res.success) {
+          dbDeleteOk = true;
+        } else {
+          console.warn("DB delete failed:", res.error);
         }
       }
       
+      // Also remove from local storage
       deleteLocalItem("coretech_local_regions", row.id || row.region_code, row.id ? "id" : "region_code");
       
-      toast.success(`Warehouse ${row.warehouse} deleted successfully!`);
+      if (dbDeleteOk) {
+        toast.success(`Warehouse "${row.warehouse}" deleted successfully!`);
+      } else if (row.id) {
+        toast.error(`Failed to delete warehouse from database. It may not exist.`);
+      } else {
+        toast.success(`Warehouse "${row.warehouse}" removed locally!`);
+      }
       fetchWarehouses();
     } catch (err: any) {
       toast.error(err.message || "Failed to delete warehouse");

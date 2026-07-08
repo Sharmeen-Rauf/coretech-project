@@ -6,7 +6,7 @@ import DataTable from "@/components/DataTable";
 import { X, Loader2, Plus } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
-import { deleteRecordAction } from "@/app/actions/users";
+import { deleteRecordAction, fetchRecordsAction } from "@/app/actions/users";
  
 interface RegionRow {
   id: string;
@@ -36,50 +36,20 @@ export default function RegionPage() {
     setIsLoading(true);
     let dbData: any[] = [];
     try {
-      const { data, error } = await supabase
-        .from("regions")
-        .select("*")
-        .order("created_at", { ascending: false });
- 
-      if (error) throw error;
-      dbData = data || [];
- 
-      // If table is newly created and empty, pre-populate standard Pakistan hubs for convenience
-      if (dbData.length === 0) {
-        const defaultRegions = [
-          { region_code: "PK-LHR", name: "Lahore Hub", warehouse: "Lahore Central", distributors: 8, sub_dealers: 22, status: "active" },
-          { region_code: "PK-KHI", name: "Karachi South", warehouse: "Port Qasim Storage", distributors: 12, sub_dealers: 35, status: "active" },
-          { region_code: "PK-ISB", name: "Islamabad Capital", warehouse: "I-9 Industrial Area", distributors: 6, sub_dealers: 18, status: "active" },
-          { region_code: "PK-PEW", name: "Peshawar Northwest", warehouse: "Hayatabad Depot", distributors: 4, sub_dealers: 11, status: "active" },
-          { region_code: "PK-MUX", name: "Multan Central", warehouse: "Multan Bypass Yard", distributors: 3, sub_dealers: 9, status: "active" },
-        ];
- 
-        // Insert defaults asynchronously so they persist in DB
-        try {
-          await supabase.from("regions").insert(defaultRegions);
-        } catch (e) {
-          console.warn("Could not insert default regions:", e);
-        }
-        dbData = defaultRegions;
+      // Use server action to bypass RLS
+      const res = await fetchRecordsAction("regions", undefined, "created_at");
+      if (res.success) {
+        dbData = res.data || [];
+      } else {
+        console.warn("Failed to fetch regions from server action.", res.error);
       }
     } catch (err: any) {
-      console.warn("Regions table query failed. Using local storage + memory defaults.", err);
+      console.warn("Regions fetch failed.", err);
     }
  
-    // Merge database/memory items with local storage custom items
+    // Merge database items with local storage custom items
     const merged = mergeLocalItems(dbData, "coretech_local_regions");
-    if (merged.length === 0) {
-      const defaultRegions = [
-        { id: "1", region_code: "PK-LHR", name: "Lahore Hub", warehouse: "Lahore Central", distributors: 8, sub_dealers: 22, status: "active" },
-        { id: "2", region_code: "PK-KHI", name: "Karachi South", warehouse: "Port Qasim Storage", distributors: 12, sub_dealers: 35, status: "active" },
-        { id: "3", region_code: "PK-ISB", name: "Islamabad Capital", warehouse: "I-9 Industrial Area", distributors: 6, sub_dealers: 18, status: "active" },
-        { id: "4", region_code: "PK-PEW", name: "Peshawar Northwest", warehouse: "Hayatabad Depot", distributors: 4, sub_dealers: 11, status: "active" },
-        { id: "5", region_code: "PK-MUX", name: "Multan Central", warehouse: "Multan Bypass Yard", distributors: 3, sub_dealers: 9, status: "active" },
-      ];
-      setRegions(defaultRegions);
-    } else {
-      setRegions(merged);
-    }
+    setRegions(merged);
     setIsLoading(false);
   };
  

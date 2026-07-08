@@ -5,6 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
 import { deleteRecordAction } from "@/app/actions/users";
+import { fetchStockAction } from "@/app/actions/products";
 
 interface StockItem {
   id: string;
@@ -30,21 +31,15 @@ export default function InventoryPage() {
   const fetchInventory = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("stock")
-        .select(`
-          *,
-          products (
-            name,
-            brand,
-            model
-          )
-        `)
-        .order("created_at", { ascending: false });
+      // Use server action to bypass RLS
+      const res = await fetchStockAction();
+      if (!res.success) {
+        console.warn("Failed to fetch stock:", res.error);
+        setStock([]);
+        return;
+      }
 
-      if (error) throw error;
-
-      const formatted = (data || []).map((row: any, idx: number) => ({
+      const formatted = (res.data || []).map((row: any, idx: number) => ({
         id: row.id,
         sno: String(idx + 1).padStart(2, "0"),
         product_name: row.products?.name || "Unknown Product",

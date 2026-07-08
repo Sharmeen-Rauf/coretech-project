@@ -120,3 +120,23 @@ export async function fetchProductsAction(category?: string) {
   }
 }
 
+export async function fetchStockAction() {
+  const supabase = getAdminClient();
+  try {
+    const { data, error } = await supabase
+      .from("stock")
+      .select(`
+        *,
+        products (
+          name,
+          brand,
+          model
+        )
+      `)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    return { success: true, data: data || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch stock", data: [] };
+  }
+}
