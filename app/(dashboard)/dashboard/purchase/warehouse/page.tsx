@@ -61,7 +61,11 @@ export default function WarehousePage() {
     }
 
     const merged = mergeLocalItems(dbData, "coretech_local_regions");
-    setWarehousesList(merged);
+    const formatted = merged.map((w: any, idx: number) => ({
+      ...w,
+      id: w.id || w.region_code || `local-${idx}`,
+    }));
+    setWarehousesList(formatted);
     setIsLoading(false);
   };
 
@@ -153,6 +157,9 @@ export default function WarehousePage() {
       
       // Also remove from local storage
       deleteLocalItem("coretech_local_regions", row.id || row.region_code, row.id ? "id" : "region_code");
+      if (row.region_code) {
+        deleteLocalItem("coretech_local_regions", row.region_code, "region_code");
+      }
       
       if (dbDeleteOk) {
         toast.success(`Warehouse "${row.warehouse}" deleted successfully!`);
@@ -182,6 +189,11 @@ export default function WarehousePage() {
           }
         }
         deleteLocalItem("coretech_local_regions", id, "id");
+        
+        const whObj = warehousesList.find(w => w.id === id);
+        if (whObj && whObj.region_code) {
+          deleteLocalItem("coretech_local_regions", whObj.region_code, "region_code");
+        }
       }
 
       toast.success(`Successfully deleted ${selectedIds.length} warehouses!`);

@@ -37,6 +37,7 @@ export default function BatteryProductPage() {
 
       const formatted = merged.map((item: any, idx: number) => ({
         ...item,
+        id: item.id || item.code || `local-${idx}`,
         sno: String(idx + 1).padStart(2, "0"),
       }));
  
@@ -125,6 +126,11 @@ export default function BatteryProductPage() {
           await deleteRecordAction("products", id);
         }
         deleteLocalItem("coretech_local_products", id, "id");
+        
+        const prodObj = products.find(p => p.id === id);
+        if (prodObj && prodObj.code) {
+          deleteLocalItem("coretech_local_products", prodObj.code, "code");
+        }
         successCount++;
       }
 

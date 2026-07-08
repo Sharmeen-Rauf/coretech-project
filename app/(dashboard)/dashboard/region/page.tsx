@@ -49,7 +49,11 @@ export default function RegionPage() {
  
     // Merge database items with local storage custom items
     const merged = mergeLocalItems(dbData, "coretech_local_regions");
-    setRegions(merged);
+    const formatted = merged.map((r: any, idx: number) => ({
+      ...r,
+      id: r.id || r.region_code || `local-${idx}`,
+    }));
+    setRegions(formatted);
     setIsLoading(false);
   };
  
@@ -127,6 +131,9 @@ export default function RegionPage() {
       
       // Also remove locally to be safe or if it was only a local record
       deleteLocalItem("coretech_local_regions", row.id || row.region_code, row.id ? "id" : "region_code");
+      if (row.region_code) {
+        deleteLocalItem("coretech_local_regions", row.region_code, "region_code");
+      }
       
       toast.success(`Region ${row.region_code} deleted successfully!`);
       
@@ -143,6 +150,35 @@ export default function RegionPage() {
       fetchRegions();
     } catch (err: any) {
       toast.error(err.message || "Failed to delete region");
+    }
+  };
+
+  const handleBulkDeleteRegions = async (selectedIds: string[]) => {
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected regions?`)) return;
+
+    try {
+      let deletedCount = 0;
+      const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+      for (const id of selectedIds) {
+        if (isUUID(id)) {
+          const res = await deleteRecordAction("regions", id);
+          if (res.success) {
+            deletedCount++;
+          }
+        }
+        deleteLocalItem("coretech_local_regions", id, "id");
+        
+        const regObj = regions.find(r => r.id === id);
+        if (regObj && regObj.region_code) {
+          deleteLocalItem("coretech_local_regions", regObj.region_code, "region_code");
+        }
+      }
+
+      toast.success(`Successfully deleted ${selectedIds.length} regions!`);
+      fetchRegions();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to perform bulk deletion");
     }
   };
 
@@ -198,6 +234,7 @@ export default function RegionPage() {
           onChange: (page) => setCurrentPage(page),
         }}
         onDeleteClick={handleDeleteRegion}
+        onBulkDelete={handleBulkDeleteRegions}
       />
  
       {/* Create Region Modal */}
