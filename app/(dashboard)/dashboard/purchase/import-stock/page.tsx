@@ -6,6 +6,7 @@ import { Download, UploadCloud, FileText, Loader2, ArrowRight } from "lucide-rea
 import toast from "react-hot-toast";
 import { getOrCreateProductByCode } from "@/app/actions/products";
 import { getLocalItems, saveLocalItem } from "@/lib/supabaseLocalFallback";
+import { fetchRecordsAction } from "@/app/actions/users";
 
 export default function ImportStockPage() {
   const supabase = createClientComponentClient();
@@ -18,6 +19,7 @@ export default function ImportStockPage() {
   const [warehouseName, setWarehouseName] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [modelsList, setModelsList] = useState<string[]>([]);
+  const [warehousesList, setWarehousesList] = useState<string[]>([]);
   const [userRole, setUserRole] = useState("");
 
   // Validation errors
@@ -60,6 +62,16 @@ export default function ImportStockPage() {
         setModelsList(uniqueModels);
       } catch (err: any) {
         console.error("Error fetching product models:", err);
+      }
+
+      try {
+        const res = await fetchRecordsAction("regions");
+        if (res.success && res.data) {
+          const whs = Array.from(new Set(res.data.map((r: any) => r.warehouse).filter(Boolean))) as string[];
+          setWarehousesList(whs);
+        }
+      } catch (err) {
+        console.warn("Error fetching warehouses:", err);
       }
     };
     fetchModels();
@@ -337,15 +349,20 @@ export default function ImportStockPage() {
             <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
               Warehouse Name*
             </label>
-            <input
-              type="text"
-              placeholder="e.g. Lahore Central"
+            <select
               value={warehouseName}
               onChange={(e) => setWarehouseName(e.target.value)}
-              className={`w-full h-10 px-3 border rounded-[6px] text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#00B4D8] ${
+              className={`w-full h-10 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${
                 errors.warehouseName ? "border-rose-500" : "border-slate-200"
               }`}
-            />
+            >
+              <option value="">Select Warehouse Name</option>
+              {warehousesList.map((wh, idx) => (
+                <option key={idx} value={wh}>
+                  {wh}
+                </option>
+              ))}
+            </select>
             {errors.warehouseName && (
               <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.warehouseName}</p>
             )}

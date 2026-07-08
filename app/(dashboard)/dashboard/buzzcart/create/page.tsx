@@ -19,6 +19,7 @@ import toast from "react-hot-toast";
 import Link from "next/link";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import OrderStatusModal from "@/components/OrderStatusModal";
+import { fetchRecordsAction } from "@/app/actions/users";
 
 interface Product {
   id: string;
@@ -214,8 +215,23 @@ export default function CreateOrderPage() {
         const mergedStock = [...dbStock, ...localStock];
         setStockData(mergedStock);
 
-        // Fetch unique warehouses
+        // Fetch unique warehouses from regions
+        let dbWarehouses: string[] = [];
+        try {
+          const res = await fetchRecordsAction("regions");
+          if (res.success && res.data) {
+            dbWarehouses = Array.from(new Set(res.data.map((r: any) => r.warehouse).filter(Boolean))) as string[];
+          }
+        } catch (e) {
+          console.warn("Failed to fetch regions for unique warehouses", e);
+        }
+
+        const localRegions = getLocalItems("coretech_local_regions");
+        const localWHs = localRegions.map((r: any) => r.warehouse).filter(Boolean);
+
         const whs = Array.from(new Set([
+          ...dbWarehouses,
+          ...localWHs,
           ...mergedStock.map(s => s.warehouse_name),
           ...profiles.map(p => p.warehouse)
         ].filter(Boolean))) as string[];

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
+import { fetchRecordsAction } from "@/app/actions/users";
 
 interface SalesPageProps {
   type: "ST1" | "ST2" | "return" | "transfer";
@@ -117,14 +118,12 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
       // 3. Fetch warehouses from regions to prefill selection options
       let uniqueWHs: string[] = [];
       try {
-        const { data: regionData } = await supabase
-          .from("regions")
-          .select("warehouse");
-        
-        uniqueWHs = Array.from(new Set((regionData || []).map((r: any) => r.warehouse).filter(Boolean))) as string[];
+        const res = await fetchRecordsAction("regions");
+        if (res.success && res.data) {
+          uniqueWHs = Array.from(new Set(res.data.map((r: any) => r.warehouse).filter(Boolean))) as string[];
+        }
       } catch (regionErr) {
-        console.warn("Failed to fetch regions. Using local fallback.", regionErr);
-        uniqueWHs = ["Lahore Central", "Port Qasim Storage", "I-9 Industrial Area"];
+        console.warn("Failed to fetch regions.", regionErr);
       }
 
       const localRegions = getLocalItems("coretech_local_regions");

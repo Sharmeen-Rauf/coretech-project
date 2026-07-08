@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { X, Loader2 } from "lucide-react";
-import { createUserAction, updateUserAction } from "@/app/actions/users";
+import { createUserAction, updateUserAction, fetchRecordsAction } from "@/app/actions/users";
 import toast from "react-hot-toast";
 
 interface UserModalProps {
@@ -45,6 +45,22 @@ export default function UserModal({
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [dbWarehouses, setDbWarehouses] = useState<string[]>([]);
+
+  useEffect(() => {
+    const loadWHs = async () => {
+      try {
+        const res = await fetchRecordsAction("regions");
+        if (res.success && res.data) {
+          const names = Array.from(new Set(res.data.map((r: any) => r.warehouse).filter(Boolean))) as string[];
+          setDbWarehouses(names);
+        }
+      } catch (err) {
+        console.warn("Failed to load warehouses for dropdown", err);
+      }
+    };
+    loadWHs();
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
@@ -273,13 +289,18 @@ export default function UserModal({
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                     Warehouse
                   </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Lahore WH 1"
+                  <select
                     value={warehouse}
                     onChange={(e) => setWarehouse(e.target.value)}
-                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
-                  />
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white"
+                  >
+                    <option value="">Select Warehouse</option>
+                    {dbWarehouses.map((wh) => (
+                      <option key={wh} value={wh}>
+                        {wh}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
