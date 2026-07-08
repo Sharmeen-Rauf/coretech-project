@@ -3,16 +3,19 @@
 import { useEffect, useState } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 
-const data = [
-  { name: "Inverter", value: 38.5 },
-  { name: "Battery", value: 22.4 },
-  { name: "AIO", value: 18.1 },
-  { name: "Other", value: 21.0 },
-];
-
 const COLORS = ["#00B4D8", "#90E0EF", "#0077B6", "#E2E8F0"];
 
-export default function SalesDonutChart() {
+interface SalesDonutChartProps {
+  data?: { name: string; value: number }[];
+}
+
+export default function SalesDonutChart({ data: propData }: SalesDonutChartProps) {
+  const chartData = propData && propData.length > 0 ? propData : [
+    { name: "Inverter", value: 0 },
+    { name: "Battery", value: 0 },
+    { name: "AIO", value: 0 },
+    { name: "Other", value: 0 },
+  ];
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -32,7 +35,7 @@ export default function SalesDonutChart() {
       <ResponsiveContainer width="100%" height={190}>
         <PieChart>
           <Pie
-            data={data}
+            data={chartData}
             cx="50%"
             cy="50%"
             innerRadius={55}
@@ -40,7 +43,7 @@ export default function SalesDonutChart() {
             paddingAngle={3}
             dataKey="value"
           >
-            {data.map((entry, index) => (
+            {chartData.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </Pie>
@@ -58,7 +61,7 @@ export default function SalesDonutChart() {
 
       {/* Custom Legend */}
       <div className="grid grid-cols-2 gap-2 mt-4 px-4">
-        {data.map((item, idx) => (
+        {chartData.map((item, idx) => (
           <div key={item.name} className="flex items-center gap-2 text-xs">
             <span
               className="w-2.5 h-2.5 rounded-full"

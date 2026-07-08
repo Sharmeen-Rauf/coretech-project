@@ -3,17 +3,15 @@
 import React from "react";
 import { AlertCircle, CalendarRange, ChevronRight, PackageCheck, ThermometerSnowflake } from "lucide-react";
 
-export default function InventoryHealthPanel() {
-  const lowStockAlerts = [
-    { name: "Huawei Smart Inverter 10kW", current: 3, reorder: 10, unit: "units", badge: "Critical" },
-    { name: "Growatt Lithium Battery 5kW", current: 2, reorder: 8, unit: "units", badge: "Critical" },
-    { name: "Solis 3-Phase Inverter 20kW", current: 6, reorder: 12, unit: "units", badge: "Warning" },
-  ];
+interface InventoryHealthPanelProps {
+  lowStockAlerts?: { name: string; current: number; reorder: number; unit: string; badge: string }[];
+  agingStock?: { name: string; age: string; qty: number; status: string; location: string }[];
+}
 
-  const agingStock = [
-    { name: "Longi Solar Panels 550W", age: "115 Days", qty: 120, status: "Slow Moving", location: "KHI Hub" },
-    { name: "Growatt Off-Grid Inverter 3kW", age: "92 Days", qty: 14, status: "Awaiting Order", location: "LHR Central" },
-  ];
+export default function InventoryHealthPanel({
+  lowStockAlerts = [],
+  agingStock = []
+}: InventoryHealthPanelProps) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-[8px] p-5 shadow-sm space-y-5 select-none h-full flex flex-col justify-between">

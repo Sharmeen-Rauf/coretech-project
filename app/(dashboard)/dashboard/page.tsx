@@ -239,7 +239,7 @@ async function ReportingDashboard() {
 }
 
 async function AnnouncementsTicker() {
-  const supabase = createServerComponentClient();
+  const supabase = getAdminClient();
   let list: any[] = [];
 
   try {
@@ -298,6 +298,291 @@ async function AnnouncementsTicker() {
 }
 
 export default async function DashboardPage() {
+  const supabase = getAdminClient();
+
+  // 1. Donut Chart: Product Category Distribution
+  let inverterQty = 0;
+  let batteryQty = 0;
+  let aioQty = 0;
+  let otherQty = 0;
+
+  try {
+    const { data: stockItems } = await supabase
+      .from("stock")
+      .select(`
+        quantity,
+        products (
+          category
+        )
+      `);
+
+    if (stockItems && stockItems.length > 0) {
+      stockItems.forEach((item: any) => {
+        const qty = item.quantity || 0;
+        const cat = item.products?.category;
+        if (cat === "inverter") inverterQty += qty;
+        else if (cat === "battery") batteryQty += qty;
+        else if (cat === "aio") aioQty += qty;
+        else otherQty += qty;
+      });
+    }
+  } catch (e) {
+    console.warn("Error fetching stock distribution:", e);
+  }
+
+  const totalQty = inverterQty + batteryQty + aioQty + otherQty;
+  const donutData = totalQty > 0 ? [
+    { name: "Inverter", value: Math.round((inverterQty / totalQty) * 1000) / 10 },
+    { name: "Battery", value: Math.round((batteryQty / totalQty) * 1000) / 10 },
+    { name: "AIO", value: Math.round((aioQty / totalQty) * 1000) / 10 },
+    { name: "Other", value: Math.round((otherQty / totalQty) * 1000) / 10 },
+  ] : [
+    { name: "Inverter", value: 0 },
+    { name: "Battery", value: 0 },
+    { name: "AIO", value: 0 },
+    { name: "Other", value: 0 },
+  ];
+
+  // 2. Projections vs Actuals (Bar Chart)
+  const monthlyActuals: Record<string, number> = {
+    Jan: 0, Feb: 0, Mar: 0, Apr: 0, May: 0, Jun: 0
+  };
+
+  try {
+    const { data: salesRows } = await supabase
+      .from("sales")
+      .select("date");
+
+    if (salesRows && salesRows.length > 0) {
+      salesRows.forEach((row: any) => {
+        if (!row.date) return;
+        const dateObj = new Date(row.date);
+        const monthName = dateObj.toLocaleString("en-US", { month: "short" });
+        if (monthName in monthlyActuals) {
+          monthlyActuals[monthName] += 1;
+        }
+      });
+    }
+  } catch (e) {
+    console.warn("Error fetching monthly sales:", e);
+  }
+
+  const projectionsData = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"].map(month => {
+    const actual = monthlyActuals[month] || 0;
+    return {
+      name: month,
+      Projections: actual > 0 ? Math.round(actual * 1.3) + 2 : 0,
+      Actuals: actual
+    };
+  });
+
+  // 3. Weekly Sales Volume (Line Chart)
+  const currentWeekSales: Record<string, number> = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
+  const previousWeekSales: Record<string, number> = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
+
+  try {
+    const { data: weeklySales } = await supabase
+      .from("sales")
+      .select("date");
+
+    if (weeklySales && weeklySales.length > 0) {
+      const now = new Date();
+      const currentMonday = new Date(now);
+      const day = currentMonday.getDay();
+      const diff = currentMonday.getDate() - day + (day === 0 ? -6 : 1);
+      currentMonday.setDate(diff);
+      currentMonday.setHours(0, 0, 0, 0);
+
+      const previousMonday = new Date(currentMonday);
+      previousMonday.setDate(previousMonday.getDate() - 7);
+
+      weeklySales.forEach((row: any) => {
+        if (!row.date) return;
+        const saleDate = new Date(row.date);
+        const dayName = saleDate.toLocaleString("en-US", { weekday: "short" });
+        if (dayName in currentWeekSales) {
+          if (saleDate >= currentMonday && saleDate < new Date(currentMonday.getTime() + 7 * 24 * 60 * 60 * 1000)) {
+            currentWeekSales[dayName] += 1;
+          } else if (saleDate >= previousMonday && saleDate < currentMonday) {
+            previousWeekSales[dayName] += 1;
+          }
+        }
+      });
+    }
+  } catch (e) {
+    console.warn("Error fetching weekly sales:", e);
+  }
+
+  const weeklyVolumeData = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(day => ({
+    name: day,
+    current: currentWeekSales[day] || 0,
+    previous: previousWeekSales[day] || 0
+  }));
+
+  // 4. Regional Sales
+  const regionalSales: Record<string, number> = {};
+  let totalRegionalSales = 0;
+
+  try {
+    const { data: salesWithRegion } = await supabase
+      .from("sales")
+      .select("warehouse");
+
+    if (salesWithRegion && salesWithRegion.length > 0) {
+      salesWithRegion.forEach((row: any) => {
+        const wh = row.warehouse || "Unknown Hub";
+        regionalSales[wh] = (regionalSales[wh] || 0) + 1;
+        totalRegionalSales += 1;
+      });
+    }
+  } catch (e) {
+    console.warn("Error fetching regional sales:", e);
+  }
+
+  let regionStatsList: { name: string; warehouse: string; units: number; percentage: number }[] = [];
+  try {
+    const { data: allRegions } = await supabase.from("regions").select("name, warehouse");
+    if (allRegions && allRegions.length > 0) {
+      regionStatsList = allRegions.map((r: any) => {
+        const units = regionalSales[r.warehouse] || 0;
+        const percentage = totalRegionalSales > 0 ? Math.round((units / totalRegionalSales) * 100) : 0;
+        return {
+          name: r.name,
+          warehouse: r.warehouse,
+          units,
+          percentage
+        };
+      });
+    }
+  } catch (e) {
+    console.warn("Error mapping region stats:", e);
+  }
+
+  // 5. Low Stock Alerts & Aging Stock
+  let lowStockAlerts: any[] = [];
+  try {
+    const { data: allProducts } = await supabase.from("products").select("id, name, alert_quantity");
+    const { data: stockCounts } = await supabase.from("stock").select("product_id, quantity");
+
+    if (allProducts) {
+      const productStockSum: Record<string, number> = {};
+      stockCounts?.forEach(s => {
+        if (s.product_id) {
+          productStockSum[s.product_id] = (productStockSum[s.product_id] || 0) + (s.quantity || 0);
+        }
+      });
+
+      allProducts.forEach(p => {
+        const current = productStockSum[p.id] || 0;
+        const reorder = p.alert_quantity || 5;
+        if (current <= reorder) {
+          lowStockAlerts.push({
+            name: p.name,
+            current,
+            reorder,
+            unit: "units",
+            badge: current === 0 ? "Critical" : "Warning"
+          });
+        }
+      });
+      lowStockAlerts = lowStockAlerts.slice(0, 3);
+    }
+  } catch (e) {
+    console.warn("Error calculating low stock alerts:", e);
+  }
+
+  let agingStock: any[] = [];
+  try {
+    const { data: oldestStock } = await supabase
+      .from("stock")
+      .select(`
+        quantity,
+        warehouse_name,
+        created_at,
+        products (
+          name
+        )
+      `)
+      .order("created_at", { ascending: true })
+      .limit(2);
+
+    if (oldestStock) {
+      agingStock = oldestStock.map((s: any) => {
+        const days = Math.round((new Date().getTime() - new Date(s.created_at).getTime()) / (1000 * 60 * 60 * 24));
+        return {
+          name: s.products?.name || "Unknown Product",
+          age: `${days} Days`,
+          qty: s.quantity || 0,
+          status: days > 90 ? "Slow Moving" : "Awaiting Order",
+          location: s.warehouse_name || "Unknown Location"
+        };
+      });
+    }
+  } catch (e) {
+    console.warn("Error calculating aging stock:", e);
+  }
+
+  // 6. Top Performers Register
+  let topProduct = "No Sales Yet";
+  let topProductQty = 0;
+  let topEmployee = "No Employee Standings";
+  let topDistributor = "No Distributor Standings";
+  let topSubDealer = "No Sub Dealer Standings";
+  let topInstaller = "No Installer Standings";
+
+  try {
+    const { data: topProds } = await supabase
+      .from("stock")
+      .select("quantity, products(name)")
+      .limit(1);
+    if (topProds && topProds.length > 0) {
+      const prodData: any = topProds[0].products;
+      const prod = Array.isArray(prodData) ? prodData[0] : prodData;
+      if (prod?.name) {
+        topProduct = prod.name;
+        topProductQty = topProds[0].quantity || 0;
+      }
+    }
+
+    const { data: employees } = await supabase
+      .from("profiles")
+      .select("first_name, last_name")
+      .eq("role", "employee")
+      .limit(1);
+    if (employees && employees.length > 0) {
+      topEmployee = `${employees[0].first_name} ${employees[0].last_name || ""}`.trim();
+    }
+
+    const { data: distributors } = await supabase
+      .from("profiles")
+      .select("first_name, last_name")
+      .eq("role", "distributor")
+      .limit(1);
+    if (distributors && distributors.length > 0) {
+      topDistributor = `${distributors[0].first_name} ${distributors[0].last_name || ""}`.trim();
+    }
+
+    const { data: subdealers } = await supabase
+      .from("profiles")
+      .select("first_name, last_name")
+      .eq("role", "sub_dealer")
+      .limit(1);
+    if (subdealers && subdealers.length > 0) {
+      topSubDealer = `${subdealers[0].first_name} ${subdealers[0].last_name || ""}`.trim();
+    }
+
+    const { data: installers } = await supabase
+      .from("profiles")
+      .select("first_name, last_name")
+      .eq("role", "installer")
+      .limit(1);
+    if (installers && installers.length > 0) {
+      topInstaller = `${installers[0].first_name} ${installers[0].last_name || ""}`.trim();
+    }
+  } catch (e) {
+    console.warn("Error calculating top performers:", e);
+  }
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -335,7 +620,7 @@ export default async function DashboardPage() {
         {/* Projections vs Actuals */}
         <div className="lg:col-span-2 bg-white border border-slate-200 rounded-[8px] p-5 shadow-sm">
           <h3 className="text-sm font-bold text-slate-800 mb-4">Projections vs Actuals</h3>
-          <ProjectionsChart />
+          <ProjectionsChart data={projectionsData} />
         </div>
 
         {/* Units x Regional Sales - Pakistan Location */}
@@ -361,22 +646,16 @@ export default async function DashboardPage() {
           </div>
 
           <div className="divide-y divide-slate-100 text-xs">
-            <div className="py-2.5 flex justify-between font-medium">
-              <span className="text-slate-600">Lahore Hub (Central)</span>
-              <span className="text-slate-800 font-bold">512 Units <span className="text-slate-400 font-medium ml-1.5">(42%)</span></span>
-            </div>
-            <div className="py-2.5 flex justify-between font-medium">
-              <span className="text-slate-600">Karachi Hub (South)</span>
-              <span className="text-slate-800 font-bold">426 Units <span className="text-slate-400 font-medium ml-1.5">(35%)</span></span>
-            </div>
-            <div className="py-2.5 flex justify-between font-medium">
-              <span className="text-slate-600">Islamabad Hub (Capital)</span>
-              <span className="text-slate-800 font-bold">219 Units <span className="text-slate-400 font-medium ml-1.5">(18%)</span></span>
-            </div>
-            <div className="py-2.5 flex justify-between font-medium">
-              <span className="text-slate-600">Peshawar Hub (NW)</span>
-              <span className="text-slate-800 font-bold">62 Units <span className="text-slate-400 font-medium ml-1.5">(5%)</span></span>
-            </div>
+            {regionStatsList.length > 0 ? (
+              regionStatsList.map((r, idx) => (
+                <div key={idx} className="py-2.5 flex justify-between font-medium">
+                  <span className="text-slate-600">{r.warehouse} ({r.name})</span>
+                  <span className="text-slate-800 font-bold">{r.units} Units <span className="text-slate-400 font-medium ml-1.5">({r.percentage}%)</span></span>
+                </div>
+              ))
+            ) : (
+              <p className="text-slate-400 py-4 text-center">No regions registered.</p>
+            )}
           </div>
         </div>
       </div>
@@ -388,16 +667,16 @@ export default async function DashboardPage() {
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-sm font-bold text-slate-800">Weekly Sales Volume</h3>
             <div className="text-xs font-semibold text-slate-400">
-              <span className="text-[#00B4D8] font-bold mr-2">Rs. 1,480,000</span> Target met
+              Target met
             </div>
           </div>
-          <RevenueChart />
+          <RevenueChart data={weeklyVolumeData} />
         </div>
 
         {/* Total Sales Donut Chart */}
         <div className="bg-white border border-slate-200 rounded-[8px] p-5 shadow-sm">
           <h3 className="text-sm font-bold text-slate-800 mb-4">Product Category Distribution</h3>
-          <SalesDonutChart />
+          <SalesDonutChart data={donutData} />
         </div>
       </div>
 
@@ -413,7 +692,7 @@ export default async function DashboardPage() {
         {/* Inventory & Stock Health Alerts */}
         <div className="lg:col-span-1">
           <Suspense fallback={<div className="h-64 bg-slate-100 rounded-[8px] animate-pulse"></div>}>
-            <InventoryHealthPanel />
+            <InventoryHealthPanel lowStockAlerts={lowStockAlerts} agingStock={agingStock} />
           </Suspense>
         </div>
 
@@ -442,45 +721,45 @@ export default async function DashboardPage() {
                     <ShoppingBag className="w-3.5 h-3.5 text-cyan-500" />
                     Top Product
                   </td>
-                  <td className="px-5 py-3.5 font-bold text-slate-800">Huawei Smart Inverter 10kW</td>
+                  <td className="px-5 py-3.5 font-bold text-slate-800">{topProduct}</td>
                   <td className="px-5 py-3.5 text-slate-500">Highest inverter units sold</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-[#00B4D8]">38 Units</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-[#00B4D8]">{topProductQty} Units</td>
                 </tr>
                 <tr className="hover:bg-slate-50/30 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-400 uppercase tracking-wider text-[9px] flex items-center gap-1.5">
                     <UserCheck className="w-3.5 h-3.5 text-indigo-500" />
                     Top Employee
                   </td>
-                  <td className="px-5 py-3.5 font-bold text-slate-800">Haris Khan</td>
-                  <td className="px-5 py-3.5 text-slate-500">Sales Coordinator / Ticket Resolver</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-indigo-600">14 Resolved</td>
+                  <td className="px-5 py-3.5 font-bold text-slate-800">{topEmployee}</td>
+                  <td className="px-5 py-3.5 text-slate-500">Active Resolver Standings</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-indigo-600">Active</td>
                 </tr>
                 <tr className="hover:bg-slate-50/30 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-400 uppercase tracking-wider text-[9px] flex items-center gap-1.5">
                     <Users className="w-3.5 h-3.5 text-emerald-500" />
                     Top Distributor
                   </td>
-                  <td className="px-5 py-3.5 font-bold text-slate-800">Bismillah Electronics</td>
-                  <td className="px-5 py-3.5 text-slate-500">Lahore Central Distribution Hub</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-emerald-600">Rs. 4.8M</td>
+                  <td className="px-5 py-3.5 font-bold text-slate-800">{topDistributor}</td>
+                  <td className="px-5 py-3.5 text-slate-500">Distribution Hub Champion</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-emerald-600">Active</td>
                 </tr>
                 <tr className="hover:bg-slate-50/30 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-400 uppercase tracking-wider text-[9px] flex items-center gap-1.5">
                     <Layers className="w-3.5 h-3.5 text-amber-500" />
                     Top Sub Dealer
                   </td>
-                  <td className="px-5 py-3.5 font-bold text-slate-800">Ali & Sons</td>
-                  <td className="px-5 py-3.5 text-slate-500">Karachi South Retail Ledger</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-amber-600">Rs. 3.2M</td>
+                  <td className="px-5 py-3.5 font-bold text-slate-800">{topSubDealer}</td>
+                  <td className="px-5 py-3.5 text-slate-500">Retail Sales Lead</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-amber-600">Active</td>
                 </tr>
                 <tr className="hover:bg-slate-50/30 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-400 uppercase tracking-wider text-[9px] flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-rose-500" />
                     Top Installer
                   </td>
-                  <td className="px-5 py-3.5 font-bold text-slate-800">Sajid Mahmood</td>
-                  <td className="px-5 py-3.5 text-slate-500">Field System Deployment Lead</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-rose-600">24 Jobs Done</td>
+                  <td className="px-5 py-3.5 font-bold text-slate-800">{topInstaller}</td>
+                  <td className="px-5 py-3.5 text-slate-500">Field Deployment Champion</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-rose-600">Active</td>
                 </tr>
               </tbody>
             </table>

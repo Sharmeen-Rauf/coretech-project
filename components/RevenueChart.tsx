@@ -12,17 +12,20 @@ import {
   Legend,
 } from "recharts";
 
-const data = [
-  { name: "Mon", current: 15, previous: 20 },
-  { name: "Tue", current: 30, previous: 22 },
-  { name: "Wed", current: 25, previous: 28 },
-  { name: "Thu", current: 45, previous: 35 },
-  { name: "Fri", current: 38, previous: 42 },
-  { name: "Sat", current: 55, previous: 48 },
-  { name: "Sun", current: 65, previous: 50 },
-];
+interface RevenueChartProps {
+  data?: { name: string; current: number; previous: number }[];
+}
 
-export default function RevenueChart() {
+export default function RevenueChart({ data: propData }: RevenueChartProps) {
+  const chartData = propData && propData.length > 0 ? propData : [
+    { name: "Mon", current: 0, previous: 0 },
+    { name: "Tue", current: 0, previous: 0 },
+    { name: "Wed", current: 0, previous: 0 },
+    { name: "Thu", current: 0, previous: 0 },
+    { name: "Fri", current: 0, previous: 0 },
+    { name: "Sat", current: 0, previous: 0 },
+    { name: "Sun", current: 0, previous: 0 },
+  ];
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -40,7 +43,7 @@ export default function RevenueChart() {
   return (
     <div className="w-full h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
           <XAxis
             dataKey="name"
@@ -54,7 +57,7 @@ export default function RevenueChart() {
             fontSize={11}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => `${v}K`}
+            tickFormatter={(v) => String(v)}
           />
           <Tooltip
             contentStyle={{

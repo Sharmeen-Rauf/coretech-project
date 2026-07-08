@@ -12,16 +12,19 @@ import {
   Legend,
 } from "recharts";
 
-const data = [
-  { name: "Jan", Projections: 18, Actuals: 12 },
-  { name: "Feb", Projections: 24, Actuals: 20 },
-  { name: "Mar", Projections: 32, Actuals: 26 },
-  { name: "Apr", Projections: 28, Actuals: 22 },
-  { name: "May", Projections: 35, Actuals: 30 },
-  { name: "Jun", Projections: 40, Actuals: 34 },
-];
+interface ProjectionsChartProps {
+  data?: { name: string; Projections: number; Actuals: number }[];
+}
 
-export default function ProjectionsChart() {
+export default function ProjectionsChart({ data: propData }: ProjectionsChartProps) {
+  const chartData = propData && propData.length > 0 ? propData : [
+    { name: "Jan", Projections: 0, Actuals: 0 },
+    { name: "Feb", Projections: 0, Actuals: 0 },
+    { name: "Mar", Projections: 0, Actuals: 0 },
+    { name: "Apr", Projections: 0, Actuals: 0 },
+    { name: "May", Projections: 0, Actuals: 0 },
+    { name: "Jun", Projections: 0, Actuals: 0 },
+  ];
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -39,7 +42,7 @@ export default function ProjectionsChart() {
   return (
     <div className="w-full h-72">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+        <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
           <XAxis
             dataKey="name"
@@ -53,7 +56,7 @@ export default function ProjectionsChart() {
             fontSize={11}
             tickLine={false}
             axisLine={false}
-            tickFormatter={(v) => `${v}M`}
+            tickFormatter={(v) => String(v)}
           />
           <Tooltip
             contentStyle={{
