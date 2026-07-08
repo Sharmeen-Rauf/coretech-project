@@ -117,7 +117,7 @@ export default function InstallerRegisterPage() {
         designation: `[INSTALLER_METADATA]${JSON.stringify(installerMetadata)}`,
         contact,
         role: "installer",
-        group: "installers",
+        group: "operations",
         status: "pending", // waiting for owner approval
         state,
         address,
