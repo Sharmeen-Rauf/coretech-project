@@ -19,6 +19,11 @@ export async function middleware(request: NextRequest) {
   const isLoginRoute = request.nextUrl.pathname === '/login';
   const isInstallerRoute = request.nextUrl.pathname === '/installer';
 
+  // Redirect /dashboard/installer/register to public /installer/register
+  if (request.nextUrl.pathname === '/dashboard/installer/register') {
+    return NextResponse.redirect(new URL('/installer/register', request.url));
+  }
+
   // Protect /dashboard
   if (isDashboardRoute) {
     if (!session) {
