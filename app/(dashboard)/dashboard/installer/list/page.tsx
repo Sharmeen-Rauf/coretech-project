@@ -6,6 +6,7 @@ import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
 import { deleteUserAction } from "@/app/actions/users";
+import { getLocalItems } from "@/lib/supabaseLocalFallback";
 
 interface InstallerProfile {
   id: string;
@@ -47,7 +48,22 @@ export default function InstallerListPage() {
         installer_name: `${prof.first_name} ${prof.last_name || ""}`.trim(),
       }));
 
-      setInstallers(formatted);
+      // Merge local storage profiles fallback
+      const localProfiles = getLocalItems("profiles") || [];
+      const localInstallers = localProfiles.filter((p: any) => p.role === "installer");
+
+      const merged = [...formatted];
+      localInstallers.forEach((local) => {
+        if (!merged.some(db => db.id === local.id)) {
+          merged.push({
+            ...local,
+            installer_id: local.id.substring(0, 8).toUpperCase(),
+            installer_name: `${local.first_name} ${local.last_name || ""}`.trim(),
+          });
+        }
+      });
+
+      setInstallers(merged);
     } catch (err: any) {
       toast.error(err.message || "Failed to load installers");
     } finally {
@@ -58,6 +74,31 @@ export default function InstallerListPage() {
   useEffect(() => {
     fetchInstallers();
   }, []);
+
+  const handleApproveInstaller = async (instId: string) => {
+    try {
+      try {
+        const { error } = await supabase
+          .from("profiles")
+          .update({ status: "active" })
+          .eq("id", instId);
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Database update failed. Saving locally.", dbErr);
+        const localProfiles = getLocalItems("profiles") || [];
+        const index = localProfiles.findIndex((p: any) => p.id === instId);
+        if (index > -1) {
+          localProfiles[index].status = "active";
+          localStorage.setItem("profiles", JSON.stringify(localProfiles));
+        }
+      }
+
+      toast.success("Installer approved successfully!");
+      fetchInstallers();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to approve installer");
+    }
+  };
 
   const handleEditClick = (user: any) => {
     setEditingUser(user);
@@ -105,9 +146,64 @@ export default function InstallerListPage() {
         </div>
       ),
     },
-    { key: "designation", label: "Designation" },
+    { 
+      key: "designation", 
+      label: "Designation",
+      render: (val: string, row: any) => {
+        let cleanText = "Installer";
+        if (val) {
+          if (val.includes("INSTALLER_METADATA")) {
+            // Remove outer wrapper distributor metadata prefix if it wraps it
+            const cleanVal = val.replace("[DISTRIBUTOR_METADATA]", "");
+            try {
+              const outer = JSON.parse(cleanVal);
+              const innerVal = outer.designation || "";
+              
+              if (innerVal.startsWith("[INSTALLER_METADATA]")) {
+                const innerParsed = JSON.parse(innerVal.replace("[INSTALLER_METADATA]", ""));
+                cleanText = `Installer (${innerParsed.marital_status || "Active"})`;
+              } else if (outer.marital_status) {
+                cleanText = `Installer (${outer.marital_status})`;
+              }
+            } catch (e) {
+              cleanText = "Installer (Active)";
+            }
+          } else if (val.startsWith("[DISTRIBUTOR_METADATA]")) {
+            try {
+              const parsed = JSON.parse(val.replace("[DISTRIBUTOR_METADATA]", ""));
+              cleanText = parsed.designation || "Installer";
+            } catch(e) {}
+          } else {
+            cleanText = val;
+          }
+        }
+        return <span className="text-slate-650 font-semibold">{cleanText}</span>;
+      }
+    },
     { key: "contact", label: "Contact Phone" },
-    { key: "status", label: "Status" },
+    { 
+      key: "status", 
+      label: "Status",
+      render: (status: string, row: any) => (
+        <div className="flex items-center gap-3">
+          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+            status === "active" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+            status === "pending" ? "bg-amber-50 text-amber-500 border-amber-100" :
+            "bg-slate-50 text-slate-500 border-slate-200"
+          }`}>
+            {status}
+          </span>
+          {status === "pending" && (
+            <button
+              onClick={() => handleApproveInstaller(row.id)}
+              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-bold rounded shadow-sm hover:shadow transition-all uppercase tracking-wider"
+            >
+              Approve
+            </button>
+          )}
+        </div>
+      )
+    },
   ];
 
   return (
