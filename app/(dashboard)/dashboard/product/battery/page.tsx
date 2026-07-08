@@ -111,6 +111,29 @@ export default function BatteryProductPage() {
       toast.error(err.message || "Failed to delete product");
     }
   };
+
+  const handleBulkDeleteProducts = async (selectedIds: string[]) => {
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected products?`)) return;
+
+    try {
+      let successCount = 0;
+      const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
+
+      for (const id of selectedIds) {
+        const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+        if (isUUID(id)) {
+          await deleteRecordAction("products", id);
+        }
+        deleteLocalItem("coretech_local_products", id, "id");
+        successCount++;
+      }
+
+      toast.success(`Successfully deleted ${successCount} products!`);
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to perform bulk deletion");
+    }
+  };
  
   return (
     <div className="space-y-6 select-none">
@@ -146,6 +169,7 @@ export default function BatteryProductPage() {
           onChange: (page) => setCurrentPage(page),
         }}
         onDeleteClick={handleDeleteProduct}
+        onBulkDelete={handleBulkDeleteProducts}
       />
  
       <ProductModal

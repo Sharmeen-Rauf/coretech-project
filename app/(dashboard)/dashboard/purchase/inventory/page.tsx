@@ -108,14 +108,48 @@ export default function InventoryPage() {
     if (!window.confirm(`Are you sure you want to delete ${row.product_name} (${row.serial_no})?`)) return;
 
     try {
-      if (row.id) {
+      if (row.id && !row.id.startsWith("local-")) {
         const res = await deleteRecordAction("stock", row.id);
         if (!res.success) throw new Error(res.error || "Failed to delete from DB");
+      } else {
+        const localStock = getLocalItems("coretech_local_stock");
+        const updated = localStock.filter((s: any) => s.serial_no !== row.serial_no);
+        localStorage.setItem("coretech_local_stock", JSON.stringify(updated));
       }
       toast.success(`Stock item deleted successfully!`);
       fetchInventory();
     } catch (err: any) {
       toast.error(err.message || "Failed to delete stock");
+    }
+  };
+
+  const handleBulkDeleteStock = async (selectedIds: string[]) => {
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected stock items?`)) return;
+
+    try {
+      let successCount = 0;
+      let localStock = getLocalItems("coretech_local_stock");
+
+      for (const id of selectedIds) {
+        if (id.startsWith("local-")) {
+          const stockItemObj = stock.find(item => item.id === id);
+          if (stockItemObj) {
+            localStock = localStock.filter((s: any) => s.serial_no !== stockItemObj.serial_no);
+            successCount++;
+          }
+        } else {
+          const res = await deleteRecordAction("stock", id);
+          if (res.success) {
+            successCount++;
+          }
+        }
+      }
+
+      localStorage.setItem("coretech_local_stock", JSON.stringify(localStock));
+      toast.success(`Successfully deleted ${successCount} stock items!`);
+      fetchInventory();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to perform bulk deletion");
     }
   };
 
@@ -172,6 +206,7 @@ export default function InventoryPage() {
           onChange: (page) => setCurrentPage(page),
         }}
         onDeleteClick={handleDeleteStock}
+        onBulkDelete={handleBulkDeleteStock}
       />
     </div>
   );

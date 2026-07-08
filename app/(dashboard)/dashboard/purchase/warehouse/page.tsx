@@ -167,6 +167,30 @@ export default function WarehousePage() {
     }
   };
 
+  const handleBulkDeleteWarehouses = async (selectedIds: string[]) => {
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected warehouses?`)) return;
+
+    try {
+      let deletedCount = 0;
+      const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+      for (const id of selectedIds) {
+        if (isUUID(id)) {
+          const res = await deleteRecordAction("regions", id);
+          if (res.success) {
+            deletedCount++;
+          }
+        }
+        deleteLocalItem("coretech_local_regions", id, "id");
+      }
+
+      toast.success(`Successfully deleted ${selectedIds.length} warehouses!`);
+      fetchWarehouses();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to perform bulk deletion");
+    }
+  };
+
   const columns = [
     { key: "region_code", label: "Warehouse Code" },
     { key: "warehouse", label: "Warehouse Name" },
@@ -229,6 +253,7 @@ export default function WarehousePage() {
         setIsModalOpen(true);
       }}
       onDeleteClick={handleDeleteWarehouse}
+      onBulkDelete={handleBulkDeleteWarehouses}
     />
 
     {/* Create Warehouse Modal */}

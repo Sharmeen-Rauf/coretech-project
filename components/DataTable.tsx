@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { Search, ChevronLeft, ChevronRight, Edit2, Info, ArrowUpDown, Trash2 } from "lucide-react";
+import toast from "react-hot-toast";
 import StatusBadge from "./StatusBadge";
 
 interface Column {
@@ -42,6 +43,9 @@ interface DataTableProps {
   onEditClick?: (row: any) => void;
   onDeleteClick?: (row: any) => void;
   onRowClick?: (row: any) => void;
+  onBulkDelete?: (selectedIds: string[]) => void;
+  onImportCSV?: (file: File) => void;
+  showExport?: boolean;
 }
 
 export default function DataTable({
@@ -57,6 +61,9 @@ export default function DataTable({
   onEditClick,
   onDeleteClick,
   onRowClick,
+  onBulkDelete,
+  onImportCSV,
+  showExport = true,
 }: DataTableProps) {
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [searchValue, setSearchValue] = useState("");
@@ -98,6 +105,74 @@ export default function DataTable({
     return selectedRows[rowId];
   });
 
+  const handleExportCSV = () => {
+    if (data.length === 0) {
+      toast.error("No data available to export");
+      return;
+    }
+
+    const exportHeaders = columns.map(c => c.label);
+    const keys = columns.map(c => c.key);
+
+    const csvRows = [];
+    csvRows.push(exportHeaders.join(","));
+
+    data.forEach(row => {
+      const values = keys.map(key => {
+        let val = row[key];
+        if (val === undefined || val === null) {
+          val = "";
+        } else if (typeof val === "object") {
+          val = val.name || val.warehouse || JSON.stringify(val);
+        }
+        const escaped = ("" + val).replace(/"/g, '""');
+        return `"${escaped}"`;
+      });
+      csvRows.push(values.join(","));
+    });
+
+    const csvContent = csvRows.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    const fileName = `${title.toLowerCase().replace(/\s+/g, "_")}_export.csv`;
+    link.setAttribute("download", fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Data exported successfully!");
+  };
+
+  const handleBulkDelete = async () => {
+    const selectedIds = Object.keys(selectedRows).filter(k => selectedRows[k]);
+    if (selectedIds.length === 0) return;
+
+    if (onBulkDelete) {
+      onBulkDelete(selectedIds);
+      setSelectedRows({});
+    } else if (onDeleteClick) {
+      if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected items?`)) return;
+      
+      let successCount = 0;
+      for (const id of selectedIds) {
+        const row = data.find((r, idx) => (r.id || `row-${idx}`) === id);
+        if (row) {
+          try {
+            await onDeleteClick(row);
+            successCount++;
+          } catch (e) {
+            console.error("Bulk delete item error", e);
+          }
+        }
+      }
+      if (successCount > 0) {
+        toast.success(`Successfully deleted ${successCount} items!`);
+      }
+      setSelectedRows({});
+    }
+  };
+
   // Calculate entry range
   const startEntry = (pagination.current - 1) * pagination.perPage + 1;
   const endEntry = Math.min(pagination.current * pagination.perPage, pagination.total);
@@ -109,18 +184,62 @@ export default function DataTable({
         <div>
           <h3 className="text-sm font-bold text-slate-800 tracking-tight">{title}</h3>
           {isAnySelected && (
-            <p className="text-[10px] text-slate-500 font-semibold mt-0.5">
+            <p className="text-[10px] text-slate-500 font-semibold mt-0.5 animate-pulse">
               {Object.values(selectedRows).filter(Boolean).length} items selected
             </p>
           )}
         </div>
 
         <div className="flex flex-wrap items-center gap-3 ml-auto">
+          {/* Bulk Actions */}
+          {isAnySelected && (
+            <button
+              onClick={handleBulkDelete}
+              className="h-9 px-3 text-xs font-semibold text-white bg-rose-500 hover:bg-rose-600 rounded-[6px] shadow transition-colors flex items-center justify-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Selected</span>
+            </button>
+          )}
+
+          {/* Import Button */}
+          {onImportCSV && (
+            <label className="h-9 px-3 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-[6px] shadow transition-colors flex items-center justify-center gap-1.5 cursor-pointer select-none">
+              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              <span>Import</span>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    onImportCSV(e.target.files[0]);
+                  }
+                }}
+                className="hidden"
+              />
+            </label>
+          )}
+
+          {/* Export Button */}
+          {showExport !== false && (
+            <button
+              onClick={handleExportCSV}
+              className="h-9 px-3 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-[6px] shadow transition-colors flex items-center justify-center gap-1.5"
+            >
+              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              <span>Export</span>
+            </button>
+          )}
+
           {/* Action Button */}
           {actionButton && (
             <button
               onClick={actionButton.onClick}
-              className="h-9 px-4 text-xs font-semibold text-white bg-[#00B4D8] hover:bg-[#0077B6] rounded-[6px] shadow transition-colors flex items-center justify-center"
+              className="h-9 px-4 text-xs font-semibold text-white bg-[#00B4D8] hover:bg-[#0077B6] rounded-[6px] shadow transition-colors flex items-center justify-center animate-in fade-in"
             >
               {actionButton.label}
             </button>

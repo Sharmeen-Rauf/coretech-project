@@ -94,6 +94,24 @@ export default function UsersPage() {
     }
   };
 
+  const handleBulkDeleteUsers = async (selectedIds: string[]) => {
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected users?`)) return;
+
+    try {
+      let deletedCount = 0;
+      for (const id of selectedIds) {
+        const res = await deleteUserAction(id);
+        if (res.success) {
+          deletedCount++;
+        }
+      }
+      toast.success(`Successfully deleted ${deletedCount} users!`);
+      fetchUsers();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to perform bulk deletion");
+    }
+  };
+
   // Handle Create Action
   const handleAddClick = () => {
     setEditingUser(undefined);
@@ -203,6 +221,7 @@ export default function UsersPage() {
         }}
         onEditClick={handleEditClick}
         onDeleteClick={handleDeleteUser}
+        onBulkDelete={handleBulkDeleteUsers}
       />
 
       {/* User Management Form Modal */}
