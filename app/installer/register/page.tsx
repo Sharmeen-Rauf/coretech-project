@@ -105,7 +105,9 @@ export default function InstallerRegisterPage() {
       const installerMetadata = {
         marital_status: maritalStatus,
         easypaisa_jazzcash_no: paymentNo,
-        registered_via: "QR_CODE_SCAN"
+        registered_via: "QR_CODE_SCAN",
+        email: email.trim(),
+        password: password,
       };
 
       // Call server action to create confirmed auth user + profile

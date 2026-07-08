@@ -1234,6 +1234,18 @@ export default function ApprovalsPage() {
                     {parseInstallerMetadata(selectedInstaller.designation).easypaisa_jazzcash_no || "-"}
                   </p>
                 </div>
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">Gmail / Email Address</p>
+                  <p className="font-semibold text-[#00B4D8] mt-0.5">
+                    {parseInstallerMetadata(selectedInstaller.designation).email || selectedInstaller.email || `${selectedInstaller.first_name.toLowerCase()}.${selectedInstaller.last_name?.toLowerCase() || "user"}@coretech.com`}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">Secure Password</p>
+                  <p className="font-semibold text-slate-800 mt-0.5">
+                    {parseInstallerMetadata(selectedInstaller.designation).password || "********"}
+                  </p>
+                </div>
                 <div className="col-span-2">
                   <p className="text-[9px] font-bold text-slate-400 uppercase">Street Address</p>
                   <p className="font-semibold text-slate-700 mt-0.5">{getInstallerField(selectedInstaller, "address")}</p>
