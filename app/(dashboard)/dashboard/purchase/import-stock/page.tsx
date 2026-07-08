@@ -92,10 +92,10 @@ export default function ImportStockPage() {
   };
 
   const downloadSampleFile = () => {
-    const headers = "Name,Code,Barcode,Brand,Category Code,Model,Price,Cost,Alert Quantity\n";
+    const headers = "Name,Code,Serial Number,Brand,Category Code,Model,Price,Cost\n";
     const sampleRows = 
-      'ASOS Ridley High Waist,ASOS-RD1,882347102,ASOS,battery,AR-100,79.49,50.00,10\n' +
-      'Marco Lightweight Shirt,MARCO-SH1,882347103,Marco,inverter,M-50,128.50,90.00,5\n';
+      'ASOS Ridley High Waist,ASOS-RD1,SN-BATT-001,ASOS,battery,AR-100,79.49,50.00\n' +
+      'Marco Lightweight Shirt,MARCO-SH1,SN-INV-001,Marco,inverter,M-50,128.50,90.00\n';
     
     const blob = new Blob([headers + sampleRows], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -110,7 +110,6 @@ export default function ImportStockPage() {
 
   const validate = () => {
     const errs: Record<string, string> = {};
-    if (!file) errs.file = "CSV file is required";
     if (!importDate) errs.importDate = "Import date is required";
     if (!modelNo) errs.modelNo = "Model name is required";
     if (!serialNo.trim()) errs.serialNo = "Serial number is required";
@@ -126,62 +125,101 @@ export default function ImportStockPage() {
 
     setIsImporting(true);
     try {
-      const text = await file!.text();
-      // Split lines and parse CSV
-      const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-      if (lines.length <= 1) {
-        throw new Error("CSV file is empty or only contains headers");
-      }
-
-      const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
-      
-      let successCount = 0;
-
-      // Loop rows (skipping header)
-      for (let i = 1; i < lines.length; i++) {
-        const row = lines[i].split(",").map((cell) => cell.replace(/^["']|["']$/g, "").trim());
-        if (row.length < headers.length) continue;
-
-        // Map cells (Name, Code, Barcode, Brand, Category, Model, Price, Cost, AlertQty)
-        const name = row[0];
-        const code = row[1];
-        const brand = row[3];
-        let category = row[4]?.toLowerCase() || "inverter";
-        if (!["inverter", "battery", "aio"].includes(category)) {
-          category = "inverter"; // Fallback to schema constraint
+      if (file) {
+        // Mode A: CSV Bulk Import
+        const text = await file.text();
+        const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+        if (lines.length <= 1) {
+          throw new Error("CSV file is empty or only contains headers");
         }
-        const model = row[5];
-        const price = parseFloat(row[6]) || 0;
-        const cost = parseFloat(row[7]) || 0;
-        const alertQuantity = parseInt(row[8]) || 0;
 
-        if (!name) continue;
+        const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+        let successCount = 0;
 
-        // 1. Resolve or create product in Supabase using server action
-        const fallbackData = {
-          name,
-          code,
-          brand,
-          category,
-          model,
-          price,
-          cost,
-          alert_quantity: alertQuantity,
-        };
-        const res = await getOrCreateProductByCode(code, fallbackData);
-        if (!res.success) {
-          throw new Error(res.error || "Failed to resolve product");
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(",").map((cell) => cell.replace(/^["']|["']$/g, "").trim());
+          if (row.length < headers.length) continue;
+
+          // Map cells (Name, Code, Serial Number, Brand, Category, Model, Price, Cost)
+          const name = row[0];
+          const code = row[1];
+          const serialNum = row[2];
+          const brand = row[3];
+          let category = row[4]?.toLowerCase() || "inverter";
+          if (!["inverter", "battery", "aio"].includes(category)) {
+            category = "inverter";
+          }
+          const model = row[5];
+          const price = parseFloat(row[6]) || 0;
+          const cost = parseFloat(row[7]) || 0;
+
+          if (!name) continue;
+
+          // 1. Resolve or create product in Supabase using server action
+          const fallbackData = {
+            name,
+            code,
+            brand,
+            category,
+            model,
+            price,
+            cost,
+            alert_quantity: 5, // fallback alert quantity
+          };
+          const res = await getOrCreateProductByCode(code, fallbackData);
+          if (!res.success) {
+            throw new Error(res.error || "Failed to resolve product");
+          }
+          const productId = res.data.id;
+
+          // 2. Insert Stock entry linked to the product
+          const stockPayload = {
+            product_id: productId,
+            model_no: model || modelNo,
+            serial_no: serialNum || `${serialNo}-${i}`,
+            warehouse_name: warehouseName,
+            import_date: importDate,
+            quantity: 1,
+          };
+
+          try {
+            const { error: stockErr } = await supabase
+              .from("stock")
+              .insert(stockPayload);
+
+            if (stockErr) throw stockErr;
+          } catch (dbErr) {
+            console.warn("Database stock insert failed. Saving locally.", dbErr);
+            saveLocalItem("coretech_local_stock", stockPayload);
+          }
+          successCount++;
         }
-        const productId = res.data.id;
 
-        // 2. Insert Stock entry linked to the product
+        toast.success(`Import completed successfully! Registered ${successCount} stock entries.`);
+        setFile(null);
+      } else {
+        // Mode B: Manual Stock Entry
+        // Resolve product ID based on model selection
+        const { data: matchedProducts, error: modelSearchErr } = await supabase
+          .from("products")
+          .select("id")
+          .eq("model", modelNo)
+          .limit(1);
+
+        if (modelSearchErr) throw modelSearchErr;
+        
+        if (!matchedProducts || matchedProducts.length === 0) {
+          throw new Error("No product matching the selected model name was found in database.");
+        }
+        
+        const productId = matchedProducts[0].id;
         const stockPayload = {
           product_id: productId,
           model_no: modelNo,
-          serial_no: `${serialNo}-${i}`, // append index for uniqueness
+          serial_no: serialNo.trim(),
           warehouse_name: warehouseName,
           import_date: importDate,
-          quantity: alertQuantity || 1, // Default quantity
+          quantity: 1,
         };
 
         try {
@@ -190,20 +228,19 @@ export default function ImportStockPage() {
             .insert(stockPayload);
 
           if (stockErr) throw stockErr;
+          toast.success(`Manual stock entry registered successfully!`);
         } catch (dbErr) {
           console.warn("Database stock insert failed. Saving locally.", dbErr);
           saveLocalItem("coretech_local_stock", stockPayload);
+          toast.success(`Manual stock registered locally (Database fallback)`);
         }
-        successCount++;
       }
 
-      toast.success(`Import completed successfully! Registered ${successCount} stock entries.`);
-      setFile(null);
       setModelNo("");
       setSerialNo("");
       setWarehouseName("");
     } catch (err: any) {
-      toast.error(err.message || "Failed to process CSV import");
+      toast.error(err.message || "Failed to save stock entry");
     } finally {
       setIsImporting(false);
     }
@@ -230,9 +267,8 @@ export default function ImportStockPage() {
           </p>
           <ul className="list-disc pl-4 space-y-1 text-slate-600 font-medium">
             <li>The CSV file structure should not be modified.</li>
-            <li>The correct column order is: <span className="font-bold text-[#00B4D8]">Name, Code, Barcode, Brand, Category Code, Model, Price, Cost, Alert Quantity</span></li>
+            <li>The correct column order is: <span className="font-bold text-[#00B4D8]">Name, Code, Serial Number, Brand, Category Code, Model, Price, Cost</span></li>
             <li>Ensure the category code is one of: <span className="font-bold">inverter, battery, aio</span></li>
-            <li>Ensure files are UTF-8 encoded and images are pre-loaded to uploads.</li>
           </ul>
         </div>
         <button
@@ -377,10 +413,10 @@ export default function ImportStockPage() {
           <button
             type="submit"
             disabled={isImporting}
-            className="h-10 px-6 text-xs font-semibold text-white bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/60 rounded-[6px] shadow flex items-center justify-center gap-1.5 transition-colors ml-auto"
+            className="h-10 px-6 text-xs font-semibold text-white bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/60 rounded-[6px] shadow flex items-center justify-center gap-1.5 transition-colors ml-auto animate-in fade-in"
           >
             {isImporting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            Import
+            {file ? "Import CSV File" : "Add Stock Manually"}
           </button>
         </div>
       </form>
