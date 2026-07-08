@@ -1196,25 +1196,6 @@ export default function ApprovalsPage() {
                 </div>
               </div>
 
-              {/* Video Player */}
-              <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                  <Video className="w-3.5 h-3.5 text-[#00B4D8]" />
-                  Identity Verification Video
-                </p>
-                {parseInstallerMetadata(selectedInstaller.designation).video_url ? (
-                  <div className="relative w-full h-44 bg-slate-900 rounded-[8px] overflow-hidden border border-slate-200 shadow-sm flex items-center justify-center">
-                    <video 
-                      src={parseInstallerMetadata(selectedInstaller.designation).video_url} 
-                      controls 
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
-                ) : (
-                  <p className="text-slate-400 italic bg-slate-50 py-3 rounded text-center">No video uploaded.</p>
-                )}
-              </div>
-
               {/* Footer */}
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100 mt-6">
                 <button

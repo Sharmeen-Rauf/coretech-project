@@ -1,30 +1,23 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createUserAction } from "@/app/actions/users";
-import { createClientComponentClient } from "@/lib/supabase";
 import toast from "react-hot-toast";
 import { 
   Loader2, 
-  ArrowLeft, 
+  CheckCircle,
   User, 
   MapPin, 
   Phone, 
   Mail, 
   Lock, 
-  CreditCard, 
-  Video, 
-  CheckCircle,
-  FileVideo,
-  Camera,
-  Trash2
+  CreditCard
 } from "lucide-react";
 import Link from "next/link";
 
 export default function InstallerRegisterPage() {
   const router = useRouter();
-  const supabase = createClientComponentClient();
 
   // Form states
   const [firstName, setFirstName] = useState("");
@@ -38,12 +31,6 @@ export default function InstallerRegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [paymentNo, setPaymentNo] = useState("");
-  
-  // Video upload states
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [videoPreview, setVideoPreview] = useState<string | null>(null);
-  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
-  const videoInputRef = useRef<HTMLInputElement>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -61,22 +48,6 @@ export default function InstallerRegisterPage() {
 
   const handleCnicChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setCnic(formatCNIC(e.target.value));
-  };
-
-  const handleVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setVideoFile(file);
-      setVideoPreview(URL.createObjectURL(file));
-    }
-  };
-
-  const removeVideo = () => {
-    setVideoFile(null);
-    setVideoPreview(null);
-    if (videoInputRef.current) {
-      videoInputRef.current.value = "";
-    }
   };
 
   const validate = () => {
@@ -117,40 +88,8 @@ export default function InstallerRegisterPage() {
       errs.paymentNo = "EasyPaisa / JazzCash number is required";
     }
 
-    if (!videoFile) {
-      errs.video = "Verification video is required";
-    }
-
     setErrors(errs);
     return Object.keys(errs).length === 0;
-  };
-
-  const uploadVerificationVideo = async (): Promise<string> => {
-    if (!videoFile) return "";
-    setIsUploadingVideo(true);
-    try {
-      const fileExt = videoFile.name.split(".").pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-      const filePath = `installer-videos/${fileName}`;
-
-      const { error: uploadErr } = await supabase.storage
-        .from("job-photos")
-        .upload(filePath, videoFile);
-
-      if (uploadErr) throw uploadErr;
-
-      const { data: publicData } = supabase.storage
-        .from("job-photos")
-        .getPublicUrl(filePath);
-
-      return publicData.publicUrl;
-    } catch (err: any) {
-      console.warn("Storage upload failed, fallback to mock/local URL", err);
-      // Fallback
-      return "https://www.w3schools.com/html/mov_bbb.mp4";
-    } finally {
-      setIsUploadingVideo(false);
-    }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -162,14 +101,10 @@ export default function InstallerRegisterPage() {
 
     setIsLoading(true);
     try {
-      // 1. Upload video
-      const uploadedVideoUrl = await uploadVerificationVideo();
-
-      // 2. Prepare installer metadata for designation column
+      // 1. Prepare installer metadata for designation column
       const installerMetadata = {
         marital_status: maritalStatus,
         easypaisa_jazzcash_no: paymentNo,
-        video_url: uploadedVideoUrl,
         registered_via: "QR_CODE_SCAN"
       };
 
@@ -218,9 +153,8 @@ export default function InstallerRegisterPage() {
             </p>
           </div>
           
-          <div className="bg-amber-50/50 border border-amber-100 rounded-[12px] p-4 text-left text-xs space-y-1 text-slate-600">
+          <div className="bg-amber-50/50 border border-amber-100 rounded-[12px] p-4 text-left text-xs space-y-1 text-slate-655 font-medium">
             <p className="font-bold text-amber-800 text-center mb-1">Approval Stage: PENDING</p>
-            <p>• Verification video uploaded successfully.</p>
             <p>• Profile documents submitted (CNIC: {cnic}).</p>
             <p>• Payout Account: {paymentNo}.</p>
           </div>
@@ -418,7 +352,7 @@ export default function InstallerRegisterPage() {
           </div>
 
           {/* Marital Status & Payout details */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 pb-3">
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                 Marital Status
@@ -452,64 +386,19 @@ export default function InstallerRegisterPage() {
             </div>
           </div>
 
-          {/* Video Verification Upload */}
-          <div className="border border-dashed border-slate-300 hover:border-[#00B4D8] rounded-[12px] p-4 text-center bg-slate-50/50 transition-colors">
-            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-              Verification Video Upload*
-            </label>
-            
-            {videoPreview ? (
-              <div className="space-y-2">
-                <div className="relative w-full h-32 bg-slate-900 border rounded-[8px] overflow-hidden">
-                  <video src={videoPreview} controls className="w-full h-full object-contain" />
-                  <button
-                    type="button"
-                    onClick={removeVideo}
-                    className="absolute top-2 right-2 p-1.5 bg-rose-600/90 text-white rounded-full hover:bg-rose-700 transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <p className="text-[9px] text-emerald-600 font-bold">✓ Selected video: {videoFile?.name}</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <input
-                  type="file"
-                  ref={videoInputRef}
-                  onChange={handleVideoSelect}
-                  accept="video/*"
-                  className="hidden"
-                />
-                <button
-                  type="button"
-                  onClick={() => videoInputRef.current?.click()}
-                  className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-all"
-                >
-                  <Video className="w-5 h-5 text-[#00B4D8]" />
-                </button>
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold text-slate-700">Tap to record or select verification video</p>
-                  <p className="text-[8px] text-slate-400 font-medium">Record yourself stating your name and city</p>
-                </div>
-              </div>
-            )}
-            {errors.video && <p className="text-[9px] text-rose-500 mt-2 font-bold text-center">{errors.video}</p>}
-          </div>
-
           {/* Submit */}
           <button
             type="submit"
-            disabled={isLoading || isUploadingVideo}
+            disabled={isLoading}
             className="w-full h-11 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/65 text-white rounded-[8px] font-bold text-xs shadow-lg shadow-cyan-100 flex items-center justify-center gap-1.5 transition-all mt-4 hover:scale-[1.01]"
           >
-            {(isLoading || isUploadingVideo) && <Loader2 className="w-4 h-4 animate-spin" />}
-            {isUploadingVideo ? "Uploading verification video..." : isLoading ? "Creating installer account..." : "Submit Registration"}
+            {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isLoading ? "Creating installer account..." : "Submit Registration"}
           </button>
         </form>
 
         <div className="text-center pt-3 border-t border-slate-100">
-          <p className="text-[10px] text-slate-500 font-medium">
+          <p className="text-[10px] text-slate-550 font-medium">
             Already have an approved account?{" "}
             <Link href="/login" className="text-[#00B4D8] font-bold hover:underline">
               Log In
