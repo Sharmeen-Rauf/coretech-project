@@ -91,15 +91,52 @@ export default function ApprovalsPage() {
   // Parse Installer metadata helper
   const parseInstallerMetadata = (designation?: string) => {
     if (!designation) return {};
-    if (designation.startsWith("[INSTALLER_METADATA]")) {
+    let target = designation;
+    
+    // Unwrap distributor metadata if present
+    if (target.startsWith("[DISTRIBUTOR_METADATA]")) {
       try {
-        const jsonStr = designation.replace("[INSTALLER_METADATA]", "");
+        const distMeta = JSON.parse(target.replace("[DISTRIBUTOR_METADATA]", ""));
+        if (distMeta.designation) {
+          target = distMeta.designation;
+        }
+      } catch (e) {
+        console.warn("Failed to unwrap distributor metadata", e);
+      }
+    }
+
+    if (target.startsWith("[INSTALLER_METADATA]")) {
+      try {
+        const jsonStr = target.replace("[INSTALLER_METADATA]", "");
         return JSON.parse(jsonStr);
       } catch (e) {
         console.warn("Failed to parse installer metadata json", e);
       }
     }
     return {};
+  };
+
+  // Helper to resolve fields from database columns OR nested distributor fallback metadata
+  const getInstallerField = (installer: any, field: string) => {
+    if (!installer) return "-";
+    if (installer[field]) return installer[field];
+
+    const designation = installer.designation || "";
+    if (designation.startsWith("[DISTRIBUTOR_METADATA]")) {
+      try {
+        const distMeta = JSON.parse(designation.replace("[DISTRIBUTOR_METADATA]", ""));
+        // Check exact match or camelCase
+        if (distMeta[field]) return distMeta[field];
+        const camelMap: Record<string, string> = {
+          bank_name: "bankName",
+          bank_account: "bankAccount",
+          account_holder_name: "accountHolderName",
+        };
+        const camelField = camelMap[field] || field;
+        if (distMeta[camelField]) return distMeta[camelField];
+      } catch (e) {}
+    }
+    return "-";
   };
 
   // Fetch pending orders for approval
@@ -1146,19 +1183,19 @@ export default function ApprovalsPage() {
                 </div>
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">Contact</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{selectedInstaller.contact}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{selectedInstaller.contact || "-"}</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">CNIC (NIC)</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{selectedInstaller.cnic || "-"}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{getInstallerField(selectedInstaller, "cnic")}</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">City</p>
-                  <p className="font-bold text-slate-850 mt-0.5">{selectedInstaller.city || "-"}</p>
+                  <p className="font-bold text-slate-850 mt-0.5">{getInstallerField(selectedInstaller, "city")}</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">State</p>
-                  <p className="font-bold text-slate-850 mt-0.5">{selectedInstaller.state || "-"}</p>
+                  <p className="font-bold text-slate-850 mt-0.5">{getInstallerField(selectedInstaller, "state")}</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">Marital Status</p>
@@ -1171,6 +1208,10 @@ export default function ApprovalsPage() {
                   <p className="font-semibold text-emerald-600 mt-0.5">
                     {parseInstallerMetadata(selectedInstaller.designation).easypaisa_jazzcash_no || "-"}
                   </p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">Street Address</p>
+                  <p className="font-semibold text-slate-700 mt-0.5">{getInstallerField(selectedInstaller, "address")}</p>
                 </div>
               </div>
 

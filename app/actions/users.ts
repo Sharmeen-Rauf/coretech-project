@@ -137,12 +137,13 @@ export async function createUserAction(formData: any) {
       bank_name: bankName || null,
       bank_account: bankAccount || null,
       account_holder_name: accountHolderName || null,
+      cnic: cnic || null,
     };
 
     let { error: profileError } = await supabase.from("profiles").insert(profileInsertData);
 
     if (profileError && (profileError.message.includes("column") || profileError.code === "PGRST204" || profileError.code === "42703")) {
-      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, designation };
+      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic, designation };
       const cleanInsertData = {
         id: authUser.user.id,
         first_name: firstName,
