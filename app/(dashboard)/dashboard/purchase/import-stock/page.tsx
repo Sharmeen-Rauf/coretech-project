@@ -92,10 +92,10 @@ export default function ImportStockPage() {
   };
 
   const downloadSampleFile = () => {
-    const headers = "Name,Code,Serial Number,Brand,Category Code,Model,Price,Cost\n";
+    const headers = "Name,Code,Serial Number,Brand,Category Code,Model,Price,Cost,Warehouse\n";
     const sampleRows = 
-      'ASOS Ridley High Waist,ASOS-RD1,SN-BATT-001,ASOS,battery,AR-100,79.49,50.00\n' +
-      'Marco Lightweight Shirt,MARCO-SH1,SN-INV-001,Marco,inverter,M-50,128.50,90.00\n';
+      'ASOS Ridley High Waist,ASOS-RD1,SN-BATT-001,ASOS,battery,AR-100,79.49,50.00,Lahore Central\n' +
+      'Marco Lightweight Shirt,MARCO-SH1,SN-INV-001,Marco,inverter,M-50,128.50,90.00,Karachi Port\n';
     
     const blob = new Blob([headers + sampleRows], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -111,9 +111,13 @@ export default function ImportStockPage() {
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!importDate) errs.importDate = "Import date is required";
-    if (!modelNo) errs.modelNo = "Model name is required";
-    if (!serialNo.trim()) errs.serialNo = "Serial number is required";
-    if (!warehouseName.trim()) errs.warehouseName = "Warehouse name is required";
+    
+    // Only require manual details if no file is selected
+    if (!file) {
+      if (!modelNo) errs.modelNo = "Model name is required";
+      if (!serialNo.trim()) errs.serialNo = "Serial number is required";
+      if (!warehouseName.trim()) errs.warehouseName = "Warehouse name is required";
+    }
     
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -140,7 +144,7 @@ export default function ImportStockPage() {
           const row = lines[i].split(",").map((cell) => cell.replace(/^["']|["']$/g, "").trim());
           if (row.length < headers.length) continue;
 
-          // Map cells (Name, Code, Serial Number, Brand, Category, Model, Price, Cost)
+          // Map cells (Name, Code, Serial Number, Brand, Category, Model, Price, Cost, Warehouse)
           const name = row[0];
           const code = row[1];
           const serialNum = row[2];
@@ -152,6 +156,7 @@ export default function ImportStockPage() {
           const model = row[5];
           const price = parseFloat(row[6]) || 0;
           const cost = parseFloat(row[7]) || 0;
+          const csvWarehouse = row[8];
 
           if (!name) continue;
 
@@ -175,9 +180,9 @@ export default function ImportStockPage() {
           // 2. Insert Stock entry linked to the product
           const stockPayload = {
             product_id: productId,
-            model_no: model || modelNo,
+            model_no: model || modelNo || "Unknown Model",
             serial_no: serialNum || `${serialNo}-${i}`,
-            warehouse_name: warehouseName,
+            warehouse_name: csvWarehouse || warehouseName || "General Warehouse",
             import_date: importDate,
             quantity: 1,
           };
@@ -267,7 +272,7 @@ export default function ImportStockPage() {
           </p>
           <ul className="list-disc pl-4 space-y-1 text-slate-600 font-medium">
             <li>The CSV file structure should not be modified.</li>
-            <li>The correct column order is: <span className="font-bold text-[#00B4D8]">Name, Code, Serial Number, Brand, Category Code, Model, Price, Cost</span></li>
+            <li>The correct column order is: <span className="font-bold text-[#00B4D8]">Name, Code, Serial Number, Brand, Category Code, Model, Price, Cost, Warehouse</span></li>
             <li>Ensure the category code is one of: <span className="font-bold">inverter, battery, aio</span></li>
           </ul>
         </div>
@@ -349,8 +354,11 @@ export default function ImportStockPage() {
             </label>
             <select
               value={modelNo}
+              disabled={!!file}
               onChange={(e) => setModelNo(e.target.value)}
               className={`w-full h-10 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${
+                file ? "opacity-50 cursor-not-allowed bg-slate-50" : ""
+              } ${
                 errors.modelNo ? "border-rose-500" : "border-slate-200"
               }`}
             >
@@ -374,8 +382,11 @@ export default function ImportStockPage() {
               type="text"
               placeholder="e.g. SN-INV"
               value={serialNo}
+              disabled={!!file}
               onChange={(e) => setSerialNo(e.target.value)}
               className={`w-full h-10 px-3 border rounded-[6px] text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#00B4D8] ${
+                file ? "opacity-50 cursor-not-allowed bg-slate-50" : ""
+              } ${
                 errors.serialNo ? "border-rose-500" : "border-slate-200"
               }`}
             />
@@ -390,8 +401,11 @@ export default function ImportStockPage() {
             </label>
             <select
               value={warehouseName}
+              disabled={!!file}
               onChange={(e) => setWarehouseName(e.target.value)}
               className={`w-full h-10 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${
+                file ? "opacity-50 cursor-not-allowed bg-slate-50" : ""
+              } ${
                 errors.warehouseName ? "border-rose-500" : "border-slate-200"
               }`}
             >
