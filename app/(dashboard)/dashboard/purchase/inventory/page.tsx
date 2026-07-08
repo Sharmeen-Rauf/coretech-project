@@ -5,7 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
 import { deleteRecordAction } from "@/app/actions/users";
-import { fetchStockAction } from "@/app/actions/products";
+import { fetchStockAction, fetchProductsAction } from "@/app/actions/products";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
 
 interface StockItem {
@@ -38,11 +38,11 @@ export default function InventoryPage() {
         dbData = res.data;
       }
 
-      // Fetch products to resolve details for local fallback stock items
+      // Fetch products to resolve details for local fallback stock items using server action (RLS-bypassed)
       let productsList: any[] = [];
       try {
-        const prodRes = await supabase.from("products").select("id, name, brand, model");
-        if (prodRes.data) {
+        const prodRes = await fetchProductsAction();
+        if (prodRes.success && prodRes.data) {
           productsList = prodRes.data;
         }
       } catch (err) {
