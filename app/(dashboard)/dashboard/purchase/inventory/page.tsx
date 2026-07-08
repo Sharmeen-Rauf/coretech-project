@@ -4,9 +4,10 @@ import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
-import { deleteRecordAction } from "@/app/actions/users";
-import { fetchStockAction, fetchProductsAction } from "@/app/actions/products";
+import { deleteRecordAction, createRecordAction } from "@/app/actions/users";
+import { fetchStockAction, fetchProductsAction, getOrCreateProductByCode } from "@/app/actions/products";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
+import { Loader2, RefreshCw } from "lucide-react";
 
 interface StockItem {
   id: string;
@@ -27,29 +28,35 @@ export default function InventoryPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [localStockCount, setLocalStockCount] = useState(0);
   const perPage = 10;
 
   const fetchInventory = async () => {
     setIsLoading(true);
     try {
       let dbData: any[] = [];
-      const res = await fetchStockAction();
-      if (res.success && res.data) {
-        dbData = res.data;
+      try {
+        const res = await fetchStockAction();
+        if (res.success && res.data) {
+          dbData = res.data;
+        }
+      } catch (dbErr) {
+        console.warn("Failed to fetch stock from database, using local fallback.", dbErr);
       }
 
-      // Fetch products to resolve details for local fallback stock items using server action (RLS-bypassed)
+      // Fetch products list
       let productsList: any[] = [];
       try {
         const prodRes = await fetchProductsAction();
         if (prodRes.success && prodRes.data) {
           productsList = prodRes.data;
         }
-      } catch (err) {
-        console.warn("Failed to fetch products for local stock resolution", err);
+      } catch (e) {
+        console.warn(e);
       }
 
-      const localProducts = getLocalItems("coretech_local_products");
+      const localProducts = getLocalItems("coretech_local_products") || [];
       const allProducts = [...productsList, ...localProducts];
 
       const formattedDb = dbData.map((row: any) => ({
@@ -63,7 +70,8 @@ export default function InventoryPage() {
         import_date: row.import_date || "-",
       }));
 
-      const localStock = getLocalItems("coretech_local_stock");
+      const localStock = getLocalItems("coretech_local_stock") || [];
+      setLocalStockCount(localStock.length);
       const formattedLocal = localStock.map((row: any, idx: number) => {
         const prod = allProducts.find((p: any) => p.id === row.product_id);
         return {
@@ -104,6 +112,70 @@ export default function InventoryPage() {
     fetchInventory();
   }, []);
 
+  const syncLocalStock = async () => {
+    const localStock = getLocalItems("coretech_local_stock") || [];
+    if (localStock.length === 0) {
+      toast.error("No local stock items found to sync.");
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      // Load all products in DB to match
+      const dbProdsRes = await fetchProductsAction();
+      const dbProds = dbProdsRes.success ? (dbProdsRes.data || []) : [];
+
+      // Load local products fallback
+      const localProds = getLocalItems("coretech_local_products") || [];
+      const allProds = [...dbProds, ...localProds];
+
+      let successCount = 0;
+      for (const localItem of localStock) {
+        // Find local item's product info
+        const prod = allProds.find((p: any) => p.id === localItem.product_id);
+        if (!prod) continue;
+
+        // 1. Resolve product in DB (using code fallback)
+        const prodRes = await getOrCreateProductByCode(prod.code || prod.model || "GENERIC", {
+          name: prod.name,
+          code: prod.code || prod.model || "GENERIC",
+          brand: prod.brand || "-",
+          category: prod.category || "General",
+          model: prod.model || "Generic",
+          price: prod.price || 0,
+          cost: prod.cost || 0,
+          alert_quantity: 5,
+        });
+
+        if (!prodRes.success) continue;
+
+        // 2. Insert stock item to DB
+        const payload = {
+          product_id: prodRes.data.id,
+          model_no: localItem.model_no || prod.model || "Generic",
+          serial_no: localItem.serial_no,
+          warehouse_name: localItem.warehouse_name || "General Warehouse",
+          import_date: localItem.import_date || new Date().toISOString().split('T')[0],
+          quantity: localItem.quantity || 1,
+        };
+
+        const stockRes = await createRecordAction("stock", payload);
+        if (stockRes.success) {
+          successCount++;
+        }
+      }
+
+      // Clear local stock
+      localStorage.setItem("coretech_local_stock", JSON.stringify([]));
+      toast.success(`Successfully uploaded & synced ${successCount} stock items to Supabase cloud!`);
+      await fetchInventory();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to sync local stock");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleDeleteStock = async (row: any) => {
     if (!window.confirm(`Are you sure you want to delete ${row.product_name} (${row.serial_no})?`)) return;
 
@@ -112,7 +184,7 @@ export default function InventoryPage() {
         const res = await deleteRecordAction("stock", row.id);
         if (!res.success) throw new Error(res.error || "Failed to delete from DB");
       } else {
-        const localStock = getLocalItems("coretech_local_stock");
+        const localStock = getLocalItems("coretech_local_stock") || [];
         const updated = localStock.filter((s: any) => s.serial_no !== row.serial_no);
         localStorage.setItem("coretech_local_stock", JSON.stringify(updated));
       }
@@ -128,7 +200,7 @@ export default function InventoryPage() {
 
     try {
       let successCount = 0;
-      let localStock = getLocalItems("coretech_local_stock");
+      let localStock = getLocalItems("coretech_local_stock") || [];
 
       for (const id of selectedIds) {
         if (id.startsWith("local-")) {
@@ -182,11 +254,27 @@ export default function InventoryPage() {
 
   return (
     <div className="space-y-6 select-none">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>
-        <p className="text-xs text-slate-500">
-          Monitor your current distributed warehouse stock items and quantities.
-        </p>
+      <div className="flex items-center justify-between border-b pb-4 border-slate-100">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Inventory</h1>
+          <p className="text-xs text-slate-500">
+            Monitor your current distributed warehouse stock items and quantities.
+          </p>
+        </div>
+        {localStockCount > 0 && (
+          <button
+            onClick={syncLocalStock}
+            disabled={isSyncing}
+            className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white text-xs font-bold rounded-[6px] shadow flex items-center gap-1.5 transition-all"
+          >
+            {isSyncing ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5" />
+            )}
+            <span>Sync Local Stock to Cloud Database ({localStockCount} pending)</span>
+          </button>
+        )}
       </div>
 
       <DataTable

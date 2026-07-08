@@ -333,3 +333,19 @@ export async function fetchProfilesAction(role?: string) {
   }
 }
 
+export async function createRecordAction(table: string, data: any) {
+  const supabase = getAdminClient();
+  try {
+    const { data: created, error } = await supabase
+      .from(table)
+      .insert(data)
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    return { success: true, message: "Record created successfully", data: created };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to create record" };
+  }
+}
+

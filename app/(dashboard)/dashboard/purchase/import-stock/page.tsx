@@ -6,7 +6,7 @@ import { Download, UploadCloud, FileText, Loader2, ArrowRight } from "lucide-rea
 import toast from "react-hot-toast";
 import { getOrCreateProductByCode, fetchStockAction } from "@/app/actions/products";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
-import { fetchRecordsAction, updateRecordAction } from "@/app/actions/users";
+import { fetchRecordsAction, updateRecordAction, createRecordAction } from "@/app/actions/users";
 
 export default function ImportStockPage() {
   const supabase = createClientComponentClient();
@@ -232,14 +232,10 @@ export default function ImportStockPage() {
           };
 
           try {
-            const { data: newStock, error: stockErr } = await supabase
-              .from("stock")
-              .insert(stockPayload)
-              .select();
-
-            if (stockErr) throw stockErr;
-            if (newStock && newStock[0]) {
-              dbStockList.push(newStock[0]);
+            const res = await createRecordAction("stock", stockPayload);
+            if (!res.success) throw new Error(res.error);
+            if (res.data) {
+              dbStockList.push(res.data);
             }
           } catch (dbErr) {
             console.warn("Database stock insert failed. Saving locally.", dbErr);
@@ -305,11 +301,8 @@ export default function ImportStockPage() {
             };
 
             try {
-              const { error: stockErr } = await supabase
-                .from("stock")
-                .insert(stockPayload);
-
-              if (stockErr) throw stockErr;
+              const res = await createRecordAction("stock", stockPayload);
+              if (!res.success) throw new Error(res.error);
               toast.success(`Manual stock entry registered successfully!`);
             } catch (dbErr) {
               console.warn("Database stock insert failed. Saving locally.", dbErr);
