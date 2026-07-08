@@ -649,7 +649,8 @@ export default function WebInstallerPage() {
                     value={serialNo}
                     onChange={(e) => {
                       setSerialNo(e.target.value);
-                      verifySerialNumber(e.target.value);
+                      setValidatedProduct(null);
+                      setVerificationError("");
                     }}
                     className="flex-1 h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white"
                     required
