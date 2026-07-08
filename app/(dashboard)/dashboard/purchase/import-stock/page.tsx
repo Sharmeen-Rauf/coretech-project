@@ -22,6 +22,9 @@ export default function ImportStockPage() {
   const [warehousesList, setWarehousesList] = useState<string[]>([]);
   const [userRole, setUserRole] = useState("");
 
+  const [allProductsList, setAllProductsList] = useState<any[]>([]);
+  const [selectedProductDetails, setSelectedProductDetails] = useState<any | null>(null);
+
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -44,20 +47,22 @@ export default function ImportStockPage() {
       }
 
       try {
-        let dbModels: any[] = [];
+        let dbProds: any[] = [];
         try {
           const { data, error } = await supabase
             .from("products")
-            .select("model")
+            .select("*")
             .order("model", { ascending: true });
           if (error) throw error;
-          dbModels = data || [];
+          dbProds = data || [];
         } catch (dbErr) {
-          console.warn("Failed to fetch products for models list. Checking local products.", dbErr);
+          console.warn("Failed to fetch products. Checking local products.", dbErr);
         }
 
         const localProds = getLocalItems("coretech_local_products");
-        const allProds = [...dbModels, ...localProds];
+        const allProds = [...dbProds, ...localProds];
+        setAllProductsList(allProds);
+
         const uniqueModels = Array.from(new Set(allProds.map((item: any) => item.model).filter(Boolean))) as string[];
         setModelsList(uniqueModels);
       } catch (err: any) {
@@ -79,6 +84,16 @@ export default function ImportStockPage() {
     };
     fetchModels();
   }, [supabase]);
+
+  const handleModelChange = (modelName: string) => {
+    setModelNo(modelName);
+    if (!modelName) {
+      setSelectedProductDetails(null);
+      return;
+    }
+    const matched = allProductsList.find((p) => p.model === modelName);
+    setSelectedProductDetails(matched || null);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -308,6 +323,7 @@ export default function ImportStockPage() {
       setModelNo("");
       setSerialNo("");
       setWarehouseName("");
+      setSelectedProductDetails(null);
     } catch (err: any) {
       toast.error(err.message || "Failed to save stock entry");
     } finally {
@@ -419,7 +435,7 @@ export default function ImportStockPage() {
             <select
               value={modelNo}
               disabled={!!file}
-              onChange={(e) => setModelNo(e.target.value)}
+              onChange={(e) => handleModelChange(e.target.value)}
               className={`w-full h-10 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${
                 file ? "opacity-50 cursor-not-allowed bg-slate-50" : ""
               } ${
@@ -458,6 +474,37 @@ export default function ImportStockPage() {
               <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.serialNo}</p>
             )}
           </div>
+
+          {selectedProductDetails && (
+            <div className="md:col-span-2 bg-[#F0FAFE]/40 border border-[#00B4D8]/20 rounded-[8px] p-5 grid grid-cols-2 md:grid-cols-3 gap-4 animate-in slide-in-from-top-4 duration-300">
+              <div className="col-span-2 md:col-span-3 pb-2 border-b border-[#00B4D8]/10 flex items-center justify-between">
+                <span className="text-xs font-bold text-[#0077B6] uppercase tracking-wider">Auto-Fetched Product Details</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#00B4D8]/10 text-[#0077B6] uppercase">
+                  {selectedProductDetails.category || "General"}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Product Name</span>
+                <span className="text-xs font-bold text-slate-700">{selectedProductDetails.name || "-"}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Product Code</span>
+                <span className="text-xs font-bold text-slate-700">{selectedProductDetails.code || "-"}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Brand</span>
+                <span className="text-xs font-bold text-slate-700">{selectedProductDetails.brand || "-"}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Sale Price</span>
+                <span className="text-xs font-bold text-emerald-600">Rs. {selectedProductDetails.price?.toLocaleString() || "0"}</span>
+              </div>
+              <div>
+                <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider">Cost Price</span>
+                <span className="text-xs font-bold text-slate-500">Rs. {selectedProductDetails.cost?.toLocaleString() || "0"}</span>
+              </div>
+            </div>
+          )}
 
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
