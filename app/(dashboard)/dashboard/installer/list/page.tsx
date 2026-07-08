@@ -5,7 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
-import { deleteUserAction } from "@/app/actions/users";
+import { deleteUserAction, updateRecordAction } from "@/app/actions/users";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
 
 interface InstallerProfile {
@@ -77,20 +77,15 @@ export default function InstallerListPage() {
 
   const handleApproveInstaller = async (instId: string) => {
     try {
-      try {
-        const { error } = await supabase
-          .from("profiles")
-          .update({ status: "active" })
-          .eq("id", instId);
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Database update failed. Saving locally.", dbErr);
-        const localProfiles = getLocalItems("profiles") || [];
-        const index = localProfiles.findIndex((p: any) => p.id === instId);
-        if (index > -1) {
-          localProfiles[index].status = "active";
-          localStorage.setItem("profiles", JSON.stringify(localProfiles));
-        }
+      const res = await updateRecordAction("profiles", instId, { status: "active" });
+      if (!res.success) throw new Error(res.error);
+
+      // Keep local profiles in sync
+      const localProfiles = getLocalItems("profiles") || [];
+      const index = localProfiles.findIndex((p: any) => p.id === instId);
+      if (index > -1) {
+        localProfiles[index].status = "active";
+        localStorage.setItem("profiles", JSON.stringify(localProfiles));
       }
 
       toast.success("Installer approved successfully!");

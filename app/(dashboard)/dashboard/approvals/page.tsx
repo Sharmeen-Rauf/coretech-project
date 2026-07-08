@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
+import { updateRecordAction, deleteRecordAction } from "@/app/actions/users";
 
 interface OrderApprovalRow {
   id: string;
@@ -510,20 +511,15 @@ export default function ApprovalsPage() {
   // Installer approvals (Approve / Reject)
   const handleApproveInstaller = async (instId: string) => {
     try {
-      try {
-        const { error } = await supabase
-          .from("profiles")
-          .update({ status: "active" })
-          .eq("id", instId);
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Database update failed. Saving locally.", dbErr);
-        const localProfiles = getLocalItems("profiles") || [];
-        const index = localProfiles.findIndex((p: any) => p.id === instId);
-        if (index > -1) {
-          localProfiles[index].status = "active";
-          localStorage.setItem("profiles", JSON.stringify(localProfiles));
-        }
+      const res = await updateRecordAction("profiles", instId, { status: "active" });
+      if (!res.success) throw new Error(res.error);
+
+      // Keep local profiles in sync
+      const localProfiles = getLocalItems("profiles") || [];
+      const index = localProfiles.findIndex((p: any) => p.id === instId);
+      if (index > -1) {
+        localProfiles[index].status = "active";
+        localStorage.setItem("profiles", JSON.stringify(localProfiles));
       }
 
       // Safe activity log
@@ -546,18 +542,12 @@ export default function ApprovalsPage() {
   const handleRejectInstaller = async (instId: string) => {
     if (!window.confirm("Are you sure you want to reject this installer registration?")) return;
     try {
-      try {
-        const { error } = await supabase
-          .from("profiles")
-          .delete()
-          .eq("id", instId);
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Database delete failed. Removing locally.", dbErr);
-        const localProfiles = getLocalItems("profiles") || [];
-        const updated = localProfiles.filter((p: any) => p.id !== instId);
-        localStorage.setItem("profiles", JSON.stringify(updated));
-      }
+      const res = await deleteRecordAction("profiles", instId);
+      if (!res.success) throw new Error(res.error);
+
+      const localProfiles = getLocalItems("profiles") || [];
+      const updated = localProfiles.filter((p: any) => p.id !== instId);
+      localStorage.setItem("profiles", JSON.stringify(updated));
 
       toast.success("Installer registration rejected and deleted.");
       setSelectedInstaller(null);
@@ -570,21 +560,15 @@ export default function ApprovalsPage() {
   // Installation approvals (Approve / Reject)
   const handleApproveInstallation = async (job: any) => {
     try {
-      // 1. Update job ticket status to 'completed'
-      try {
-        const { error } = await supabase
-          .from("installer_jobs")
-          .update({ status: "completed" })
-          .eq("id", job.id);
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Database job update failed. Saving locally.", dbErr);
-        const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
-        const index = localJobs.findIndex((j: any) => j.id === job.id);
-        if (index > -1) {
-          localJobs[index].status = "completed";
-          localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
-        }
+      // 1. Update job ticket status to 'completed' using server action to bypass client RLS limits
+      const res = await updateRecordAction("installer_jobs", job.id, { status: "completed" });
+      if (!res.success) throw new Error(res.error);
+
+      const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
+      const index = localJobs.findIndex((j: any) => j.id === job.id);
+      if (index > -1) {
+        localJobs[index].status = "completed";
+        localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
       }
 
       // 2. Consume/Deduct product from active stock inventory
@@ -598,7 +582,7 @@ export default function ApprovalsPage() {
 
         if (!fetchStockErr && stockItem) {
           // Delete stock row representing consumption of item
-          await supabase.from("stock").delete().eq("id", stockItem.id);
+          await deleteRecordAction("stock", stockItem.id);
         } else {
           // If not found in DB, check local stock fallback
           const localStock = getLocalItems("coretech_local_stock") || [];
@@ -628,20 +612,14 @@ export default function ApprovalsPage() {
   const handleRejectInstallation = async (jobId: string) => {
     if (!window.confirm("Are you sure you want to reject this installation? It will go back to Assigned status for the installer.")) return;
     try {
-      try {
-        const { error } = await supabase
-          .from("installer_jobs")
-          .update({ status: "assigned" })
-          .eq("id", jobId);
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Database job update failed. Saving locally.", dbErr);
-        const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
-        const index = localJobs.findIndex((j: any) => j.id === jobId);
-        if (index > -1) {
-          localJobs[index].status = "assigned";
-          localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
-        }
+      const res = await updateRecordAction("installer_jobs", jobId, { status: "assigned" });
+      if (!res.success) throw new Error(res.error);
+
+      const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
+      const index = localJobs.findIndex((j: any) => j.id === jobId);
+      if (index > -1) {
+        localJobs[index].status = "assigned";
+        localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
       }
 
       toast.success("Installation rejected and reverted to assigned state.");
