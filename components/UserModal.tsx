@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import { createUserAction, updateUserAction, fetchRecordsAction } from "@/app/actions/users";
 import toast from "react-hot-toast";
+import { mergeLocalItems } from "@/lib/supabaseLocalFallback";
 
 interface UserModalProps {
   isOpen: boolean;
@@ -49,15 +50,18 @@ export default function UserModal({
 
   useEffect(() => {
     const loadWHs = async () => {
+      let dbData: any[] = [];
       try {
         const res = await fetchRecordsAction("regions");
         if (res.success && res.data) {
-          const names = Array.from(new Set(res.data.map((r: any) => r.warehouse).filter(Boolean))) as string[];
-          setDbWarehouses(names);
+          dbData = res.data;
         }
       } catch (err) {
         console.warn("Failed to load warehouses for dropdown", err);
       }
+      const merged = mergeLocalItems(dbData, "coretech_local_regions");
+      const names = Array.from(new Set(merged.map((r: any) => r.warehouse).filter(Boolean))) as string[];
+      setDbWarehouses(names);
     };
     loadWHs();
   }, []);

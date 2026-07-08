@@ -5,7 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import { Download, UploadCloud, FileText, Loader2, ArrowRight } from "lucide-react";
 import toast from "react-hot-toast";
 import { getOrCreateProductByCode } from "@/app/actions/products";
-import { getLocalItems, saveLocalItem } from "@/lib/supabaseLocalFallback";
+import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { fetchRecordsAction } from "@/app/actions/users";
 
 export default function ImportStockPage() {
@@ -64,15 +64,18 @@ export default function ImportStockPage() {
         console.error("Error fetching product models:", err);
       }
 
+      let dbData: any[] = [];
       try {
         const res = await fetchRecordsAction("regions");
         if (res.success && res.data) {
-          const whs = Array.from(new Set(res.data.map((r: any) => r.warehouse).filter(Boolean))) as string[];
-          setWarehousesList(whs);
+          dbData = res.data;
         }
       } catch (err) {
         console.warn("Error fetching warehouses:", err);
       }
+      const merged = mergeLocalItems(dbData, "coretech_local_regions");
+      const whs = Array.from(new Set(merged.map((r: any) => r.warehouse).filter(Boolean))) as string[];
+      setWarehousesList(whs);
     };
     fetchModels();
   }, [supabase]);
