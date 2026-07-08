@@ -4,9 +4,9 @@ import React, { useState, useEffect } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import { Download, UploadCloud, FileText, Loader2, ArrowRight } from "lucide-react";
 import toast from "react-hot-toast";
-import { getOrCreateProductByCode } from "@/app/actions/products";
+import { getOrCreateProductByCode, fetchStockAction } from "@/app/actions/products";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
-import { fetchRecordsAction } from "@/app/actions/users";
+import { fetchRecordsAction, updateRecordAction } from "@/app/actions/users";
 
 export default function ImportStockPage() {
   const supabase = createClientComponentClient();
@@ -129,6 +129,13 @@ export default function ImportStockPage() {
 
     setIsImporting(true);
     try {
+      // Fetch full DB stock list to check for duplicates (RLS bypassed)
+      let dbStockList: any[] = [];
+      const stockRes = await fetchStockAction();
+      if (stockRes.success && stockRes.data) {
+        dbStockList = stockRes.data;
+      }
+
       if (file) {
         // Mode A: CSV Bulk Import
         const text = await file.text();
@@ -139,6 +146,9 @@ export default function ImportStockPage() {
 
         const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
         let successCount = 0;
+        
+        // Keep track of local stock mutations during the loop
+        let localStock = getLocalItems("coretech_local_stock");
 
         for (let i = 1; i < lines.length; i++) {
           const row = lines[i].split(",").map((cell) => cell.replace(/^["']|["']$/g, "").trim());
@@ -160,7 +170,27 @@ export default function ImportStockPage() {
 
           if (!name) continue;
 
-          // 1. Resolve or create product in Supabase using server action
+          const finalSerial = serialNum || `${serialNo}-${i}`;
+
+          // Check if serial number already exists in DB stock list
+          const existingDb = dbStockList.find((s: any) => s.serial_no === finalSerial);
+          if (existingDb) {
+            const newQty = (existingDb.quantity || 0) + 1;
+            await updateRecordAction("stock", existingDb.id, { quantity: newQty });
+            existingDb.quantity = newQty; // update local representation
+            successCount++;
+            continue;
+          }
+
+          // Check if serial number already exists in local stock
+          const existingLocalIdx = localStock.findIndex((s: any) => s.serial_no === finalSerial);
+          if (existingLocalIdx >= 0) {
+            localStock[existingLocalIdx].quantity = (localStock[existingLocalIdx].quantity || 0) + 1;
+            successCount++;
+            continue;
+          }
+
+          // Otherwise, create a new stock item
           const fallbackData = {
             name,
             code,
@@ -177,67 +207,101 @@ export default function ImportStockPage() {
           }
           const productId = res.data.id;
 
-          // 2. Insert Stock entry linked to the product
           const stockPayload = {
             product_id: productId,
             model_no: model || modelNo || "Unknown Model",
-            serial_no: serialNum || `${serialNo}-${i}`,
+            serial_no: finalSerial,
             warehouse_name: csvWarehouse || warehouseName || "General Warehouse",
             import_date: importDate,
             quantity: 1,
           };
 
           try {
-            const { error: stockErr } = await supabase
+            const { data: newStock, error: stockErr } = await supabase
               .from("stock")
-              .insert(stockPayload);
+              .insert(stockPayload)
+              .select();
 
             if (stockErr) throw stockErr;
+            if (newStock && newStock[0]) {
+              dbStockList.push(newStock[0]);
+            }
           } catch (dbErr) {
             console.warn("Database stock insert failed. Saving locally.", dbErr);
-            saveLocalItem("coretech_local_stock", stockPayload);
+            // Push to local stock list (will save to localStorage below)
+            const localId = typeof crypto !== "undefined" && crypto.randomUUID 
+              ? crypto.randomUUID() 
+              : "local_" + Math.random().toString(36).substring(2, 11);
+            
+            localStock.push({
+              id: localId,
+              ...stockPayload,
+              created_at: new Date().toISOString()
+            });
           }
           successCount++;
         }
 
-        toast.success(`Import completed successfully! Registered ${successCount} stock entries.`);
+        // Save local stock mutations
+        localStorage.setItem("coretech_local_stock", JSON.stringify(localStock));
+        toast.success(`Import completed successfully! Processed ${successCount} stock entries.`);
         setFile(null);
       } else {
         // Mode B: Manual Stock Entry
-        // Resolve product ID based on model selection
-        const { data: matchedProducts, error: modelSearchErr } = await supabase
-          .from("products")
-          .select("id")
-          .eq("model", modelNo)
-          .limit(1);
+        const finalSerial = serialNo.trim();
+        let localStock = getLocalItems("coretech_local_stock");
 
-        if (modelSearchErr) throw modelSearchErr;
-        
-        if (!matchedProducts || matchedProducts.length === 0) {
-          throw new Error("No product matching the selected model name was found in database.");
-        }
-        
-        const productId = matchedProducts[0].id;
-        const stockPayload = {
-          product_id: productId,
-          model_no: modelNo,
-          serial_no: serialNo.trim(),
-          warehouse_name: warehouseName,
-          import_date: importDate,
-          quantity: 1,
-        };
+        // Check DB duplicates
+        const existingDb = dbStockList.find((s: any) => s.serial_no === finalSerial);
+        if (existingDb) {
+          const newQty = (existingDb.quantity || 0) + 1;
+          const upd = await updateRecordAction("stock", existingDb.id, { quantity: newQty });
+          if (!upd.success) throw new Error(upd.error || "Failed to update stock quantity");
+          toast.success("Stock item already exists. Quantity incremented in Database!");
+        } else {
+          // Check local duplicates
+          const existingLocalIdx = localStock.findIndex((s: any) => s.serial_no === finalSerial);
+          if (existingLocalIdx >= 0) {
+            localStock[existingLocalIdx].quantity = (localStock[existingLocalIdx].quantity || 0) + 1;
+            localStorage.setItem("coretech_local_stock", JSON.stringify(localStock));
+            toast.success("Local stock item already exists. Quantity incremented!");
+          } else {
+            // Resolve product ID based on model selection
+            const { data: matchedProducts, error: modelSearchErr } = await supabase
+              .from("products")
+              .select("id")
+              .eq("model", modelNo)
+              .limit(1);
 
-        try {
-          const { error: stockErr } = await supabase
-            .from("stock")
-            .insert(stockPayload);
+            if (modelSearchErr) throw modelSearchErr;
+            
+            if (!matchedProducts || matchedProducts.length === 0) {
+              throw new Error("No product matching the selected model name was found in database.");
+            }
+            
+            const productId = matchedProducts[0].id;
+            const stockPayload = {
+              product_id: productId,
+              model_no: modelNo,
+              serial_no: finalSerial,
+              warehouse_name: warehouseName,
+              import_date: importDate,
+              quantity: 1,
+            };
 
-          if (stockErr) throw stockErr;
-          toast.success(`Manual stock entry registered successfully!`);
-        } catch (dbErr) {
-          console.warn("Database stock insert failed. Saving locally.", dbErr);
-          saveLocalItem("coretech_local_stock", stockPayload);
-          toast.success(`Manual stock registered locally (Database fallback)`);
+            try {
+              const { error: stockErr } = await supabase
+                .from("stock")
+                .insert(stockPayload);
+
+              if (stockErr) throw stockErr;
+              toast.success(`Manual stock entry registered successfully!`);
+            } catch (dbErr) {
+              console.warn("Database stock insert failed. Saving locally.", dbErr);
+              saveLocalItem("coretech_local_stock", stockPayload);
+              toast.success(`Manual stock registered locally (Database fallback)`);
+            }
+          }
         }
       }
 
