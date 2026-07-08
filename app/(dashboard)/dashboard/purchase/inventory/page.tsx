@@ -6,6 +6,7 @@ import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
 import { deleteRecordAction } from "@/app/actions/users";
 import { fetchStockAction } from "@/app/actions/products";
+import { getLocalItems } from "@/lib/supabaseLocalFallback";
 
 interface StockItem {
   id: string;
@@ -31,17 +32,28 @@ export default function InventoryPage() {
   const fetchInventory = async () => {
     setIsLoading(true);
     try {
-      // Use server action to bypass RLS
+      let dbData: any[] = [];
       const res = await fetchStockAction();
-      if (!res.success) {
-        console.warn("Failed to fetch stock:", res.error);
-        setStock([]);
-        return;
+      if (res.success && res.data) {
+        dbData = res.data;
       }
 
-      const formatted = (res.data || []).map((row: any, idx: number) => ({
+      // Fetch products to resolve details for local fallback stock items
+      let productsList: any[] = [];
+      try {
+        const prodRes = await supabase.from("products").select("id, name, brand, model");
+        if (prodRes.data) {
+          productsList = prodRes.data;
+        }
+      } catch (err) {
+        console.warn("Failed to fetch products for local stock resolution", err);
+      }
+
+      const localProducts = getLocalItems("coretech_local_products");
+      const allProducts = [...productsList, ...localProducts];
+
+      const formattedDb = dbData.map((row: any) => ({
         id: row.id,
-        sno: String(idx + 1).padStart(2, "0"),
         product_name: row.products?.name || "Unknown Product",
         brand: row.products?.brand || "-",
         model: row.model_no || row.products?.model || "-",
@@ -51,7 +63,36 @@ export default function InventoryPage() {
         import_date: row.import_date || "-",
       }));
 
-      setStock(formatted);
+      const localStock = getLocalItems("coretech_local_stock");
+      const formattedLocal = localStock.map((row: any, idx: number) => {
+        const prod = allProducts.find((p: any) => p.id === row.product_id);
+        return {
+          id: row.id || `local-${idx}`,
+          product_name: prod?.name || "Unknown Product",
+          brand: prod?.brand || "-",
+          model: row.model_no || prod?.model || "-",
+          serial_no: row.serial_no || "-",
+          warehouse_name: row.warehouse_name || "-",
+          quantity: row.quantity ?? 0,
+          import_date: row.import_date || "-",
+        };
+      });
+
+      // Combine both lists and avoid duplicates by serial number
+      const combined = [...formattedDb];
+      formattedLocal.forEach((localItem: any) => {
+        if (!combined.some((dbItem: any) => dbItem.serial_no === localItem.serial_no)) {
+          combined.push(localItem);
+        }
+      });
+
+      // Add visual sequence numbers (S.No)
+      const finalStock = combined.map((item, idx) => ({
+        ...item,
+        sno: String(idx + 1).padStart(2, "0"),
+      }));
+
+      setStock(finalStock);
     } catch (err: any) {
       toast.error(err.message || "Failed to load inventory");
     } finally {
