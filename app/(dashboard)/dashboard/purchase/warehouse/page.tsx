@@ -6,7 +6,7 @@ import DataTable from "@/components/DataTable";
 import { X, Loader2, Plus, Home } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
-import { deleteRecordAction, fetchRecordsAction } from "@/app/actions/users";
+import { deleteRecordAction, fetchRecordsAction, updateRecordAction } from "@/app/actions/users";
 
 interface WarehouseRow {
   id: string;
@@ -25,11 +25,25 @@ export default function WarehousePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [editingWarehouse, setEditingWarehouse] = useState<WarehouseRow | undefined>(undefined);
+
   // Form states
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [warehouse, setWarehouse] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (isModalOpen && editingWarehouse) {
+      setCode(editingWarehouse.region_code || "");
+      setName(editingWarehouse.name || "");
+      setWarehouse(editingWarehouse.warehouse || "");
+    } else if (isModalOpen) {
+      setCode("");
+      setName("");
+      setWarehouse("");
+    }
+  }, [isModalOpen, editingWarehouse]);
 
   const fetchWarehouses = async () => {
     setIsLoading(true);
@@ -70,42 +84,53 @@ export default function WarehousePage() {
 
     setIsSubmitting(true);
     try {
-      const newRegion = {
+      const data: any = {
         region_code: code.trim().toUpperCase(),
         name: name.trim(),
         warehouse: warehouse.trim(),
-        distributors: 0,
-        sub_dealers: 0,
         status: "active",
       };
 
-      try {
-        const { error } = await supabase.from("regions").insert(newRegion);
-        if (error) throw error;
-        toast.success(`Warehouse ${newRegion.warehouse} successfully registered!`);
-      } catch (dbErr) {
-        console.warn("Database warehouse insert failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_regions", newRegion);
-        toast.success(`Warehouse ${newRegion.warehouse} registered locally (Database fallback)`);
+      if (editingWarehouse && editingWarehouse.id) {
+        const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+        if (isUUID(editingWarehouse.id)) {
+          const res = await updateRecordAction("regions", editingWarehouse.id, data);
+          if (!res.success) throw new Error(res.error || "Failed to update warehouse in database");
+          toast.success(`Warehouse ${data.warehouse} successfully updated!`);
+        } else {
+          saveLocalItem("coretech_local_regions", { ...editingWarehouse, ...data }, true);
+          toast.success(`Warehouse ${data.warehouse} updated locally!`);
+        }
+      } else {
+        try {
+          const { error } = await supabase.from("regions").insert(data);
+          if (error) throw error;
+          toast.success(`Warehouse ${data.warehouse} successfully registered!`);
+        } catch (dbErr) {
+          console.warn("Database warehouse insert failed. Saving locally.", dbErr);
+          saveLocalItem("coretech_local_regions", data);
+          toast.success(`Warehouse ${data.warehouse} registered locally (Database fallback)`);
+        }
       }
 
       // Log audit activity safely
       try {
         await supabase.from("activity_logs").insert({
-          action: "Warehouse Registered",
-          details: `Warehouse "${newRegion.warehouse}" (${newRegion.region_code}) was registered under region "${newRegion.name}"`,
+          action: editingWarehouse ? "Warehouse Updated" : "Warehouse Registered",
+          details: `Warehouse "${data.warehouse}" (${data.region_code}) was ${editingWarehouse ? "updated" : "registered"} under region "${data.name}"`,
         });
       } catch (logErr) {
         console.warn("Activity log failed:", logErr);
       }
 
       setIsModalOpen(false);
+      setEditingWarehouse(undefined);
       setCode("");
       setName("");
       setWarehouse("");
       fetchWarehouses();
     } catch (err: any) {
-      toast.error(err.message || "Failed to register warehouse");
+      toast.error(err.message || "Failed to save warehouse");
     } finally {
       setIsSubmitting(false);
     }
@@ -116,7 +141,8 @@ export default function WarehousePage() {
 
     try {
       let dbDeleteOk = false;
-      if (row.id) {
+      const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+      if (row.id && isUUID(row.id)) {
         const res = await deleteRecordAction("regions", row.id);
         if (res.success) {
           dbDeleteOk = true;
@@ -130,10 +156,10 @@ export default function WarehousePage() {
       
       if (dbDeleteOk) {
         toast.success(`Warehouse "${row.warehouse}" deleted successfully!`);
-      } else if (row.id) {
+      } else if (row.id && isUUID(row.id)) {
         toast.error(`Failed to delete warehouse from database. It may not exist.`);
       } else {
-        toast.success(`Warehouse "${row.warehouse}" removed locally!`);
+        toast.success(`Warehouse "${row.warehouse}" deleted successfully!`);
       }
       fetchWarehouses();
     } catch (err: any) {
@@ -176,48 +202,61 @@ export default function WarehousePage() {
         </div>
 
         <button
-          onClick={() => setIsModalOpen(true)}
-          className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Warehouse
-        </button>
-      </div>
-
-      <DataTable
-        title="Fulfillment Depots"
-        columns={columns}
-        data={paginated}
-        isLoading={isLoading}
-        pagination={{
-          current: currentPage,
-          total: warehousesList.length,
-          perPage: perPage,
-          onChange: (page) => setCurrentPage(page),
+        onClick={() => {
+          setEditingWarehouse(undefined);
+          setIsModalOpen(true);
         }}
-        onDeleteClick={handleDeleteWarehouse}
-      />
+        className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
+      >
+        <Plus className="w-4 h-4" />
+        Add Warehouse
+      </button>
+    </div>
 
-      {/* Create Warehouse Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            onClick={() => setIsModalOpen(false)}
-            className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm"
-          ></div>
+    <DataTable
+      title="Fulfillment Depots"
+      columns={columns}
+      data={paginated}
+      isLoading={isLoading}
+      pagination={{
+        current: currentPage,
+        total: warehousesList.length,
+        perPage: perPage,
+        onChange: (page) => setCurrentPage(page),
+      }}
+      onEditClick={(row) => {
+        setEditingWarehouse(row);
+        setIsModalOpen(true);
+      }}
+      onDeleteClick={handleDeleteWarehouse}
+    />
 
-          <div className="relative bg-white w-full max-w-sm border border-slate-100 rounded-[12px] shadow-2xl p-6 flex flex-col animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-4 bg-slate-50/50 -m-6 p-6 rounded-t-[12px]">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                Add New Warehouse
-              </h3>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+    {/* Create Warehouse Modal */}
+    {isModalOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div
+          onClick={() => {
+            setIsModalOpen(false);
+            setEditingWarehouse(undefined);
+          }}
+          className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm"
+        ></div>
+
+        <div className="relative bg-white w-full max-w-sm border border-slate-100 rounded-[12px] shadow-2xl p-6 flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-4 bg-slate-50/50 -m-6 p-6 rounded-t-[12px]">
+            <h3 className="text-sm font-bold text-slate-800">
+              {editingWarehouse ? "Edit Warehouse" : "Add New Warehouse"}
+            </h3>
+            <button
+              onClick={() => {
+                setIsModalOpen(false);
+                setEditingWarehouse(undefined);
+              }}
+              className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
             <form onSubmit={handleCreateWarehouse} className="space-y-4">
               <div>

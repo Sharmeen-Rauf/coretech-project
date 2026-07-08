@@ -1,5 +1,21 @@
 import React, { Suspense } from "react";
 import { createServerComponentClient } from "@/lib/supabase";
+import { createClient as createJSClient } from "@supabase/supabase-js";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (supabaseServiceKey) {
+    return createJSClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+  }
+  return createServerComponentClient();
+}
 import StatsCard from "@/components/StatsCard";
 import ProjectionsChart from "@/components/ProjectionsChart";
 import RevenueChart from "@/components/RevenueChart";
@@ -23,16 +39,16 @@ import InventoryHealthPanel from "@/components/InventoryHealthPanel";
 export const revalidate = 0; // Disable caching for realtime updates
 
 async function DashboardStats() {
-  const supabase = createServerComponentClient();
+  const supabase = getAdminClient();
 
-  // Preset operations fallbacks (high-fidelity values)
-  let customersVal = 3781;
-  let ordersVal = 1219;
-  let st1Val = 840;
-  let st2Val = 620;
-  let soVal = 1219;
-  let installationsVal = 425;
-  let revenueVal = 15480000;
+  // Preset operations fallbacks (initialized to 0 to show actual CRM data)
+  let customersVal = 0;
+  let ordersVal = 0;
+  let st1Val = 0;
+  let st2Val = 0;
+  let soVal = 0;
+  let installationsVal = 0;
+  let revenueVal = 0;
 
   try {
     // 1. Fetch total customers count
@@ -180,7 +196,7 @@ async function DashboardStats() {
 }
 
 async function ReportingDashboard() {
-  const supabase = createServerComponentClient();
+  const supabase = getAdminClient();
   
   let jobsCount = 0;
   let claimsCount = 0;
@@ -208,10 +224,10 @@ async function ReportingDashboard() {
     // fallback
   }
 
-  // Set visual non-zero fallbacks for empty local environment
-  if (jobsCount === 0) jobsCount = 3;
-  if (claimsCount === 0) claimsCount = 5;
-  if (ticketsCount === 0) ticketsCount = 2;
+  // Set visual non-zero fallbacks for empty local environment (removed to show actual counts)
+  if (jobsCount === 0) jobsCount = 0;
+  if (claimsCount === 0) claimsCount = 0;
+  if (ticketsCount === 0) ticketsCount = 0;
 
   return (
     <ReportingDashboardClient

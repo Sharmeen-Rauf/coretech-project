@@ -279,6 +279,23 @@ export async function deleteRecordAction(table: string, id: string) {
   }
 }
 
+export async function updateRecordAction(table: string, id: string, data: any) {
+  const supabase = getAdminClient();
+  try {
+    const { data: updated, error } = await supabase
+      .from(table)
+      .update(data)
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    return { success: true, message: "Record updated successfully", data: updated };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to update record" };
+  }
+}
+
 export async function fetchRecordsAction(table: string, filters?: { column: string; value: string }[], orderBy?: string) {
   const supabase = getAdminClient();
   try {
