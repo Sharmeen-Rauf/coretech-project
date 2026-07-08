@@ -976,6 +976,15 @@ export default function ApprovalsPage() {
             perPage: perPage,
             onChange: (page) => setCurrentPage(page),
           }}
+          onDeleteClick={async (row: any) => {
+            const res = await deleteRecordAction("gate_passes", row.id);
+            if (res.success) {
+              toast.success("Gate pass deleted successfully!");
+              fetchGatePasses();
+            } else {
+              toast.error(res.error || "Failed to delete gate pass");
+            }
+          }}
         />
       ) : activeTab === "installers" ? (
         <DataTable
@@ -990,6 +999,15 @@ export default function ApprovalsPage() {
             perPage: perPage,
             onChange: (page) => setCurrentPage(page),
           }}
+          onDeleteClick={async (row: any) => {
+            const res = await deleteRecordAction("profiles", row.id);
+            if (res.success) {
+              toast.success("Installer profile deleted successfully!");
+              fetchInstallers();
+            } else {
+              toast.error(res.error || "Failed to delete installer");
+            }
+          }}
         />
       ) : (
         <DataTable
@@ -1003,6 +1021,13 @@ export default function ApprovalsPage() {
             total: installations.length,
             perPage: perPage,
             onChange: (page) => setCurrentPage(page),
+          }}
+          onDeleteClick={async (row: any) => {
+            const res = await deleteRecordAction("installer_jobs", row.id);
+            if (res.success) {
+              toast.success("Installation job entry deleted successfully!");
+              fetchInstallations();
+            }
           }}
         />
       )}

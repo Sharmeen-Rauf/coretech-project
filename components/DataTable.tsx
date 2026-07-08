@@ -192,7 +192,7 @@ export default function DataTable({
 
         <div className="flex flex-wrap items-center gap-3 ml-auto">
           {/* Bulk Actions */}
-          {isAnySelected && (
+          {isAnySelected && (onBulkDelete || onDeleteClick) && (
             <button
               onClick={handleBulkDelete}
               className="h-9 px-3 text-xs font-semibold text-white bg-rose-500 hover:bg-rose-600 rounded-[6px] shadow transition-colors flex items-center justify-center gap-1.5"
