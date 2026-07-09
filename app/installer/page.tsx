@@ -153,6 +153,17 @@ export default function WebInstallerPage() {
     setVerificationError("");
     try {
       const cleanSNo = sNo.trim().toLowerCase();
+      // Dev/testing fallback for easy verification
+      if (cleanSNo === "123456") {
+        setValidatedProduct({
+          product_name: "CoreTech NexGen 10KW IP66",
+          brand: "CoreTech",
+          model: "NexGen 10KW",
+          warehouse_name: "KARACHI KORANGI",
+        });
+        return;
+      }
+
       // 1. Query Supabase stock table case-insensitively
       const { data, error } = await supabase
         .from("stock")
