@@ -30,6 +30,7 @@ export default function InventoryPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [isSyncing, setIsSyncing] = useState(false);
   const [localStockCount, setLocalStockCount] = useState(0);
+  const [isMounted, setIsMounted] = useState(false);
   const perPage = 10;
 
   const fetchInventory = async () => {
@@ -109,6 +110,7 @@ export default function InventoryPage() {
   };
 
   useEffect(() => {
+    setIsMounted(true);
     fetchInventory();
   }, []);
 
@@ -261,7 +263,7 @@ export default function InventoryPage() {
             Monitor your current distributed warehouse stock items and quantities.
           </p>
         </div>
-        {localStockCount > 0 && (
+        {isMounted && localStockCount > 0 && (
           <button
             onClick={syncLocalStock}
             disabled={isSyncing}
