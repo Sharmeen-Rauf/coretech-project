@@ -41,6 +41,7 @@ async function main() {
       ALTER TABLE public.products DISABLE ROW LEVEL SECURITY;
       ALTER TABLE public.orders DISABLE ROW LEVEL SECURITY;
       ALTER TABLE public.stock DISABLE ROW LEVEL SECURITY;
+      ALTER TABLE public.installer_jobs DISABLE ROW LEVEL SECURITY;
     `;
 
     await client.query(sql);

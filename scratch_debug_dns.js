@@ -25,7 +25,8 @@ const client = new Client({
   password: 'munifpaisedega',
   port: 6543,
   ssl: {
-    rejectUnauthorized: false
+    rejectUnauthorized: false,
+    servername: 'db.cypbnnohtipwavcwukhl.supabase.co'
   }
 });
 
