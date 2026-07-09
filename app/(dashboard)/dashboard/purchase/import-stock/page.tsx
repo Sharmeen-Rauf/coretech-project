@@ -278,19 +278,24 @@ export default function ImportStockPage() {
             toast.success("Local stock item already exists. Quantity incremented!");
           } else {
             // Resolve product ID based on model selection
+            let productId = "";
             const { data: matchedProducts, error: modelSearchErr } = await supabase
               .from("products")
               .select("id")
               .eq("model", modelNo)
               .limit(1);
 
-            if (modelSearchErr) throw modelSearchErr;
-            
-            if (!matchedProducts || matchedProducts.length === 0) {
-              throw new Error("No product matching the selected model name was found in database.");
+            if (!modelSearchErr && matchedProducts && matchedProducts.length > 0) {
+              productId = matchedProducts[0].id;
+            } else {
+              const localProds = getLocalItems("coretech_local_products") || [];
+              const localMatch = localProds.find((p: any) => p.model === modelNo);
+              if (localMatch) {
+                productId = localMatch.id;
+              } else {
+                throw new Error("No product matching the selected model name was found in database or local fallback.");
+              }
             }
-            
-            const productId = matchedProducts[0].id;
             const stockPayload = {
               product_id: productId,
               model_no: modelNo,
