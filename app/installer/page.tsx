@@ -128,9 +128,16 @@ export default function WebInstallerPage() {
         // Try uploading each local job
         for (const localJob of filteredLocal) {
           try {
+            const uploadJob = { ...localJob };
+            // Sanitize ID: If it's not a valid UUID, delete it so PostgreSQL generates a valid UUID
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (!uuidRegex.test(uploadJob.id)) {
+              delete uploadJob.id;
+            }
+
             const { error: insertErr } = await supabase
               .from("installer_jobs")
-              .insert(localJob);
+              .insert(uploadJob);
             if (!insertErr) {
               syncedIds.push(localJob.id);
               // Add to jobsList so it displays as a DB job
