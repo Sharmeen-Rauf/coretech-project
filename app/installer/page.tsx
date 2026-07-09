@@ -152,7 +152,8 @@ export default function WebInstallerPage() {
     setIsVerifyingSerial(true);
     setVerificationError("");
     try {
-      // 1. Query Supabase stock table
+      const cleanSNo = sNo.trim().toLowerCase();
+      // 1. Query Supabase stock table case-insensitively
       const { data, error } = await supabase
         .from("stock")
         .select(`
@@ -163,7 +164,7 @@ export default function WebInstallerPage() {
             model
           )
         `)
-        .eq("serial_no", sNo.trim())
+        .ilike("serial_no", sNo.trim())
         .maybeSingle();
 
       if (error) throw error;
@@ -178,12 +179,12 @@ export default function WebInstallerPage() {
         return;
       }
 
-      // 2. Query local fallback stock
-      const localStock = getLocalItems("coretech_local_stock");
-      const localMatch = localStock.find((s: any) => s.serial_no === sNo.trim());
+      // 2. Query local fallback stock case-insensitively
+      const localStock = getLocalItems("coretech_local_stock") || [];
+      const localMatch = localStock.find((s: any) => (s.serial_no || "").trim().toLowerCase() === cleanSNo);
 
       if (localMatch) {
-        const localProds = getLocalItems("coretech_local_products");
+        const localProds = getLocalItems("coretech_local_products") || [];
         const prod = localProds.find((p: any) => p.id === localMatch.product_id);
         setValidatedProduct({
           product_name: prod?.name || "Unknown Product",
