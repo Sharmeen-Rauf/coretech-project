@@ -119,12 +119,42 @@ export default function WebInstallerPage() {
         console.warn("Failed to fetch installer jobs from database. Checking local storage fallback.", err);
       }
 
-      const localJobs = getLocalItems("coretech_local_installer_jobs");
+      const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
       const filteredLocal = localJobs.filter((j: any) => j.installer_id === session.user.id);
 
-      // Merge
+      // Automatic Sync local jobs to database if database connection is active
+      const syncedIds: string[] = [];
+      if (filteredLocal.length > 0) {
+        // Try uploading each local job
+        for (const localJob of filteredLocal) {
+          try {
+            const { error: insertErr } = await supabase
+              .from("installer_jobs")
+              .insert(localJob);
+            if (!insertErr) {
+              syncedIds.push(localJob.id);
+              // Add to jobsList so it displays as a DB job
+              if (!jobsList.some(j => j.id === localJob.id)) {
+                jobsList.push(localJob);
+              }
+            }
+          } catch (e) {
+            console.warn("Failed to sync local job to database:", e);
+          }
+        }
+        
+        // Clean up synced jobs from local storage
+        if (syncedIds.length > 0) {
+          const updatedLocal = localJobs.filter((j: any) => !syncedIds.includes(j.id));
+          localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(updatedLocal));
+          toast.success(`Successfully synced ${syncedIds.length} offline jobs to database!`);
+        }
+      }
+
+      // Merge remaining local jobs
+      const remainingLocal = (getLocalItems("coretech_local_installer_jobs") || []).filter((j: any) => j.installer_id === session.user.id);
       const merged = [...jobsList];
-      filteredLocal.forEach((local) => {
+      remainingLocal.forEach((local) => {
         const exists = jobsList.some((db) => db.id === local.id);
         if (!exists) {
           merged.push(local);
