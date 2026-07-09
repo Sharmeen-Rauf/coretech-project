@@ -111,7 +111,12 @@ export default function InventoryPage() {
 
   useEffect(() => {
     setIsMounted(true);
-    fetchInventory();
+    fetchInventory().then(() => {
+      const localStock = getLocalItems("coretech_local_stock") || [];
+      if (localStock.length > 0) {
+        syncLocalStock();
+      }
+    });
   }, []);
 
   const syncLocalStock = async () => {

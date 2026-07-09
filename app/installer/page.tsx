@@ -192,7 +192,7 @@ export default function WebInstallerPage() {
 
       // 2. Query local fallback stock case-insensitively
       const localStock = getLocalItems("coretech_local_stock") || [];
-      const localMatch = localStock.find((s: any) => (s.serial_no || "").trim().toLowerCase() === cleanSNo);
+      const localMatch = localStock.find((s: any) => String(s.serial_no || s.serial_number || "").trim().toLowerCase() === cleanSNo);
 
       if (localMatch) {
         const localProds = getLocalItems("coretech_local_products") || [];
