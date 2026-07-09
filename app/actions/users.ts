@@ -3,6 +3,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient as createJSClient } from "@supabase/supabase-js";
+import { Client } from "pg";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -346,6 +347,24 @@ export async function createRecordAction(table: string, data: any) {
     return { success: true, message: "Record created successfully", data: created };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to create record" };
+  }
+}
+
+export async function reloadSchemaAction() {
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false
+    }
+  });
+  try {
+    await client.connect();
+    await client.query("NOTIFY pgrst, 'reload schema';");
+    await client.end();
+    return { success: true, message: "PostgREST schema cache reloaded successfully!" };
+  } catch (err: any) {
+    console.error("Failed to reload schema cache on Supabase:", err);
+    return { success: false, error: err.message };
   }
 }
 

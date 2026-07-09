@@ -29,6 +29,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import StatusBadge from "@/components/StatusBadge";
 import { getLocalItems, saveLocalItem } from "@/lib/supabaseLocalFallback";
+import { reloadSchemaAction } from "@/app/actions/users";
 
 export default function WebInstallerPage() {
   const supabase = createClientComponentClient();
@@ -72,6 +73,11 @@ export default function WebInstallerPage() {
   const fetchInstallerData = async () => {
     setIsLoading(true);
     try {
+      try {
+        await reloadSchemaAction();
+      } catch (e) {
+        console.warn("Failed to reload schema cache:", e);
+      }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.push("/login");

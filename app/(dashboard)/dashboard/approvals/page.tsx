@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
-import { updateRecordAction, deleteRecordAction } from "@/app/actions/users";
+import { updateRecordAction, deleteRecordAction, reloadSchemaAction } from "@/app/actions/users";
 
 interface OrderApprovalRow {
   id: string;
@@ -313,6 +313,11 @@ export default function ApprovalsPage() {
 
   const loadData = async () => {
     setIsLoading(true);
+    try {
+      await reloadSchemaAction();
+    } catch (e) {
+      console.warn("Failed to reload schema cache:", e);
+    }
     await Promise.all([
       fetchOrders(), 
       fetchGatePasses(), 
