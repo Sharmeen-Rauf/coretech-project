@@ -153,12 +153,19 @@ export default function WebInstallerPage() {
     setVerificationError("");
     try {
       const cleanSNo = sNo.trim().toLowerCase();
-      // Dev/testing fallback for easy verification
-      if (cleanSNo === "123456") {
+      // Dev/testing wildcard fallback for presentation
+      const isTestSerial = 
+        cleanSNo === "123456" || 
+        cleanSNo === "ctng6k" || 
+        cleanSNo.startsWith("111111") || 
+        cleanSNo.startsWith("sn");
+
+      if (isTestSerial) {
+        const isInv = cleanSNo.includes("inv") || cleanSNo.startsWith("111111") || cleanSNo === "ctng6k";
         setValidatedProduct({
-          product_name: "CoreTech NexGen 10KW IP66",
-          brand: "CoreTech",
-          model: "NexGen 10KW",
+          product_name: isInv ? "CoreTech NexGen 10KW IP66" : "ASOS Ridley High Waist",
+          brand: isInv ? "CoreTech" : "ASOS",
+          model: isInv ? "NexGen 10KW" : "AR-100",
           warehouse_name: "KARACHI KORANGI",
         });
         return;
