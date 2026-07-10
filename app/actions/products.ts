@@ -140,3 +140,67 @@ export async function fetchStockAction() {
     return { success: false, error: err.message || "Failed to fetch stock", data: [] };
   }
 }
+
+export async function verifySerialNumberAction(sNo: string, currentJobId?: string) {
+  const supabase = getAdminClient();
+  try {
+    const cleanSNo = sNo.trim();
+    if (!cleanSNo) {
+      return { success: false, error: "Serial number is empty" };
+    }
+
+    // 1. Query the stock table case-insensitively using service role key (bypasses RLS)
+    const { data: stockData, error: stockError } = await supabase
+      .from("stock")
+      .select(`
+        *,
+        products (
+          name,
+          brand,
+          model
+        )
+      `)
+      .ilike("serial_no", cleanSNo)
+      .maybeSingle();
+
+    if (stockError) throw stockError;
+
+    if (!stockData) {
+      return { success: false, error: "Serial number not found in active inventory." };
+    }
+
+    // 2. Check if the serial number is already registered or used in installer_jobs
+    let jobsQuery = supabase
+      .from("installer_jobs")
+      .select("id, job_title")
+      .ilike("serial_number", cleanSNo);
+
+    if (currentJobId && currentJobId !== "new") {
+      jobsQuery = jobsQuery.neq("id", currentJobId);
+    }
+
+    const { data: jobData, error: jobError } = await jobsQuery;
+
+    if (jobError) throw jobError;
+
+    if (jobData && jobData.length > 0) {
+      return { 
+        success: false, 
+        error: `Serial number is already registered for another installation: "${jobData[0].job_title}".` 
+      };
+    }
+
+    return {
+      success: true,
+      product: {
+        product_name: stockData.products?.name || "Unknown Product",
+        brand: stockData.products?.brand || "-",
+        model: stockData.model_no || stockData.products?.model || "-",
+        warehouse_name: stockData.warehouse_name || "-",
+      }
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to verify serial number" };
+  }
+}
+

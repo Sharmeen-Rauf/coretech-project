@@ -30,6 +30,7 @@ import toast from "react-hot-toast";
 import StatusBadge from "@/components/StatusBadge";
 import { getLocalItems, saveLocalItem } from "@/lib/supabaseLocalFallback";
 import { reloadSchemaAction } from "@/app/actions/users";
+import { verifySerialNumberAction } from "@/app/actions/products";
 
 export default function WebInstallerPage() {
   const supabase = createClientComponentClient();
@@ -214,29 +215,10 @@ export default function WebInstallerPage() {
         return;
       }
 
-      // 1. Query Supabase stock table case-insensitively
-      const { data, error } = await supabase
-        .from("stock")
-        .select(`
-          *,
-          products (
-            name,
-            brand,
-            model
-          )
-        `)
-        .ilike("serial_no", sNo.trim())
-        .maybeSingle();
-
-      if (error) throw error;
-
-      if (data) {
-        setValidatedProduct({
-          product_name: data.products?.name || "Unknown Product",
-          brand: data.products?.brand || "-",
-          model: data.model_no || data.products?.model || "-",
-          warehouse_name: data.warehouse_name || "-",
-        });
+      // 1. Query Server Action
+      const res = await verifySerialNumberAction(sNo, siteFormJobId);
+      if (res.success && res.product) {
+        setValidatedProduct(res.product);
         return;
       }
 
@@ -247,6 +229,20 @@ export default function WebInstallerPage() {
       if (localMatch) {
         const localProds = getLocalItems("coretech_local_products") || [];
         const prod = localProds.find((p: any) => p.id === localMatch.product_id);
+        
+        // Also check duplicate for local job assignments (since they might have completed jobs locally)
+        const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
+        const localDuplicate = localJobs.find((j: any) => 
+          j.id !== siteFormJobId && 
+          String(j.serial_number || "").trim().toLowerCase() === cleanSNo
+        );
+
+        if (localDuplicate) {
+          setValidatedProduct(null);
+          setVerificationError(`Serial number is already registered in offline job: "${localDuplicate.job_title}".`);
+          return;
+        }
+
         setValidatedProduct({
           product_name: prod?.name || "Unknown Product",
           brand: prod?.brand || "-",
@@ -257,7 +253,7 @@ export default function WebInstallerPage() {
       }
 
       setValidatedProduct(null);
-      setVerificationError("Serial number not found in active inventory.");
+      setVerificationError(res.error || "Serial number not found in active inventory.");
     } catch (err) {
       console.warn("Serial verification error:", err);
       setValidatedProduct(null);
