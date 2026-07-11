@@ -15,67 +15,92 @@ export async function middleware(request: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession();
 
-  const isDashboardRoute = request.nextUrl.pathname.startsWith('/dashboard');
-  const isLoginRoute = request.nextUrl.pathname === '/login';
-  const isInstallerRoute = request.nextUrl.pathname === '/installer';
+  const pathname = request.nextUrl.pathname;
+  const isDashboardRoute = pathname.startsWith('/dashboard');
+  const isLoginRoute = pathname === '/login';
+  const isInstallerRoute = pathname === '/installer';
 
   // Redirect /dashboard/installer/register to public /installer/register
-  if (request.nextUrl.pathname === '/dashboard/installer/register') {
+  if (pathname === '/dashboard/installer/register') {
     return NextResponse.redirect(new URL('/installer/register', request.url));
   }
 
-  // Protect /dashboard
-  if (isDashboardRoute) {
-    if (!session) {
+  // 1. Unauthenticated users
+  if (!session) {
+    if (isDashboardRoute || isInstallerRoute) {
       return NextResponse.redirect(new URL('/login', request.url));
     }
-
-    // Query role from profiles table
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', session.user.id)
-      .single();
-
-    if (profile?.role === 'installer') {
-      return NextResponse.redirect(new URL('/installer', request.url));
-    }
+    return response;
   }
 
-  // Protect /installer
+  // 2. Authenticated users
+  // Query role from profiles table
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', session.user.id)
+    .single();
+
+  const role = profile?.role || '';
+
+  // Installer role protection
+  if (role === 'installer') {
+    if (isDashboardRoute || isLoginRoute) {
+      return NextResponse.redirect(new URL('/installer', request.url));
+    }
+    return response;
+  }
+
+  // Non-installer trying to access /installer route
   if (isInstallerRoute) {
-    if (!session) {
-      return NextResponse.redirect(new URL('/login', request.url));
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', session.user.id)
-      .single();
-
-    if (profile?.role !== 'installer' && profile?.role !== 'admin') {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
   // Redirect logged-in users away from /login
-  if (isLoginRoute && session) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', session.user.id)
-      .single();
-
-    if (profile?.role === 'installer') {
-      return NextResponse.redirect(new URL('/installer', request.url));
-    }
+  if (isLoginRoute) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
+
+  // Strict sub-route validation for specific roles inside /dashboard
+  if (isDashboardRoute) {
+    if (role === 'distributor') {
+      const allowedDistributorPrefixes = [
+        '/dashboard/purchase/import-stock',
+        '/dashboard/purchase/inventory',
+        '/dashboard/buzzcart/orders',
+        '/dashboard/buzzcart/create',
+        '/dashboard/users',
+        '/dashboard/sales/transfer',
+        '/dashboard/sales/return',
+        '/dashboard/account',
+      ];
+      
+      const isExactDashboard = pathname === '/dashboard';
+      const isAllowed = isExactDashboard || allowedDistributorPrefixes.some(prefix => pathname.startsWith(prefix));
+
+      if (!isAllowed) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+    } else if (role === 'sub_dealer') {
+      const allowedSubDealerPrefixes = [
+        '/dashboard/buzzcart/orders',
+        '/dashboard/buzzcart/create',
+        '/dashboard/support',
+        '/dashboard/account',
+      ];
+
+      const isExactDashboard = pathname === '/dashboard';
+      const isAllowed = isExactDashboard || allowedSubDealerPrefixes.some(prefix => pathname.startsWith(prefix));
+
+      if (!isAllowed) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+    }
   }
 
   return response;
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/login', '/installer'],
+  matcher: ['/dashboard', '/dashboard/:path*', '/login', '/installer'],
 };

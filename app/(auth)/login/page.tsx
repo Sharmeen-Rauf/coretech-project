@@ -42,13 +42,22 @@ export default function LoginPage() {
       }
  
       // Fetch user role from profiles table
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("role")
         .eq("id", data.user.id)
         .single();
- 
-      const userRole = profile?.role || "admin";
+
+      if (profileError) {
+        console.error("Login: failed to fetch profile role:", profileError);
+      }
+
+      const userRole = profile?.role || "";
+      if (!userRole) {
+        toast.error("Profile role not found. Please contact administrator.");
+        setIsLoading(false);
+        return;
+      }
       setMfaRedirectRole(userRole);
       
       // Prompt MFA verification step
