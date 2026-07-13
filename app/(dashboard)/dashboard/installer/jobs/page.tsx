@@ -166,7 +166,8 @@ export default function AdminJobsPage() {
         const { data: instData } = await supabase
           .from("profiles")
           .select("id, first_name, last_name")
-          .eq("role", "installer");
+          .eq("role", "installer")
+          .eq("status", "active");
         dbInstallers = instData || [];
       } catch (instErr) {
         console.warn("Failed to load active installers. Using mock.", instErr);

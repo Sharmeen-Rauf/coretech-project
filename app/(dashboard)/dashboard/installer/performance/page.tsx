@@ -29,7 +29,8 @@ export default function PerformancePage() {
       const { data: installers, error: instErr } = await supabase
         .from("profiles")
         .select("id, first_name, last_name, contact")
-        .eq("role", "installer");
+        .eq("role", "installer")
+        .eq("status", "active");
  
       if (instErr) throw instErr;
  

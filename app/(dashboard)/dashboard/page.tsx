@@ -575,6 +575,7 @@ export default async function DashboardPage() {
       .from("profiles")
       .select("first_name, last_name")
       .eq("role", "installer")
+      .eq("status", "active")
       .limit(1);
     if (installers && installers.length > 0) {
       topInstaller = `${installers[0].first_name} ${installers[0].last_name || ""}`.trim();
