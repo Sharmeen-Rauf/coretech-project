@@ -64,6 +64,40 @@ export async function createUserAction(formData: any) {
   } = formData;
 
   try {
+    // 0. Pre-register / Whitelist email to pass database auth.users trigger
+    const cookieStore = cookies();
+    const serverClient = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+      {
+        cookies: {
+          getAll() {
+            return cookieStore.getAll();
+          },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              );
+            } catch {}
+          },
+        },
+      }
+    );
+    const { data: { session } } = await serverClient.auth.getSession();
+    const invitedBy = session?.user?.id || null;
+
+    const { error: whitelistError } = await supabase.from("allowed_users").upsert({
+      email: email.trim().toLowerCase(),
+      role: role,
+      approval_status: status === "active" ? "approved" : "pending",
+      invited_by: invitedBy,
+    }, { onConflict: "email" });
+
+    if (whitelistError) {
+      throw new Error(`Whitelist pre-registration failed: ${whitelistError.message}`);
+    }
+
     // 1. Create Auth User
     const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
       email,
@@ -160,8 +194,9 @@ export async function createUserAction(formData: any) {
     }
 
     if (profileError) {
-      // Cleanup created auth user if profile insert fails
+      // Cleanup created auth user and whitelist entry if profile insert fails
       await supabase.auth.admin.deleteUser(authUser.user.id);
+      await supabase.from("allowed_users").delete().eq("email", email.trim().toLowerCase());
       throw profileError;
     }
 

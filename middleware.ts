@@ -2,10 +2,16 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { createMiddlewareSupabaseClient } from '@/lib/supabase';
 
 // Helper to decode JWT claims locally on the edge to avoid database querying timeouts
-function getRoleFromToken(accessToken: string): string {
+interface SessionDetails {
+  role: string;
+  status: string;
+  amr: any[];
+}
+
+function getSessionDetailsFromToken(accessToken: string): SessionDetails {
   try {
     const parts = accessToken.split('.');
-    if (parts.length !== 3) return '';
+    if (parts.length !== 3) return { role: '', status: '', amr: [] };
     const base64Url = parts[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
     const jsonPayload = decodeURIComponent(
@@ -15,10 +21,14 @@ function getRoleFromToken(accessToken: string): string {
         .join('')
     );
     const payload = JSON.parse(jsonPayload);
-    return payload.user_role || payload.role || payload.app_metadata?.role || '';
+    return {
+      role: payload.user_role || payload.role || payload.app_metadata?.role || '',
+      status: payload.user_status || '',
+      amr: payload.amr || []
+    };
   } catch (e) {
-    console.error("Failed to parse role from JWT token:", e);
-    return '';
+    console.error("Failed to parse details from JWT token:", e);
+    return { role: '', status: '', amr: [] };
   }
 }
 
@@ -70,7 +80,7 @@ export async function middleware(request: NextRequest) {
 
   // 2. Authenticated users
   // Decode role locally from access token claims (fast edge path)
-  let role = getRoleFromToken(session.access_token);
+  let { role, status, amr } = getSessionDetailsFromToken(session.access_token);
 
   const validRoles = [
     'admin', 
@@ -84,22 +94,24 @@ export async function middleware(request: NextRequest) {
     'marketing_manager'
   ];
 
-  // If the hook is fresh, key is missing, or returned default/invalid role, fallback to db query with a strict 2s limit
-  if (!role || !validRoles.includes(role)) {
+  // If the hook is fresh, key is missing, or returned default/invalid role/status, fallback to db query with a strict 2s limit
+  if (!role || !validRoles.includes(role) || !status) {
     try {
       const supabase = createMiddlewareSupabaseClient(request, response);
       const { data: profile } = await Promise.race([
         supabase
           .from('profiles')
-          .select('role')
+          .select('role, status')
           .eq('id', session.user.id)
           .single(),
         new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Database Query Timeout')), 2000))
       ]);
       role = profile?.role || '';
+      status = profile?.status || '';
     } catch (err) {
       console.warn("Middleware DB fallback query timed out or failed:", err);
       role = '';
+      status = '';
     }
   }
 
@@ -121,8 +133,25 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  // Strict sub-route validation for specific roles inside /dashboard
+  // Strict validation for specific roles inside /dashboard
   if (isDashboardRoute) {
+    // A. Ensure active status for core dashboard roles
+    if (status !== 'active') {
+      const redirectResponse = NextResponse.redirect(new URL('/unauthorized', request.url));
+      redirectResponse.cookies.set('mfa_verified', '', { path: '/', maxAge: 0 });
+      return redirectResponse;
+    }
+
+    // B. High-Privilege TOTP MFA Enforcement for admin and country_head
+    if (role === 'admin' || role === 'country_head') {
+      const hasMfa = amr.some((r: any) => r === 'mfa' || r.method === 'mfa') || 
+                     request.cookies.get('mfa_verified')?.value === 'true';
+      if (!hasMfa) {
+        return NextResponse.redirect(new URL('/login', request.url));
+      }
+    }
+
+    // C. Sub-route validation based on role permissions
     if (role === 'distributor') {
       const allowedDistributorPrefixes = [
         '/dashboard/purchase/import-stock',
