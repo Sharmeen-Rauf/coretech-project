@@ -190,8 +190,8 @@ export default function RegisterPage() {
               <input
                 type="text"
                 value={contact}
-                onChange={(e) => setContact(e.target.value)}
-                placeholder="0300-1234567"
+                onChange={(e) => setContact(e.target.value.replace(/\D/g, ""))}
+                placeholder="e.g. 03001234567"
                 className={`w-full h-9 px-3 bg-white border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
                   errors.contact ? "border-rose-500" : "border-[#00B4D8]/30"
                 }`}
