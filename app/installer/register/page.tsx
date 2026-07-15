@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createUserAction } from "@/app/actions/users";
+import { createClientComponentClient } from "@/lib/supabase";
 import toast from "react-hot-toast";
 import { 
   Loader2, 
@@ -18,6 +19,7 @@ import Link from "next/link";
 
 export default function InstallerRegisterPage() {
   const router = useRouter();
+  const supabase = createClientComponentClient();
 
   // Form states
   const [firstName, setFirstName] = useState("");
@@ -132,46 +134,26 @@ export default function InstallerRegisterPage() {
         throw new Error(res.error || "Registration failed");
       }
 
-      setIsSuccess(true);
-      toast.success("Registration submitted! Pending owner review.");
+      toast.success("Account created! Logging in...");
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
+      });
+
+      if (signInError) {
+        console.warn("Auto-login failed:", signInError.message);
+        router.push("/login");
+        return;
+      }
+
+      toast.success("Redirecting to Site Form...");
+      router.push("/installer");
     } catch (err: any) {
       toast.error(err.message || "Registration error occurred");
     } finally {
       setIsLoading(false);
     }
   };
-
-  if (isSuccess) {
-    return (
-      <div className="min-h-screen w-full bg-slate-50 flex flex-col items-center justify-center p-4 font-sans select-none">
-        <div className="w-full max-w-md bg-white border border-slate-200 rounded-[16px] p-8 text-center space-y-6 shadow-xl">
-          <div className="w-16 h-16 bg-emerald-50 rounded-full flex items-center justify-center mx-auto text-emerald-600 shadow-sm">
-            <CheckCircle className="w-10 h-10" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-xl font-bold text-slate-800">Application Submitted</h2>
-            <p className="text-xs text-slate-500 leading-relaxed px-2">
-              Thank you for registering, <span className="font-bold text-slate-700">{firstName} {lastName}</span>! 
-              Your application is under review. Please wait for the Owner to approve your account.
-            </p>
-          </div>
-          
-          <div className="bg-amber-50/50 border border-amber-100 rounded-[12px] p-4 text-left text-xs space-y-1 text-slate-655 font-medium">
-            <p className="font-bold text-amber-800 text-center mb-1">Approval Stage: PENDING</p>
-            <p>• Profile documents submitted (CNIC: {cnic}).</p>
-            <p>• Payout Account: {paymentNo}.</p>
-          </div>
-
-          <button
-            onClick={() => router.push("/login")}
-            className="w-full h-11 bg-[#00B4D8] hover:bg-[#0077B6] text-white rounded-[8px] font-bold text-xs shadow-lg shadow-cyan-100 flex items-center justify-center gap-1.5 transition-all"
-          >
-            Go to Login
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen w-full bg-slate-50 flex flex-col items-center justify-center p-4 font-sans select-none">

@@ -58,11 +58,16 @@ export default function LoginPage() {
         setIsLoading(false);
         return;
       }
-      setMfaRedirectRole(userRole);
       
-      // Prompt MFA verification step
-      toast.success("Credentials verified. Verification code sent!");
-      setStep("mfa");
+      if (userRole === "installer") {
+        toast.success("Sign in successful!");
+        router.push("/installer");
+      } else {
+        setMfaRedirectRole(userRole);
+        // Prompt MFA verification step
+        toast.success("Credentials verified. Verification code sent!");
+        setStep("mfa");
+      }
     } catch (err: any) {
       toast.error(err.message || "An authentication error occurred");
     } finally {
