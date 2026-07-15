@@ -72,8 +72,20 @@ export async function middleware(request: NextRequest) {
   // Decode role locally from access token claims (fast edge path)
   let role = getRoleFromToken(session.access_token);
 
-  // If the hook is fresh or key is missing, fallback to db query with a strict 2s limit
-  if (!role) {
+  const validRoles = [
+    'admin', 
+    'employee', 
+    'distributor', 
+    'sub_dealer', 
+    'installer', 
+    'country_head', 
+    'rsm', 
+    'retail_manager', 
+    'marketing_manager'
+  ];
+
+  // If the hook is fresh, key is missing, or returned default/invalid role, fallback to db query with a strict 2s limit
+  if (!role || !validRoles.includes(role)) {
     try {
       const supabase = createMiddlewareSupabaseClient(request, response);
       const { data: profile } = await Promise.race([
