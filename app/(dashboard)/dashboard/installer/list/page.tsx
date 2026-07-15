@@ -28,6 +28,7 @@ export default function InstallerListPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("active");
   const [editingUser, setEditingUser] = useState<any>(undefined);
   const perPage = 10;
 
@@ -113,6 +114,9 @@ export default function InstallerListPage() {
   };
 
   const filtered = installers.filter((item) => {
+    if (statusFilter && item.status !== statusFilter) {
+      return false;
+    }
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
     return (
@@ -220,6 +224,17 @@ export default function InstallerListPage() {
           setSearchQuery(q);
           setCurrentPage(1);
         }}
+        filters={[
+          {
+            label: "Status",
+            options: ["active", "pending"],
+            value: statusFilter,
+            onChange: (val) => {
+              setStatusFilter(val);
+              setCurrentPage(1);
+            }
+          }
+        ]}
         pagination={{
           current: currentPage,
           total: filtered.length,
