@@ -447,52 +447,6 @@ export default function WebInstallerPage() {
   const pendingApprovalCount = jobs.filter((j) => j.status === "pending_installation_approval").length;
   const assignedCount = jobs.filter((j) => j.status === "assigned").length;
 
-  // 1. Pending Approval Card Full View
-  if (!isLoading && profileStatus === "pending") {
-    return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans select-none">
-        <div className="w-full max-w-md bg-white border border-amber-200 rounded-[16px] p-6 shadow-xl text-center space-y-6">
-          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto text-amber-500 shadow-inner">
-            <ShieldAlert className="w-9 h-9" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-lg font-bold text-slate-800">Account Pending Approval</h2>
-            <p className="text-xs text-slate-500 leading-relaxed px-4">
-              Hello, <span className="font-bold text-slate-700">{installerName}</span>. Your installer account status is currently <span className="text-amber-600 font-bold">Pending Review</span>.
-            </p>
-          </div>
-
-          <div className="bg-[#F0FAFE] border border-[#00B4D8]/30 rounded-[12px] p-4 text-left text-xs space-y-3">
-            <div className="flex gap-2.5 items-start">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00B4D8]/20 text-xs font-bold text-[#0077B6]">1</span>
-              <p className="text-slate-655 font-medium">The Owner is verifying your contact details, CNIC documentation, and verification video.</p>
-            </div>
-            <div className="flex gap-2.5 items-start">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00B4D8]/20 text-xs font-bold text-[#0077B6]">2</span>
-              <p className="text-slate-655 font-medium">Features like Job Assignments, Site Verification Forms, and Incentives remain locked until approved.</p>
-            </div>
-          </div>
-
-          <div className="pt-2 flex flex-col gap-2">
-            <button
-              onClick={fetchInstallerData}
-              className="w-full h-10 bg-[#00B4D8] hover:bg-[#0077B6] text-white rounded-[8px] font-bold text-xs shadow transition-all flex items-center justify-center gap-1.5"
-            >
-              Check Approval Status
-            </button>
-            <button
-              onClick={handleSignOut}
-              className="w-full h-10 border border-slate-200 text-slate-600 hover:bg-slate-55 rounded-[8px] font-bold text-xs transition-all flex items-center justify-center gap-1.5"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              Sign Out
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center select-none font-sans p-4 relative">
       {/* Mobile-first Header container */}
@@ -507,8 +461,12 @@ export default function WebInstallerPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase">
-              Approved
+            <div className={`border rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${
+              profileStatus === "pending" 
+                ? "bg-amber-50 text-amber-600 border-amber-100" 
+                : "bg-emerald-50 text-emerald-600 border-emerald-100"
+            }`}>
+              {profileStatus === "pending" ? "Pending Review" : "Approved"}
             </div>
             <button
               onClick={handleSignOut}
