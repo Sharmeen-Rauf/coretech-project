@@ -15,7 +15,7 @@ function getRoleFromToken(accessToken: string): string {
         .join('')
     );
     const payload = JSON.parse(jsonPayload);
-    return payload.role || payload.app_metadata?.role || '';
+    return payload.user_role || payload.role || payload.app_metadata?.role || '';
   } catch (e) {
     console.error("Failed to parse role from JWT token:", e);
     return '';
