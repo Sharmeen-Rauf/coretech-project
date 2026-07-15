@@ -49,6 +49,7 @@ async function DashboardStats() {
   let soVal = 0;
   let installationsVal = 0;
   let revenueVal = 0;
+  let activeInstallersCount = 0;
 
   try {
     // 1. Fetch total customers count
@@ -137,6 +138,17 @@ async function DashboardStats() {
         revenueVal = total;
       }
     }
+
+    // Fetch active installers count
+    const { count: actInstCount } = await supabase
+      .from("profiles")
+      .select("*", { count: "exact", head: true })
+      .eq("role", "installer")
+      .eq("status", "active");
+
+    if (actInstCount !== null && actInstCount > 0) {
+      activeInstallersCount = actInstCount;
+    }
   } catch (err) {
     console.error("Dashboard stats database error, using mock values:", err);
   }
@@ -191,6 +203,13 @@ async function DashboardStats() {
         isPositive={true}
         subtitle="Net Profit Margin: 12.8%"
       />
+      <StatsCard
+        title="Active Installers"
+        value={activeInstallersCount.toLocaleString()}
+        change="+22.1%"
+        isPositive={true}
+        subtitle="Approved Installers"
+      />
     </div>
   );
 }
@@ -201,12 +220,13 @@ async function ReportingDashboard() {
   let jobsCount = 0;
   let claimsCount = 0;
   let ticketsCount = 0;
+  let activeJobs: any[] = [];
 
   try {
     const { count: jCount } = await supabase
       .from("installer_jobs")
       .select("*", { count: "exact", head: true })
-      .in("status", ["assigned", "in_progress"]);
+      .in("status", ["assigned", "in_progress", "pending_installation_approval"]);
     if (jCount !== null) jobsCount = jCount;
 
     const { count: cCount } = await supabase
@@ -220,21 +240,71 @@ async function ReportingDashboard() {
       .select("*", { count: "exact", head: true })
       .eq("status", "open");
     if (tCount !== null) ticketsCount = tCount;
-  } catch (err) {
-    // fallback
-  }
 
-  // Set visual non-zero fallbacks for empty local environment (removed to show actual counts)
-  if (jobsCount === 0) jobsCount = 0;
-  if (claimsCount === 0) claimsCount = 0;
-  if (ticketsCount === 0) ticketsCount = 0;
+    const { data: jobsData } = await supabase
+      .from("installer_jobs")
+      .select("*")
+      .order("created_at", { ascending: false });
+    activeJobs = jobsData || [];
+  } catch (err) {
+    console.warn("Failed to load operations statistics", err);
+  }
 
   return (
     <ReportingDashboardClient
       jobsCount={jobsCount}
       claimsCount={claimsCount}
       ticketsCount={ticketsCount}
+      activeJobs={activeJobs}
     />
+  );
+}
+
+async function LatestApprovedInstallers() {
+  const supabase = getAdminClient();
+  let list: any[] = [];
+  try {
+    const { data } = await supabase
+      .from("profiles")
+      .select("first_name, last_name, contact, city, created_at")
+      .eq("role", "installer")
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(5);
+    list = data || [];
+  } catch (e) {
+    console.warn("Failed to fetch latest approved installers:", e);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-[8px] overflow-hidden shadow-sm flex flex-col justify-between h-full">
+      <div className="p-5 border-b border-slate-100 bg-slate-50/30 flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+          <Award className="w-4 h-4 text-[#00B4D8]" />
+          Latest Approved Installers
+        </h3>
+        <span className="text-[10px] bg-[#00B4D8]/10 text-[#00B4D8] px-2 py-0.5 rounded-full font-bold uppercase">Recent</span>
+      </div>
+      <div className="flex-1">
+        {list.length === 0 ? (
+          <div className="p-8 text-center text-xs text-slate-400 italic">No approved installers found.</div>
+        ) : (
+          <div className="divide-y divide-slate-100 text-xs">
+            {list.map((inst, idx) => (
+              <div key={idx} className="p-3.5 px-5 flex justify-between items-center hover:bg-slate-50/50">
+                <div>
+                  <p className="font-bold text-slate-800">{inst.first_name} {inst.last_name || ""}</p>
+                  <p className="text-[10px] text-slate-450">{inst.contact || "-"}</p>
+                </div>
+                <div className="text-right">
+                  <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 text-[9px] font-bold uppercase border border-emerald-100">{inst.city || "Pakistan"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -765,6 +835,15 @@ export default async function DashboardPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      {/* Latest Approved Installers Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+        <div className="lg:col-span-2">
+          <Suspense fallback={<div className="h-64 bg-slate-100 rounded-[8px] animate-pulse"></div>}>
+            <LatestApprovedInstallers />
+          </Suspense>
         </div>
       </div>
     </div>

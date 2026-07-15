@@ -31,6 +31,7 @@ export default function InstallerRegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [paymentNo, setPaymentNo] = useState("");
+  const [paymentProvider, setPaymentProvider] = useState("EasyPaisa");
 
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -104,7 +105,7 @@ export default function InstallerRegisterPage() {
       // 1. Prepare installer metadata for designation column
       const installerMetadata = {
         marital_status: maritalStatus,
-        easypaisa_jazzcash_no: paymentNo,
+        easypaisa_jazzcash_no: `${paymentProvider}: ${paymentNo}`,
         registered_via: "QR_CODE_SCAN",
         email: email.trim(),
         password: password,
@@ -232,7 +233,7 @@ export default function InstallerRegisterPage() {
                   type="text"
                   placeholder="e.g. 03001234567"
                   value={contact}
-                  onChange={(e) => setContact(e.target.value)}
+                  onChange={(e) => setContact(e.target.value.replace(/\D/g, ""))}
                   className={`w-full h-10 pl-9 pr-3 border rounded-[8px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white ${
                     errors.contact ? "border-rose-500" : "border-slate-200"
                   }`}
@@ -373,13 +374,27 @@ export default function InstallerRegisterPage() {
 
             <div>
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                EasyPaisa / JazzCash No.*
+                Payment Provider*
+              </label>
+              <select
+                value={paymentProvider}
+                onChange={(e) => setPaymentProvider(e.target.value)}
+                className="w-full h-10 px-2 border border-slate-200 rounded-[8px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
+              >
+                <option value="EasyPaisa">EasyPaisa</option>
+                <option value="JazzCash">JazzCash</option>
+              </select>
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                EasyPaisa / JazzCash No. (Digits Only)*
               </label>
               <input
                 type="text"
                 placeholder="Payout Account No."
                 value={paymentNo}
-                onChange={(e) => setPaymentNo(e.target.value)}
+                onChange={(e) => setPaymentNo(e.target.value.replace(/\D/g, ""))}
                 className={`w-full h-10 px-3 border rounded-[8px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white ${
                   errors.paymentNo ? "border-rose-500" : "border-slate-200"
                 }`}

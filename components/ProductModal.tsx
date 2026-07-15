@@ -169,7 +169,7 @@ export default function ProductModal({
               </label>
               <input
                 type="text"
-                placeholder="e.g. Huawei"
+                placeholder="e.g. CoreTECH"
                 value={brand}
                 onChange={(e) => setBrand(e.target.value)}
                 className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
@@ -205,7 +205,7 @@ export default function ProductModal({
             </label>
             <input
               type="text"
-              placeholder="e.g. Huawei 10kW Smart Inverter"
+              placeholder="e.g. CoreTECH 10kW Smart Inverter"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${

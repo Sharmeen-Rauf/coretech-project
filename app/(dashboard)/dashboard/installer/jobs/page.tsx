@@ -527,7 +527,7 @@ export default function AdminJobsPage() {
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. SN-HUAWEI-102394"
+                    placeholder="e.g. SN-CORETECH-102394"
                     value={serialNumber}
                     onChange={(e) => setSerialNumber(e.target.value)}
                     className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
@@ -582,7 +582,7 @@ export default function AdminJobsPage() {
                   Special Steps / Instructions (one per line)
                 </label>
                 <textarea
-                  placeholder="Mount bracket onto stable wall&#10;Connect DC cabling safely&#10;Configure Huawei cloud logging panel"
+                  placeholder="Mount bracket onto stable wall&#10;Connect DC cabling safely&#10;Configure CoreTECH cloud logging panel"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="w-full h-32 px-3 py-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] resize-none"

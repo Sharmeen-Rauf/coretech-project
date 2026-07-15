@@ -48,6 +48,13 @@ export default function UserModal({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dbWarehouses, setDbWarehouses] = useState<string[]>([]);
 
+  const formatCNIC = (value: string) => {
+    const clean = value.replace(/\D/g, "");
+    if (clean.length <= 5) return clean;
+    if (clean.length <= 12) return `${clean.slice(0, 5)}-${clean.slice(5)}`;
+    return `${clean.slice(0, 5)}-${clean.slice(5, 12)}-${clean.slice(12, 13)}`;
+  };
+
   useEffect(() => {
     const loadWHs = async () => {
       let dbData: any[] = [];
@@ -255,8 +262,8 @@ export default function UserModal({
                   <input
                     type="text"
                     value={contact}
-                    onChange={(e) => setContact(e.target.value)}
-                    placeholder="e.g. 0321-2498406"
+                    onChange={(e) => setContact(e.target.value.replace(/\D/g, ""))}
+                    placeholder="e.g. 03001234567"
                     className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
                       errors.contact ? "border-rose-500" : "border-slate-200"
                     }`}
@@ -487,8 +494,8 @@ export default function UserModal({
                 <input
                   type="text"
                   value={contact}
-                  onChange={(e) => setContact(e.target.value)}
-                  placeholder="0300-1234567"
+                  onChange={(e) => setContact(e.target.value.replace(/\D/g, ""))}
+                  placeholder="03001234567"
                   className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
                     errors.contact ? "border-rose-500" : "border-slate-200"
                   }`}
@@ -537,7 +544,7 @@ export default function UserModal({
                 <input
                   type="text"
                   value={cnic}
-                  onChange={(e) => setCnic(e.target.value)}
+                  onChange={(e) => setCnic(formatCNIC(e.target.value))}
                   placeholder="12345-1234567-1"
                   className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
                 />
@@ -681,8 +688,8 @@ export default function UserModal({
                   <input
                     type="text"
                     value={contact}
-                    onChange={(e) => setContact(e.target.value)}
-                    placeholder="0300-1234567"
+                    onChange={(e) => setContact(e.target.value.replace(/\D/g, ""))}
+                    placeholder="03001234567"
                     className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
                       errors.contact ? "border-rose-500" : "border-slate-200"
                     }`}

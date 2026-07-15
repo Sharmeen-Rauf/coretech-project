@@ -363,7 +363,7 @@ export default function WebInstallerPage() {
         remarks: completionRemarks.trim(),
         photos: allPhotos,
         notes: serializedNotes,
-        incentive: siteFormJobId === "new" ? 500 : (jobs.find(j => j.id === siteFormJobId)?.incentive || 0),
+        incentive: siteFormJobId === "new" ? 5000 : (jobs.find(j => j.id === siteFormJobId)?.incentive || 0),
         payment_status: "unpaid",
         created_at: new Date().toISOString()
       };
@@ -703,7 +703,7 @@ export default function WebInstallerPage() {
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="e.g. SN-HUAWEI-39485"
+                    placeholder="e.g. SN-CORETECH-39485"
                     value={serialNo}
                     onChange={(e) => {
                       setSerialNo(e.target.value);

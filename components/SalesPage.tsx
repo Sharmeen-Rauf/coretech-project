@@ -226,7 +226,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
           const isBattery = imei.toLowerCase().includes("bat") || imei.length % 2 === 0;
           itemsToAdd.push({
             imei: imei,
-            productName: isBattery ? "LiFePO4 Solar Battery 200Ah" : "Huawei Smart Inverter 10kW",
+            productName: isBattery ? "LiFePO4 Solar Battery 200Ah" : "CoreTECH Smart Inverter 10kW",
             model: isBattery ? "LFP-200" : "SUN2000-10KTL",
             productId: isBattery ? "dummy-battery-id" : "dummy-inverter-id",
           });

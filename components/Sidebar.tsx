@@ -409,7 +409,7 @@ export default function Sidebar() {
                 <div>
                   <button
                     onClick={() => toggleMenu("purchase")}
-                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-650 hover:bg-slate-50 rounded-md transition-colors"
+                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
                   >
                     <div className="flex items-center">
                       <ShoppingCart className="w-4 h-4 mr-3" />
@@ -538,7 +538,7 @@ export default function Sidebar() {
                 <div>
                   <button
                     onClick={() => toggleMenu("installer")}
-                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-650 hover:bg-slate-50 rounded-md transition-colors"
+                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
                   >
                     <div className="flex items-center">
                       <Wrench className="w-4 h-4 mr-3" />

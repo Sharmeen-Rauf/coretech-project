@@ -77,7 +77,7 @@ export default function OrderModal({ isOpen, onClose, onSuccess }: OrderModalPro
             // Guarantee at least some default products if fallback is empty too
             setProducts([
               { id: "default_prod_1", name: "Jinko 550W Solar Panel", model: "JKM550M-72HL4", price: 28000 },
-              { id: "default_prod_2", name: "Huawei 10kW Inverter", model: "SUN2000-10KTL-M1", price: 290000 },
+              { id: "default_prod_2", name: "CoreTECH 10kW Inverter", model: "SUN2000-10KTL-M1", price: 290000 },
             ]);
           } else {
             setProducts(mergedProds);
