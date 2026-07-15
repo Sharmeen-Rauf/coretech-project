@@ -192,14 +192,6 @@ export default function InstallerListPage() {
           }`}>
             {status}
           </span>
-          {status === "pending" && (
-            <button
-              onClick={() => handleApproveInstaller(row.id)}
-              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-bold rounded shadow-sm hover:shadow transition-all uppercase tracking-wider"
-            >
-              Approve
-            </button>
-          )}
         </div>
       )
     },

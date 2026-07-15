@@ -81,6 +81,8 @@ export default function ApprovalsPage() {
   // QR Code Modal
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [qrOrigin, setQrOrigin] = useState("http://localhost:3000");
+  const [userRole, setUserRole] = useState<string>("");
+  const canApproveInstaller = userRole === "admin" || userRole === "country_head";
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -317,6 +319,21 @@ export default function ApprovalsPage() {
       await reloadSchemaAction();
     } catch (e) {
       console.warn("Failed to reload schema cache:", e);
+    }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+        if (profile?.role) {
+          setUserRole(profile.role);
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to fetch user role inside approvals page:", err);
     }
     await Promise.all([
       fetchOrders(), 
@@ -1267,20 +1284,28 @@ export default function ApprovalsPage() {
                 </button>
                 {selectedInstaller.status === "pending" && (
                   <>
-                    <button
-                      onClick={() => handleRejectInstaller(selectedInstaller.id)}
-                      className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      Reject Registration
-                    </button>
-                    <button
-                      onClick={() => handleApproveInstaller(selectedInstaller.id)}
-                      className="h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      Approve Active
-                    </button>
+                    {canApproveInstaller ? (
+                      <>
+                        <button
+                          onClick={() => handleRejectInstaller(selectedInstaller.id)}
+                          className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Reject Registration
+                        </button>
+                        <button
+                          onClick={() => handleApproveInstaller(selectedInstaller.id)}
+                          className="h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          Approve Active
+                        </button>
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-amber-600 font-bold bg-amber-50 px-3 py-1.5 rounded-[4px] border border-amber-100">
+                        Only Country Head or Owner can approve/reject registrations.
+                      </p>
+                    )}
                   </>
                 )}
               </div>
@@ -1368,20 +1393,28 @@ export default function ApprovalsPage() {
                 </button>
                 {selectedInstallation.status === "pending_installation_approval" && (
                   <>
-                    <button
-                      onClick={() => handleRejectInstallation(selectedInstallation.id)}
-                      className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      Reject Installation
-                    </button>
-                    <button
-                      onClick={() => handleApproveInstallation(selectedInstallation)}
-                      className="h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      Approve & Consume Stock
-                    </button>
+                    {canApproveInstaller ? (
+                      <>
+                        <button
+                          onClick={() => handleRejectInstallation(selectedInstallation.id)}
+                          className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Reject Installation
+                        </button>
+                        <button
+                          onClick={() => handleApproveInstallation(selectedInstallation)}
+                          className="h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          Approve & Consume Stock
+                        </button>
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-amber-600 font-bold bg-amber-50 px-3 py-1.5 rounded-[4px] border border-amber-100">
+                        Only Country Head or Owner can approve/reject installations.
+                      </p>
+                    )}
                   </>
                 )}
               </div>
