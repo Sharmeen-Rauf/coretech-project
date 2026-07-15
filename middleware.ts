@@ -1,6 +1,27 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createMiddlewareSupabaseClient } from '@/lib/supabase';
 
+// Helper to decode JWT claims locally on the edge to avoid database querying timeouts
+function getRoleFromToken(accessToken: string): string {
+  try {
+    const parts = accessToken.split('.');
+    if (parts.length !== 3) return '';
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const payload = JSON.parse(jsonPayload);
+    return payload.role || payload.app_metadata?.role || '';
+  } catch (e) {
+    console.error("Failed to parse role from JWT token:", e);
+    return '';
+  }
+}
+
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
     request: {
@@ -34,14 +55,26 @@ export async function middleware(request: NextRequest) {
   }
 
   // 2. Authenticated users
-  // Query role from profiles table
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', session.user.id)
-    .single();
+  // Decode role locally from access token claims (fast edge path)
+  let role = getRoleFromToken(session.access_token);
 
-  const role = profile?.role || '';
+  // If the hook is fresh or key is missing, fallback to db query with a strict 3s limit
+  if (!role) {
+    try {
+      const { data: profile } = await Promise.race([
+        supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .single(),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Database Query Timeout')), 3000))
+      ]);
+      role = profile?.role || '';
+    } catch (err) {
+      console.warn("Middleware DB fallback query timed out or failed:", err);
+      role = '';
+    }
+  }
 
   // Installer role protection
   if (role === 'installer') {
