@@ -29,13 +29,6 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  const supabase = createMiddlewareSupabaseClient(request, response);
-
-  // Get session
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
   const pathname = request.nextUrl.pathname;
   const isDashboardRoute = pathname.startsWith('/dashboard');
   const isLoginRoute = pathname === '/login';
@@ -44,6 +37,27 @@ export async function middleware(request: NextRequest) {
   // Redirect /dashboard/installer/register to public /installer/register
   if (pathname === '/dashboard/installer/register') {
     return NextResponse.redirect(new URL('/installer/register', request.url));
+  }
+
+  // Fast check: If no auth cookies are present, session is guaranteed to be null.
+  // This bypasses calling Supabase Auth API entirely for guest/login pages.
+  const cookies = request.cookies.getAll();
+  const hasAuthCookie = cookies.some(c => c.name.includes('-auth-token'));
+
+  let session = null;
+
+  if (hasAuthCookie) {
+    const supabase = createMiddlewareSupabaseClient(request, response);
+    try {
+      // Fetch session with a strict 2-second timeout to prevent middleware hanging
+      const { data } = await Promise.race([
+        supabase.auth.getSession(),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Session Retrieve Timeout')), 2000))
+      ]);
+      session = data?.session || null;
+    } catch (e) {
+      console.warn("Middleware getSession timed out or failed:", e);
+    }
   }
 
   // 1. Unauthenticated users
@@ -58,16 +72,17 @@ export async function middleware(request: NextRequest) {
   // Decode role locally from access token claims (fast edge path)
   let role = getRoleFromToken(session.access_token);
 
-  // If the hook is fresh or key is missing, fallback to db query with a strict 3s limit
+  // If the hook is fresh or key is missing, fallback to db query with a strict 2s limit
   if (!role) {
     try {
+      const supabase = createMiddlewareSupabaseClient(request, response);
       const { data: profile } = await Promise.race([
         supabase
           .from('profiles')
           .select('role')
           .eq('id', session.user.id)
           .single(),
-        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Database Query Timeout')), 3000))
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error('Database Query Timeout')), 2000))
       ]);
       role = profile?.role || '';
     } catch (err) {
