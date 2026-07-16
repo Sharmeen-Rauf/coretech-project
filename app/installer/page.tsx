@@ -448,7 +448,7 @@ export default function WebInstallerPage() {
   const assignedCount = jobs.filter((j) => j.status === "assigned").length;
 
   // 1. Pending Approval Card Full View
-  if (!isLoading && profileStatus === "pending") {
+  if (!isLoading && profileStatus !== "active") {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans select-none">
         <div className="w-full max-w-md bg-white border border-amber-200 rounded-[16px] p-6 shadow-xl text-center space-y-6">
@@ -508,11 +508,11 @@ export default function WebInstallerPage() {
           </div>
           <div className="flex items-center gap-2">
             <div className={`border rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${
-              profileStatus === "pending" 
+              profileStatus !== "active" 
                 ? "bg-amber-50 text-amber-600 border-amber-100" 
                 : "bg-emerald-50 text-emerald-600 border-emerald-100"
             }`}>
-              {profileStatus === "pending" ? "Pending Review" : "Approved"}
+              {profileStatus !== "active" ? "Pending Review" : "Approved"}
             </div>
             <button
               onClick={handleSignOut}

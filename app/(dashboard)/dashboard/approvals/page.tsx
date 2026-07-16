@@ -598,6 +598,36 @@ export default function ApprovalsPage() {
     }
   };
 
+  const handleVerifyInstaller = async (instId: string) => {
+    try {
+      const res = await updateRecordAction("profiles", instId, { status: "verified" });
+      if (!res.success) throw new Error(res.error);
+
+      // Keep local profiles in sync
+      const localProfiles = getLocalItems("profiles") || [];
+      const index = localProfiles.findIndex((p: any) => p.id === instId);
+      if (index > -1) {
+        localProfiles[index].status = "verified";
+        localStorage.setItem("profiles", JSON.stringify(localProfiles));
+      }
+
+      // Safe activity log
+      try {
+        const target = installers.find(i => i.id === instId);
+        await supabase.from("activity_logs").insert({
+          action: "Installer Verified",
+          details: `RSM verified installer credentials for ${target?.first_name} ${target?.last_name || ""}`,
+        });
+      } catch (e) {}
+
+      toast.success("Installer credentials verified successfully!");
+      setSelectedInstaller(null);
+      fetchInstallers();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to verify installer");
+    }
+  };
+
   const handleRejectInstaller = async (instId: string) => {
     if (!window.confirm("Are you sure you want to reject this installer registration?")) return;
     try {
@@ -819,6 +849,7 @@ export default function ApprovalsPage() {
         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
           val === "active" ? "bg-emerald-50 text-emerald-600 border border-emerald-200" :
           val === "pending" ? "bg-amber-50 text-amber-600 border border-amber-200" :
+          val === "verified" ? "bg-cyan-50 text-cyan-600 border border-cyan-200" :
           "bg-slate-50 text-slate-500 border border-slate-200"
         }`}>
           {val}
@@ -1282,7 +1313,41 @@ export default function ApprovalsPage() {
                 >
                   Cancel
                 </button>
-                {selectedInstaller.status === "pending" && (
+                 {selectedInstaller.status === "pending" && (
+                  <>
+                    {canApproveInstaller ? (
+                      <>
+                        <button
+                          onClick={() => handleRejectInstaller(selectedInstaller.id)}
+                          className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Reject Registration
+                        </button>
+                        <button
+                          onClick={() => handleApproveInstaller(selectedInstaller.id)}
+                          className="h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          Approve Active
+                        </button>
+                      </>
+                    ) : userRole === "rsm" ? (
+                      <button
+                        onClick={() => handleVerifyInstaller(selectedInstaller.id)}
+                        className="h-9 px-5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Verify Credentials
+                      </button>
+                    ) : (
+                      <p className="text-[11px] text-amber-600 font-bold bg-amber-50 px-3 py-1.5 rounded-[4px] border border-amber-100">
+                        Only Country Head, Owner or RSM can audit registrations.
+                      </p>
+                    )}
+                  </>
+                )}
+                {selectedInstaller.status === "verified" && (
                   <>
                     {canApproveInstaller ? (
                       <>
@@ -1302,8 +1367,8 @@ export default function ApprovalsPage() {
                         </button>
                       </>
                     ) : (
-                      <p className="text-[11px] text-amber-600 font-bold bg-amber-50 px-3 py-1.5 rounded-[4px] border border-amber-100">
-                        Only Country Head or Owner can approve/reject registrations.
+                      <p className="text-[11px] text-[#0077B6] font-bold bg-[#F0FAFE] px-3 py-1.5 rounded-[4px] border border-[#00B4D8]/30">
+                        Verified by RSM. Waiting for Admin/Country Head final approval.
                       </p>
                     )}
                   </>
