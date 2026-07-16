@@ -311,6 +311,108 @@ export default function Sidebar() {
                   Invoices & Payments
                 </Link>
               </>
+            ) : userRole === "rsm" ? (
+              <>
+                {/* Home */}
+                <Link href="/dashboard" className={linkClass("/dashboard")}>
+                  <Home className="w-4 h-4 mr-3" />
+                  Home
+                </Link>
+
+                {/* Sales */}
+                <div>
+                  <button
+                    onClick={() => toggleMenu("sales")}
+                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
+                  >
+                    <div className="flex items-center">
+                      <TrendingUp className="w-4 h-4 mr-3" />
+                      <span>Sales</span>
+                    </div>
+                    {openMenus.sales ? (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+
+                  {openMenus.sales && (
+                    <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
+                      <Link
+                        href="/dashboard/sales/st1"
+                        className={linkClass("/dashboard/sales/st1")}
+                      >
+                        ST-1
+                      </Link>
+                      <Link
+                        href="/dashboard/sales/st2"
+                        className={linkClass("/dashboard/sales/st2")}
+                      >
+                        ST-2
+                      </Link>
+                      <Link
+                        href="/dashboard/sales/return"
+                        className={linkClass("/dashboard/sales/return")}
+                      >
+                        Return
+                      </Link>
+                      <Link
+                        href="/dashboard/sales/transfer"
+                        className={linkClass("/dashboard/sales/transfer")}
+                      >
+                        Transfer
+                      </Link>
+                    </div>
+                  )}
+                </div>
+
+                {/* Buzzcart */}
+                <div>
+                  <button
+                    onClick={() => toggleMenu("buzzcart")}
+                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
+                  >
+                    <div className="flex items-center">
+                      <ShoppingBag className="w-4 h-4 mr-3" />
+                      <span>Buzzcart</span>
+                    </div>
+                    {openMenus.buzzcart ? (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+
+                  {openMenus.buzzcart && (
+                    <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
+                      <Link
+                        href="/dashboard/buzzcart/orders"
+                        className={linkClass("/dashboard/buzzcart/orders")}
+                      >
+                        Order
+                      </Link>
+                      <Link
+                        href="/dashboard/buzzcart/create"
+                        className={linkClass("/dashboard/buzzcart/create")}
+                      >
+                        Create Order
+                      </Link>
+                    </div>
+                  )}
+                </div>
+
+                {/* Expenses */}
+                <Link href="/dashboard/expenses" className={linkClass("/dashboard/expenses")}>
+                  <FileText className="w-4 h-4 mr-3" />
+                  Expenses
+                </Link>
+
+                {/* Invoices */}
+                <Link href="/dashboard/invoices" className={linkClass("/dashboard/invoices")}>
+                  <CreditCard className="w-4 h-4 mr-3" />
+                  Invoices & Payments
+                </Link>
+              </>
             ) : (
               <>
                 {/* Home */}

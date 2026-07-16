@@ -201,8 +201,6 @@ export async function middleware(request: NextRequest) {
         '/dashboard/sales',
         '/dashboard/expenses',
         '/dashboard/invoices',
-        '/dashboard/approvals',
-        '/dashboard/installer',
       ];
 
       const isExactDashboard = pathname === '/dashboard';
