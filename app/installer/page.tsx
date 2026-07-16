@@ -349,7 +349,7 @@ export default function WebInstallerPage() {
       const photosUrls = await uploadJobPhotos();
 
       // Combined photos + video URL representation for metadata
-      const allPhotos = [...photoPreviews, ...photosUrls];
+      const allPhotos = photosUrls;
       
       const serializedNotes = `[METADATA] SN:${serialNo.trim()} | VIDEO:${videoUrl} | REM:${completionRemarks.trim()}\nCONNECTED PRODUCT: ${validatedProduct.product_name} (${validatedProduct.model})`;
 

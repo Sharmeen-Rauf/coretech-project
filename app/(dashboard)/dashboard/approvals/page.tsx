@@ -1412,11 +1412,11 @@ export default function ApprovalsPage() {
               </div>
 
               {/* Photos */}
-              {selectedInstallation.photos && selectedInstallation.photos.length > 0 && (
+              {selectedInstallation.photos && selectedInstallation.photos.filter((url: string) => !url.startsWith("blob:")).length > 0 && (
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Site Images Proof</p>
                   <div className="grid grid-cols-3 gap-2">
-                    {selectedInstallation.photos.map((url: string, idx: number) => (
+                    {selectedInstallation.photos.filter((url: string) => !url.startsWith("blob:")).map((url: string, idx: number) => (
                       <div key={idx} className="w-full h-16 bg-slate-50 border rounded-[6px] overflow-hidden">
                         <img src={url} alt="installation-proof" className="w-full h-full object-cover" />
                       </div>
