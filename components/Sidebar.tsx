@@ -297,6 +297,20 @@ export default function Sidebar() {
                   Support Tickets
                 </Link>
               </>
+            ) : userRole === "marketing_manager" ? (
+              <>
+                {/* Home */}
+                <Link href="/dashboard" className={linkClass("/dashboard")}>
+                  <Home className="w-4 h-4 mr-3" />
+                  Home
+                </Link>
+
+                {/* Invoices */}
+                <Link href="/dashboard/invoices" className={linkClass("/dashboard/invoices")}>
+                  <CreditCard className="w-4 h-4 mr-3" />
+                  Invoices & Payments
+                </Link>
+              </>
             ) : (
               <>
                 {/* Home */}

@@ -184,6 +184,31 @@ export async function middleware(request: NextRequest) {
       if (!isAllowed) {
         return NextResponse.redirect(new URL('/dashboard', request.url));
       }
+    } else if (role === 'marketing_manager') {
+      const allowedMarketingPrefixes = [
+        '/dashboard/invoices',
+      ];
+
+      const isExactDashboard = pathname === '/dashboard';
+      const isAllowed = isExactDashboard || allowedMarketingPrefixes.some(prefix => pathname.startsWith(prefix));
+
+      if (!isAllowed) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+    } else if (role === 'rsm') {
+      const allowedRsmPrefixes = [
+        '/dashboard/buzzcart',
+        '/dashboard/sales',
+        '/dashboard/expenses',
+        '/dashboard/invoices',
+      ];
+
+      const isExactDashboard = pathname === '/dashboard';
+      const isAllowed = isExactDashboard || allowedRsmPrefixes.some(prefix => pathname.startsWith(prefix));
+
+      if (!isAllowed) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
     }
   }
 
