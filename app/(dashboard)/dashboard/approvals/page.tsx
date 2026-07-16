@@ -1332,7 +1332,7 @@ export default function ApprovalsPage() {
                           Approve Active
                         </button>
                       </>
-                    ) : userRole === "rsm" ? (
+                    ) : (userRole === "rsm" || userRole === "retail_manager") ? (
                       <button
                         onClick={() => handleVerifyInstaller(selectedInstaller.id)}
                         className="h-9 px-5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
@@ -1342,7 +1342,7 @@ export default function ApprovalsPage() {
                       </button>
                     ) : (
                       <p className="text-[11px] text-amber-600 font-bold bg-amber-50 px-3 py-1.5 rounded-[4px] border border-amber-100">
-                        Only Country Head, Owner or RSM can audit registrations.
+                        Only Country Head, Owner, RSM or Retail Manager can audit registrations.
                       </p>
                     )}
                   </>
