@@ -46,6 +46,7 @@ interface DataTableProps {
   onBulkDelete?: (selectedIds: string[]) => void;
   onImportCSV?: (file: File) => void;
   showExport?: boolean;
+  allData?: any[];
 }
 
 export default function DataTable({
@@ -64,6 +65,7 @@ export default function DataTable({
   onBulkDelete,
   onImportCSV,
   showExport = true,
+  allData,
 }: DataTableProps) {
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [searchValue, setSearchValue] = useState("");
@@ -106,7 +108,8 @@ export default function DataTable({
   });
 
   const handleExportCSV = () => {
-    if (data.length === 0) {
+    const dataToExport = allData || data;
+    if (dataToExport.length === 0) {
       toast.error("No data available to export");
       return;
     }
@@ -117,7 +120,7 @@ export default function DataTable({
     const csvRows = [];
     csvRows.push(exportHeaders.join(","));
 
-    data.forEach(row => {
+    dataToExport.forEach(row => {
       const values = keys.map(key => {
         let val = row[key];
         if (val === undefined || val === null) {

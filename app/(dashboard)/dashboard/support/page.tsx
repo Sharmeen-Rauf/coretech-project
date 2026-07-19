@@ -282,7 +282,7 @@ export default function SupportTicketsPage() {
           <Loader2 className="w-8 h-8 text-[#00B4D8] animate-spin" />
         </div>
       ) : (
-        <DataTable
+        <DataTable allData={tickets}
           title="Support Tickets Board"
           columns={columns}
           data={paginated}

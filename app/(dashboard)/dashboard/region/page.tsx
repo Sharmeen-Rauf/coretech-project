@@ -222,7 +222,7 @@ export default function RegionPage() {
         </button>
       </div>
  
-      <DataTable
+      <DataTable allData={regions}
         title="Active Regions"
         columns={columns}
         data={paginated}

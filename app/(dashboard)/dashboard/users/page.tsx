@@ -199,7 +199,7 @@ export default function UsersPage() {
       </div>
 
       {/* Reusable Data Table Component */}
-      <DataTable
+      <DataTable allData={filteredUsers}
         title={`${roleTitle} Register`}
         columns={columns}
         data={paginatedUsers}

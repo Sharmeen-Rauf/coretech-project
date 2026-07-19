@@ -150,7 +150,7 @@ export default function InverterProductPage() {
         </p>
       </div>
  
-      <DataTable
+      <DataTable allData={filtered}
         title="Inverters"
         columns={columns}
         data={paginated}

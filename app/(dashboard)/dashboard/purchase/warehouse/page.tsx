@@ -249,7 +249,7 @@ export default function WarehousePage() {
       </button>
     </div>
 
-    <DataTable
+    <DataTable allData={warehousesList}
       title="Fulfillment Depots"
       columns={columns}
       data={paginated}

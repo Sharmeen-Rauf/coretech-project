@@ -277,7 +277,7 @@ export default function ExpensesPage() {
           <Loader2 className="w-8 h-8 text-[#00B4D8] animate-spin" />
         </div>
       ) : (
-        <DataTable
+        <DataTable allData={expenses}
           title="Expenses Ledger"
           columns={columns}
           data={paginated}

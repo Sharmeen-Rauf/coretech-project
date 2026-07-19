@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
-import { deleteRecordAction, createRecordAction } from "@/app/actions/users";
+import { deleteRecordAction, createRecordAction, fetchRecordsAction } from "@/app/actions/users";
 import { fetchStockAction, fetchProductsAction, getOrCreateProductByCode } from "@/app/actions/products";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
 import { Loader2, RefreshCw } from "lucide-react";
@@ -60,28 +60,65 @@ export default function InventoryPage() {
       const localProducts = getLocalItems("coretech_local_products") || [];
       const allProducts = [...productsList, ...localProducts];
 
-      const formattedDb = dbData.map((row: any) => ({
-        id: row.id,
-        product_name: row.products?.name || "Unknown Product",
-        brand: row.products?.brand || "-",
-        model: row.model_no || row.products?.model || "-",
-        serial_no: row.serial_no || "-",
-        warehouse_name: row.warehouse_name || "-",
-        quantity: row.quantity ?? 0,
-        import_date: row.import_date || "-",
-      }));
+      // Fetch regions list to resolve warehouse name/area
+      let regionsList: any[] = [];
+      try {
+        const regRes = await fetchRecordsAction("regions");
+        if (regRes.success && regRes.data) {
+          regionsList = regRes.data;
+        }
+      } catch (e) {
+        console.warn("Failed to fetch regions:", e);
+      }
+      const localRegions = getLocalItems("coretech_local_regions") || [];
+      const allRegions = [...regionsList, ...localRegions];
+
+      const formattedDb = dbData.map((row: any) => {
+        const rawWh = row.warehouse_name || "-";
+        const matched = allRegions.find((r: any) => 
+          r.region_code?.toLowerCase() === rawWh.toLowerCase() ||
+          r.name?.toLowerCase() === rawWh.toLowerCase() ||
+          r.id === rawWh
+        );
+        let resolvedWh = matched ? matched.warehouse : rawWh;
+        if (resolvedWh === "275") {
+          resolvedWh = "Main Warehouse (275)";
+        }
+
+        return {
+          id: row.id,
+          product_name: row.products?.name || "Unknown Product",
+          brand: row.products?.brand || "-",
+          model: row.model_no || row.products?.model || "-",
+          serial_no: row.serial_no || "-",
+          warehouse_name: resolvedWh,
+          quantity: row.quantity ?? 0,
+          import_date: row.import_date || "-",
+        };
+      });
 
       const localStock = getLocalItems("coretech_local_stock") || [];
       setLocalStockCount(localStock.length);
       const formattedLocal = localStock.map((row: any, idx: number) => {
         const prod = allProducts.find((p: any) => p.id === row.product_id);
+        const rawWh = row.warehouse_name || "-";
+        const matched = allRegions.find((r: any) => 
+          r.region_code?.toLowerCase() === rawWh.toLowerCase() ||
+          r.name?.toLowerCase() === rawWh.toLowerCase() ||
+          r.id === rawWh
+        );
+        let resolvedWh = matched ? matched.warehouse : rawWh;
+        if (resolvedWh === "275") {
+          resolvedWh = "Main Warehouse (275)";
+        }
+
         return {
           id: row.id || `local-${idx}`,
           product_name: prod?.name || "Unknown Product",
           brand: prod?.brand || "-",
           model: row.model_no || prod?.model || "-",
           serial_no: row.serial_no || "-",
-          warehouse_name: row.warehouse_name || "-",
+          warehouse_name: resolvedWh,
           quantity: row.quantity ?? 0,
           import_date: row.import_date || "-",
         };
@@ -284,7 +321,7 @@ export default function InventoryPage() {
         )}
       </div>
 
-      <DataTable
+      <DataTable allData={filtered}
         title="Warehouse Inventory"
         columns={columns}
         data={paginated}

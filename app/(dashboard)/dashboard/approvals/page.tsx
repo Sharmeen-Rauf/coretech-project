@@ -1004,6 +1004,7 @@ export default function ApprovalsPage() {
         </div>
       ) : activeTab === "orders" ? (
         <DataTable
+          allData={orders}
           title="Orders Approval Ledger"
           columns={orderColumns}
           data={orders.slice((currentPage - 1) * perPage, currentPage * perPage)}
@@ -1018,6 +1019,7 @@ export default function ApprovalsPage() {
         />
       ) : activeTab === "gatepasses" ? (
         <DataTable
+          allData={gatePasses}
           title="Gate Passes Registry"
           columns={passColumns}
           data={gatePasses.slice((currentPage - 1) * perPage, currentPage * perPage)}
@@ -1041,6 +1043,7 @@ export default function ApprovalsPage() {
         />
       ) : activeTab === "installers" ? (
         <DataTable
+          allData={installers}
           title="Registered Installers Application Check"
           columns={installerColumns}
           data={installers.slice((currentPage - 1) * perPage, currentPage * perPage)}
@@ -1064,6 +1067,7 @@ export default function ApprovalsPage() {
         />
       ) : (
         <DataTable
+          allData={installations}
           title="Verify Installations & Release Payouts"
           columns={installationColumns}
           data={installations.slice((currentPage - 1) * perPage, currentPage * perPage)}

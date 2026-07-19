@@ -271,7 +271,7 @@ export default function BuzzcartOrdersPage() {
         </p>
       </div>
 
-      <DataTable
+      <DataTable allData={filtered}
         title="Orders Ledger"
         columns={columns}
         data={paginated}

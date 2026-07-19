@@ -462,7 +462,7 @@ export default function AdminJobsPage() {
         </div>
       ) : !isCreating ? (
         /* Ledger Table List View */
-        <DataTable
+        <DataTable allData={jobs}
           title="Installer Jobs Ledger"
           columns={columns}
           data={paginated}

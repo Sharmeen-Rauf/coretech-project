@@ -150,7 +150,7 @@ export default function AioProductPage() {
         </p>
       </div>
  
-      <DataTable
+      <DataTable allData={filtered}
         title="AIO Systems"
         columns={columns}
         data={paginated}

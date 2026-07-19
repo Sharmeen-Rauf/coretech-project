@@ -206,7 +206,7 @@ export default function InstallerListPage() {
         </p>
       </div>
 
-      <DataTable
+      <DataTable allData={filtered}
         title="Installers Register"
         columns={columns}
         data={paginated}

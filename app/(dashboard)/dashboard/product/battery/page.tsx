@@ -150,7 +150,7 @@ export default function BatteryProductPage() {
         </p>
       </div>
  
-      <DataTable
+      <DataTable allData={filtered}
         title="Batteries"
         columns={columns}
         data={paginated}

@@ -337,7 +337,7 @@ export default function InvoicesPage() {
           <Loader2 className="w-8 h-8 text-[#00B4D8] animate-spin" />
         </div>
       ) : (
-        <DataTable
+        <DataTable allData={invoices}
           title="Accounts Receivable Ledger"
           columns={columns}
           data={paginated}
