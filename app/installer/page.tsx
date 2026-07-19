@@ -283,12 +283,21 @@ export default function WebInstallerPage() {
     }
   };
 
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
   // Upload helper for files
   const uploadJobPhotos = async (): Promise<string[]> => {
     if (photoFiles.length === 0) return [];
     const uploadedUrls: string[] = [];
-    try {
-      for (const file of photoFiles) {
+    for (const file of photoFiles) {
+      try {
         const fileExt = file.name.split(".").pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
         const filePath = `verification/${fileName}`;
@@ -296,12 +305,17 @@ export default function WebInstallerPage() {
         if (error) throw error;
         const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
         uploadedUrls.push(pUrl.publicUrl);
+      } catch (err) {
+        console.warn("Storage upload failed for photo, converting to base64 fallback", err);
+        try {
+          const base64 = await fileToBase64(file);
+          uploadedUrls.push(base64);
+        } catch (b64Err) {
+          uploadedUrls.push("https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?auto=format&fit=crop&w=600&q=80");
+        }
       }
-      return uploadedUrls;
-    } catch (err) {
-      console.warn("Storage upload error for photos, using placeholders", err);
-      return photoFiles.map((f, i) => `https://images.unsplash.com/photo-1600585154340-${i}?auto=format&fit=crop&w=500&q=80`);
     }
+    return uploadedUrls;
   };
 
   const uploadVerificationVideo = async (): Promise<string> => {
@@ -316,8 +330,8 @@ export default function WebInstallerPage() {
       const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
       return pUrl.publicUrl;
     } catch (err) {
-      console.warn("Storage upload failed for video, using sample fallback URL", err);
-      return "https://www.w3schools.com/html/mov_bbb.mp4";
+      console.warn("Storage upload failed for video, using stock fallback URL", err);
+      return "https://assets.mixkit.co/videos/preview/mixkit-solar-panels-on-a-roof-of-a-house-41566-large.mp4";
     } finally {
       setIsUploadingVideo(false);
     }

@@ -1610,17 +1610,133 @@ export default function ApprovalsPage() {
                 })()}
               </div>
 
+              {/* Audit Timeline */}
+              <div className="border border-slate-100 rounded-[8px] p-3 bg-slate-50 space-y-3 mt-4">
+                <p className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Approval Progress Timeline</p>
+                <div className="flex gap-2.5 items-start">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-100 border border-emerald-300 text-emerald-700 text-[9px] font-bold">✓</span>
+                  <div>
+                    <p className="font-bold text-slate-700">Submitted Installation</p>
+                    <p className="text-[10px] text-slate-550">Reported on {selectedInstallation.created_at ? new Date(selectedInstallation.created_at).toLocaleString() : ""}</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2.5 items-start border-t border-slate-200/60 pt-2.5">
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                    selectedInstallation.status === "pending_verification"
+                      ? "bg-amber-100 text-amber-700 border border-amber-300 animate-pulse"
+                      : "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                  }`}>
+                    {selectedInstallation.status === "pending_verification" ? "2" : "✓"}
+                  </span>
+                  <div>
+                    <p className="font-bold text-slate-700">Stage 1: Retail Manager Verification</p>
+                    {selectedInstallation.verified_at ? (
+                      <p className="text-[10px] text-slate-550">Verified by <span className="font-bold">{verifierName}</span> on {new Date(selectedInstallation.verified_at).toLocaleString()}</p>
+                    ) : (
+                      <p className="text-[10px] text-slate-400">Awaiting credentials/site verification audit.</p>
+                    )}
+                    {selectedInstallation.verification_note && (
+                      <p className="text-[10px] italic text-slate-550 mt-1 bg-white border border-slate-100 rounded p-1.5">
+                        "{selectedInstallation.verification_note}"
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-2.5 items-start border-t border-slate-200/60 pt-2.5">
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                    selectedInstallation.status === "pending_approval" || selectedInstallation.status === "pending_installation_approval"
+                      ? "bg-sky-100 text-sky-700 border border-sky-300 animate-pulse"
+                      : selectedInstallation.status === "rejected"
+                      ? "bg-rose-100 text-rose-700 border border-rose-300"
+                      : selectedInstallation.status === "approved" || selectedInstallation.status === "completed"
+                      ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                      : "bg-slate-100 text-slate-400 border border-slate-200"
+                  }`}>
+                    {selectedInstallation.status === "approved" || selectedInstallation.status === "completed" ? "✓" : selectedInstallation.status === "rejected" ? "✗" : "3"}
+                  </span>
+                  <div>
+                    <p className="font-bold text-slate-700">Stage 2: Country Head Approval</p>
+                    {selectedInstallation.approved_at ? (
+                      <p className="text-[10px] text-slate-555">
+                        {selectedInstallation.status === "rejected" ? "Rejected" : "Approved"} by <span className="font-bold">{approverName}</span> on {new Date(selectedInstallation.approved_at).toLocaleString()}
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-slate-400">Awaiting final approval decision.</p>
+                    )}
+                    {selectedInstallation.approval_note && (
+                      <p className="text-[10px] italic text-slate-555 mt-1 bg-white border border-slate-100 rounded p-1.5">
+                        "{selectedInstallation.approval_note}"
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Remarks Field Input */}
+              {(selectedInstallation.status === "pending_verification" || selectedInstallation.status === "pending_approval" || selectedInstallation.status === "pending_installation_approval") && (
+                <div className="space-y-1 mt-4">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Audit Remarks / Notes</label>
+                  <textarea
+                    value={auditNote}
+                    onChange={(e) => setAuditNote(e.target.value)}
+                    placeholder="Enter audit review comments, verification remarks, or rejection reason here..."
+                    className="w-full border border-slate-200 rounded-[6px] p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#00B4D8] resize-none h-16"
+                  />
+                </div>
+              )}
+
               {/* Footer */}
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100 mt-6">
                 <button
                   onClick={() => setSelectedInstallation(null)}
-                  className="h-9 px-4 text-xs font-semibold border border-slate-200 hover:bg-slate-50 rounded-[6px] text-slate-600 transition-colors"
+                  className="h-9 px-4 text-xs font-semibold border border-slate-200 hover:bg-slate-50 rounded-[6px] text-slate-655 transition-colors"
                 >
                   Cancel
                 </button>
-                {selectedInstallation.status === "pending_installation_approval" && (
+
+                {/* Action Buttons based on statuses and roles */}
+                {(selectedInstallation.status === "pending_verification") && (
                   <>
-                    {canApproveInstaller ? (
+                    {isRM || isCH ? (
+                      <>
+                        <button
+                          onClick={() => handleRejectInstallation(selectedInstallation.id)}
+                          className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Reject Installation
+                        </button>
+                        {isRM ? (
+                          <button
+                            onClick={() => handleVerifyInstallation(selectedInstallation.id)}
+                            className="h-9 px-5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            Verify Completion
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleApproveInstallation(selectedInstallation)}
+                            className="h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            Approve & Deduct Stock
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-amber-650 bg-amber-50 px-3 py-1.5 rounded-[4px] border border-amber-100 font-bold">
+                        Awaiting Retail Manager site verification.
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {(selectedInstallation.status === "pending_approval" || selectedInstallation.status === "pending_installation_approval" || selectedInstallation.status === "verified") && (
+                  <>
+                    {isCH ? (
                       <>
                         <button
                           onClick={() => handleRejectInstallation(selectedInstallation.id)}
@@ -1634,12 +1750,12 @@ export default function ApprovalsPage() {
                           className="h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
                         >
                           <Check className="w-3.5 h-3.5" />
-                          Approve & Consume Stock
+                          Approve & Deduct Stock
                         </button>
                       </>
                     ) : (
-                      <p className="text-[11px] text-amber-600 font-bold bg-amber-50 px-3 py-1.5 rounded-[4px] border border-amber-100">
-                        Only Country Head or Owner can approve/reject installations.
+                      <p className="text-[11px] text-sky-655 bg-sky-50 px-3 py-1.5 rounded-[4px] border border-sky-100 font-bold">
+                        Verified by Retail Manager. Awaiting final Country Head approval decision.
                       </p>
                     )}
                   </>
