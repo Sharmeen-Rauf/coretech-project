@@ -974,13 +974,13 @@ export default function ApprovalsPage() {
 
   const displayInstallers = installers.filter((i) => {
     if (isRM) return i.status === "pending_verification" || i.status === "pending";
-    if (isCH) return i.status === "pending_approval" || i.status === "verified";
+    if (isCH) return i.status === "pending_verification" || i.status === "pending" || i.status === "pending_approval" || i.status === "verified";
     return false;
   });
 
   const displayInstallations = installations.filter((j) => {
     if (isRM) return j.status === "pending_verification";
-    if (isCH) return j.status === "pending_approval" || j.status === "pending_installation_approval";
+    if (isCH) return j.status === "pending_verification" || j.status === "pending_approval" || j.status === "pending_installation_approval";
     return false;
   });
 
