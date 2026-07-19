@@ -7,7 +7,7 @@ import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
 import { deleteUserAction, updateRecordAction } from "@/app/actions/users";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
-import { Clock, Check, X, Eye, UserCheck } from "lucide-react";
+import { Clock, Check, X, Eye, UserCheck, Calendar } from "lucide-react";
 
 interface InstallerProfile {
   id: string;
@@ -35,7 +35,53 @@ export default function InstallerListPage() {
   const [userLookup, setUserLookup] = useState<Record<string, string>>({});
   const [verifierName, setVerifierName] = useState("");
   const [approverName, setApproverName] = useState("");
+  const [startDate, setStartDate] = useState<string>("");
+  const [endDate, setEndDate] = useState<string>("");
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const perPage = 10;
+
+  const applyPreset = (preset: 'today' | '7days' | '30days' | 'thisMonth' | 'all') => {
+    const today = new Date();
+    if (preset === 'today') {
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      setStartDate(`${yyyy}-${mm}-${dd}`);
+      setEndDate(`${yyyy}-${mm}-${dd}`);
+    } else if (preset === '7days') {
+      const past = new Date();
+      past.setDate(today.getDate() - 7);
+      setStartDate(past.toISOString().split('T')[0]);
+      setEndDate(today.toISOString().split('T')[0]);
+    } else if (preset === '30days') {
+      const past = new Date();
+      past.setDate(today.getDate() - 30);
+      setStartDate(past.toISOString().split('T')[0]);
+      setEndDate(today.toISOString().split('T')[0]);
+    } else if (preset === 'thisMonth') {
+      const start = new Date(today.getFullYear(), today.getMonth(), 1);
+      setStartDate(start.toISOString().split('T')[0]);
+      setEndDate(today.toISOString().split('T')[0]);
+    } else {
+      setStartDate("");
+      setEndDate("");
+    }
+    setIsDatePickerOpen(false);
+  };
+
+  const isInDateRange = (dateStr?: string) => {
+    if (!dateStr) return false;
+    const dateVal = new Date(dateStr).getTime();
+    if (startDate) {
+      const startVal = new Date(startDate).getTime();
+      if (dateVal < startVal) return false;
+    }
+    if (endDate) {
+      const endVal = new Date(endDate + "T23:59:59.999Z").getTime();
+      if (dateVal > endVal) return false;
+    }
+    return true;
+  };
 
   useEffect(() => {
     const fetchAuditUserNames = async () => {
@@ -183,6 +229,16 @@ export default function InstallerListPage() {
   const filtered = installers.filter((item) => {
     if (statusFilter && item.status !== statusFilter) {
       return false;
+    }
+    if (startDate) {
+      const startVal = new Date(startDate).getTime();
+      const itemVal = new Date(item.created_at).getTime();
+      if (itemVal < startVal) return false;
+    }
+    if (endDate) {
+      const endVal = new Date(endDate + "T23:59:59.999Z").getTime();
+      const itemVal = new Date(item.created_at).getTime();
+      if (itemVal > endVal) return false;
     }
     const q = searchQuery.toLowerCase().trim();
     if (!q) return true;
@@ -369,13 +425,141 @@ export default function InstallerListPage() {
     }
   ];
 
+  // Compute metrics based on date range
+  const registeredCount = installers.filter(item => {
+    if (!startDate && !endDate) return true;
+    return isInDateRange(item.created_at);
+  }).length;
+
+  const verifiedCount = installers.filter(item => {
+    if (!item.verified_at) return false;
+    if (!startDate && !endDate) return true;
+    return isInDateRange(item.verified_at);
+  }).length;
+
+  const approvedCount = installers.filter(item => {
+    if (!item.approved_at) return false;
+    if (!startDate && !endDate) return true;
+    return isInDateRange(item.approved_at);
+  }).length;
+
   return (
     <div className="space-y-6 select-none">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Installers</h1>
-        <p className="text-xs text-slate-500">
-          Monitor registration, designation and active status for installation field staff.
-        </p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Installers</h1>
+          <p className="text-xs text-slate-500">
+            Monitor registration, designation and active status for installation field staff.
+          </p>
+        </div>
+
+        {/* Floating Custom Date Range Picker */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
+            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-[8px] text-xs font-bold shadow-sm transition-all"
+          >
+            <Calendar className="w-4 h-4 text-slate-500" />
+            <span>
+              {startDate || endDate
+                ? `Date: ${startDate ? new Date(startDate).toLocaleDateString() : ""} - ${endDate ? new Date(endDate).toLocaleDateString() : ""}`
+                : "Select Date Range"}
+            </span>
+          </button>
+
+          {isDatePickerOpen && (
+            <div className="absolute right-0 mt-2 z-50 bg-white border border-slate-200 rounded-[12px] shadow-xl p-4 w-64 space-y-3.5 animate-in fade-in slide-in-from-top-2 duration-150">
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Filter Date Range</p>
+              <div className="space-y-2">
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Start Date</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full mt-0.5 border border-slate-200 rounded-[6px] p-1.5 text-xs focus:outline-none focus:border-[#00B4D8] font-bold text-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">End Date</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full mt-0.5 border border-slate-200 rounded-[6px] p-1.5 text-xs focus:outline-none focus:border-[#00B4D8] font-bold text-slate-800"
+                  />
+                </div>
+              </div>
+
+              {/* Presets */}
+              <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-slate-100 text-[10px]">
+                <button
+                  onClick={() => applyPreset("today")}
+                  className="py-1 px-2 hover:bg-slate-100 rounded text-slate-750 font-bold text-left"
+                >
+                  • Today
+                </button>
+                <button
+                  onClick={() => applyPreset("7days")}
+                  className="py-1 px-2 hover:bg-slate-100 rounded text-slate-755 font-bold text-left"
+                >
+                  • Last 7 Days
+                </button>
+                <button
+                  onClick={() => applyPreset("30days")}
+                  className="py-1 px-2 hover:bg-slate-100 rounded text-slate-755 font-bold text-left"
+                >
+                  • Last 30 Days
+                </button>
+                <button
+                  onClick={() => applyPreset("thisMonth")}
+                  className="py-1 px-2 hover:bg-slate-100 rounded text-slate-755 font-bold text-left"
+                >
+                  • This Month
+                </button>
+                <button
+                  onClick={() => applyPreset("all")}
+                  className="col-span-2 py-1.5 px-2 hover:bg-slate-50 text-[#00B4D8] hover:text-[#0077B6] font-bold border-t border-slate-100 text-center"
+                >
+                  Clear Date Filters (All Time)
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* KPI summaries row */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+        <div className="bg-white border border-slate-200 rounded-[12px] p-4 shadow-sm flex items-center gap-4">
+          <div className="p-2.5 bg-[#F0FAFE] text-[#00B4D8] rounded-[8px]">
+            <UserCheck className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Registered</p>
+            <p className="text-base font-extrabold text-slate-800">{registeredCount} Installer(s)</p>
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-[12px] p-4 shadow-sm flex items-center gap-4">
+          <div className="p-2.5 bg-amber-50 text-amber-600 rounded-[8px]">
+            <Clock className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Verified</p>
+            <p className="text-base font-extrabold text-slate-800">{verifiedCount} Installer(s)</p>
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-[12px] p-4 shadow-sm flex items-center gap-4">
+          <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-[8px]">
+            <Check className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Approved</p>
+            <p className="text-base font-extrabold text-slate-800">{approvedCount} Installer(s)</p>
+          </div>
+        </div>
       </div>
 
       <DataTable allData={filtered}
