@@ -1345,11 +1345,11 @@ export default function ApprovalsPage() {
                 </div>
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">City</p>
-                  <p className="font-bold text-slate-850 mt-0.5">{getInstallerField(selectedInstaller, "city")}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{getInstallerField(selectedInstaller, "city")}</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">State</p>
-                  <p className="font-bold text-slate-850 mt-0.5">{getInstallerField(selectedInstaller, "state")}</p>
+                  <p className="font-bold text-slate-800 mt-0.5">{getInstallerField(selectedInstaller, "state")}</p>
                 </div>
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase">Marital Status</p>
@@ -1381,15 +1381,92 @@ export default function ApprovalsPage() {
                 </div>
               </div>
 
+              {/* Audit Timeline */}
+              <div className="border border-slate-100 rounded-[8px] p-3 bg-slate-50 space-y-3 mt-4">
+                <p className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Approval Progress Timeline</p>
+                <div className="flex gap-2.5 items-start">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-100 border border-emerald-300 text-emerald-700 text-[9px] font-bold">✓</span>
+                  <div>
+                    <p className="font-bold text-slate-700">Submitted Registration</p>
+                    <p className="text-[10px] text-slate-500">{selectedInstaller.created_at ? new Date(selectedInstaller.created_at).toLocaleString() : ""}</p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2.5 items-start border-t border-slate-200/60 pt-2.5">
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                    selectedInstaller.status === "pending_verification" || selectedInstaller.status === "pending"
+                      ? "bg-amber-100 text-amber-700 border border-amber-300 animate-pulse"
+                      : "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                  }`}>
+                    {selectedInstaller.status === "pending_verification" || selectedInstaller.status === "pending" ? "2" : "✓"}
+                  </span>
+                  <div>
+                    <p className="font-bold text-slate-700">Stage 1: Retail Manager Verification</p>
+                    {selectedInstaller.verified_at ? (
+                      <p className="text-[10px] text-slate-550">Verified by <span className="font-bold">{verifierName}</span> on {new Date(selectedInstaller.verified_at).toLocaleString()}</p>
+                    ) : (
+                      <p className="text-[10px] text-slate-400">Awaiting credentials audit.</p>
+                    )}
+                    {selectedInstaller.verification_note && (
+                      <p className="text-[10px] italic text-slate-550 mt-1 bg-white border border-slate-100 rounded p-1.5">
+                        "{selectedInstaller.verification_note}"
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-2.5 items-start border-t border-slate-200/60 pt-2.5">
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                    selectedInstaller.status === "pending_approval" || selectedInstaller.status === "verified"
+                      ? "bg-sky-100 text-sky-700 border border-sky-300 animate-pulse"
+                      : selectedInstaller.status === "rejected"
+                      ? "bg-rose-100 text-rose-700 border border-rose-300"
+                      : selectedInstaller.status === "approved"
+                      ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                      : "bg-slate-100 text-slate-400 border border-slate-200"
+                  }`}>
+                    {selectedInstaller.status === "approved" ? "✓" : selectedInstaller.status === "rejected" ? "✗" : "3"}
+                  </span>
+                  <div>
+                    <p className="font-bold text-slate-700">Stage 2: Country Head Approval</p>
+                    {selectedInstaller.approved_at ? (
+                      <p className="text-[10px] text-slate-550">
+                        {selectedInstaller.status === "rejected" ? "Rejected" : "Approved"} by <span className="font-bold">{approverName}</span> on {new Date(selectedInstaller.approved_at).toLocaleString()}
+                      </p>
+                    ) : (
+                      <p className="text-[10px] text-slate-400">Awaiting final approval decision.</p>
+                    )}
+                    {selectedInstaller.approval_note && (
+                      <p className="text-[10px] italic text-slate-555 mt-1 bg-white border border-slate-100 rounded p-1.5">
+                        "{selectedInstaller.approval_note}"
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Remarks Field Input */}
+              {(selectedInstaller.status === "pending_verification" || selectedInstaller.status === "pending" || selectedInstaller.status === "pending_approval" || selectedInstaller.status === "verified") && (
+                <div className="space-y-1 mt-4">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Audit Remarks / Notes</label>
+                  <textarea
+                    value={auditNote}
+                    onChange={(e) => setAuditNote(e.target.value)}
+                    placeholder="Enter audit review comments, verification remarks, or rejection reason here..."
+                    className="w-full border border-slate-200 rounded-[6px] p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#00B4D8] resize-none h-16"
+                  />
+                </div>
+              )}
+
               {/* Footer */}
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100 mt-6">
                 <button
                   onClick={() => setSelectedInstaller(null)}
-                  className="h-9 px-4 text-xs font-semibold border border-slate-200 hover:bg-slate-50 rounded-[6px] text-slate-600 transition-colors"
+                  className="h-9 px-4 text-xs font-semibold border border-slate-200 hover:bg-slate-50 rounded-[6px] text-slate-655 transition-colors"
                 >
                   Cancel
                 </button>
-                 {selectedInstaller.status === "pending" && (
+                {(selectedInstaller.status === "pending" || selectedInstaller.status === "pending_verification") && (
                   <>
                     {canApproveInstaller ? (
                       <>
@@ -1409,13 +1486,22 @@ export default function ApprovalsPage() {
                         </button>
                       </>
                     ) : (userRole === "rsm" || userRole === "retail_manager") ? (
-                      <button
-                        onClick={() => handleVerifyInstaller(selectedInstaller.id)}
-                        className="h-9 px-5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        Verify Credentials
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleRejectInstaller(selectedInstaller.id)}
+                          className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Reject Registration
+                        </button>
+                        <button
+                          onClick={() => handleVerifyInstaller(selectedInstaller.id)}
+                          className="h-9 px-5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          Verify Credentials
+                        </button>
+                      </>
                     ) : (
                       <p className="text-[11px] text-amber-600 font-bold bg-amber-50 px-3 py-1.5 rounded-[4px] border border-amber-100">
                         Only Country Head, Owner, RSM or Retail Manager can audit registrations.
@@ -1423,7 +1509,7 @@ export default function ApprovalsPage() {
                     )}
                   </>
                 )}
-                {selectedInstaller.status === "verified" && (
+                {(selectedInstaller.status === "verified" || selectedInstaller.status === "pending_approval") && (
                   <>
                     {canApproveInstaller ? (
                       <>
@@ -1444,7 +1530,7 @@ export default function ApprovalsPage() {
                       </>
                     ) : (
                       <p className="text-[11px] text-[#0077B6] font-bold bg-[#F0FAFE] px-3 py-1.5 rounded-[4px] border border-[#00B4D8]/30">
-                        Verified by RSM. Waiting for Admin/Country Head final approval.
+                        Verified by Retail Manager. Waiting for Admin/Country Head final approval.
                       </p>
                     )}
                   </>
