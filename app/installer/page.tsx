@@ -452,7 +452,7 @@ export default function WebInstallerPage() {
   const assignedCount = jobs.filter((j) => j.status === "assigned").length;
 
   // 1. Pending Approval Card Full View
-  if (!isLoading && profileStatus !== "approved") {
+  if (!isLoading && (profileStatus === "pending" || profileStatus === "pending_verification" || profileStatus === "rejected")) {
     const isPendingVerification = profileStatus === "pending_verification";
     const isPendingApproval = profileStatus === "pending_approval" || profileStatus === "verified";
     const isRejected = profileStatus === "rejected";
