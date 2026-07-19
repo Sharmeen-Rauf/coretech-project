@@ -132,6 +132,7 @@ export default function ApprovalsPage() {
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [qrOrigin, setQrOrigin] = useState("http://localhost:3000");
   const [userRole, setUserRole] = useState<string>("");
+  const [currentUserId, setCurrentUserId] = useState<string>("");
   const canApproveInstaller = userRole === "admin" || userRole === "country_head";
 
   useEffect(() => {
@@ -373,6 +374,7 @@ export default function ApprovalsPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
+        setCurrentUserId(session.user.id);
         const { data: profile } = await supabase
           .from("profiles")
           .select("role")
@@ -696,17 +698,50 @@ export default function ApprovalsPage() {
     }
   };
 
-  // Installation approvals (Approve / Reject)
+  // Installation approvals (Verify / Approve / Reject)
+  const handleVerifyInstallation = async (jobId: string) => {
+    try {
+      const updateData = {
+        status: "pending_approval",
+        verified_by: currentUserId || null,
+        verified_at: new Date().toISOString(),
+        verification_note: auditNote || "Verified by Retail Manager."
+      };
+      const res = await updateRecordAction("installer_jobs", jobId, updateData);
+      if (!res.success) throw new Error(res.error);
+
+      const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
+      const index = localJobs.findIndex((j: any) => j.id === jobId);
+      if (index > -1) {
+        Object.assign(localJobs[index], updateData);
+        localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
+      }
+
+      toast.success("Site installation verified successfully! Awaiting final Country Head approval.");
+      setAuditNote("");
+      setSelectedInstallation(null);
+      fetchInstallations();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to verify installation");
+    }
+  };
+
   const handleApproveInstallation = async (job: any) => {
     try {
+      const updateData = {
+        status: "completed", // Keep 'completed' status so it works with all other existing pages and logic
+        approved_by: currentUserId || null,
+        approved_at: new Date().toISOString(),
+        approval_note: auditNote || "Approved by Country Head."
+      };
       // 1. Update job ticket status to 'completed' using server action to bypass client RLS limits
-      const res = await updateRecordAction("installer_jobs", job.id, { status: "completed" });
+      const res = await updateRecordAction("installer_jobs", job.id, updateData);
       if (!res.success) throw new Error(res.error);
 
       const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
       const index = localJobs.findIndex((j: any) => j.id === job.id);
       if (index > -1) {
-        localJobs[index].status = "completed";
+        Object.assign(localJobs[index], updateData);
         localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
       }
 
@@ -740,7 +775,8 @@ export default function ApprovalsPage() {
         });
       } catch (e) {}
 
-      toast.success("Installation approved & product consumed from inventory!");
+      toast.success("Site installation approved & product consumed from inventory!");
+      setAuditNote("");
       setSelectedInstallation(null);
       fetchInstallations();
     } catch (err: any) {
@@ -749,19 +785,26 @@ export default function ApprovalsPage() {
   };
 
   const handleRejectInstallation = async (jobId: string) => {
-    if (!window.confirm("Are you sure you want to reject this installation? It will go back to Assigned status for the installer.")) return;
+    if (!window.confirm("Are you sure you want to reject this installation?")) return;
     try {
-      const res = await updateRecordAction("installer_jobs", jobId, { status: "assigned" });
+      const updateData = {
+        status: "rejected",
+        approved_by: currentUserId || null,
+        approved_at: new Date().toISOString(),
+        approval_note: auditNote || "Rejected during audit review."
+      };
+      const res = await updateRecordAction("installer_jobs", jobId, updateData);
       if (!res.success) throw new Error(res.error);
 
       const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
       const index = localJobs.findIndex((j: any) => j.id === jobId);
       if (index > -1) {
-        localJobs[index].status = "assigned";
+        Object.assign(localJobs[index], updateData);
         localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
       }
 
-      toast.success("Installation rejected and reverted to assigned state.");
+      toast.success("Site installation rejected successfully!");
+      setAuditNote("");
       setSelectedInstallation(null);
       fetchInstallations();
     } catch (err: any) {
