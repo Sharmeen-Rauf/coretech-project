@@ -319,8 +319,8 @@ export default function InstallerListPage() {
         if (row.status === "verified" || row.status === "pending_approval") {
           return (
             <span className="text-[10px] text-sky-600 font-semibold">
-              ✓ Verified by <strong className="text-slate-700">{verifier}</strong>
-              <span className="text-slate-400 block text-[9px] mt-0.5">
+              ✓ Verified by <strong className="text-slate-800">{verifier}</strong>
+              <span className="text-slate-700 block text-[9px] mt-0.5">
                 Stage 2: Awaiting Country Head final decision
               </span>
             </span>
@@ -330,9 +330,9 @@ export default function InstallerListPage() {
         if (row.status === "approved" || row.status === "active") {
           return (
             <span className="text-[10px] text-emerald-600 font-semibold">
-              ✓ Stage 1: Verified by <strong className="text-slate-700">{verifier || "RM"}</strong>
+              ✓ Stage 1: Verified by <strong className="text-slate-800">{verifier || "RM"}</strong>
               <span className="text-emerald-700 block text-[9px] mt-0.5">
-                ✓ Stage 2: Approved by <strong className="text-slate-700">{approver || "CH"}</strong>
+                ✓ Stage 2: Approved by <strong className="text-slate-800">{approver || "CH"}</strong>
               </span>
             </span>
           );
@@ -341,9 +341,9 @@ export default function InstallerListPage() {
         if (row.status === "rejected") {
           return (
             <span className="text-[10px] text-rose-600 font-semibold">
-              ✗ Rejected by <strong className="text-slate-700">{approver || verifier || "Auditor"}</strong>
+              ✗ Rejected by <strong className="text-slate-800">{approver || verifier || "Auditor"}</strong>
               {(row.approval_note || row.verification_note) && (
-                <span className="text-slate-500 block text-[9px] truncate max-w-xs mt-0.5 italic">
+                <span className="text-slate-700 block text-[9px] truncate max-w-xs mt-0.5 italic font-bold">
                   "{row.approval_note || row.verification_note}"
                 </span>
               )}
@@ -351,7 +351,7 @@ export default function InstallerListPage() {
           );
         }
 
-        return <span className="text-[10px] text-slate-400 italic">No history</span>;
+        return <span className="text-[10px] text-slate-700 font-semibold italic">No history</span>;
       }
     },
     {
@@ -438,11 +438,11 @@ export default function InstallerListPage() {
                 <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                   Installer Credentials Audit Trail
                 </h3>
-                <p className="text-[9px] text-slate-400 mt-0.5">ID: #{selectedInstaller.installer_id}</p>
+                <p className="text-[9px] text-slate-700 font-bold mt-0.5">ID: #{selectedInstaller.installer_id}</p>
               </div>
               <button
                 onClick={() => setSelectedInstaller(null)}
-                className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-655 rounded-full"
+                className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-655 rounded-full"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -451,61 +451,61 @@ export default function InstallerListPage() {
             <div className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3.5 bg-slate-50/50 border border-slate-100 rounded-[8px] p-3.5">
                 <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">First Name</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{selectedInstaller.first_name}</p>
+                  <p className="text-[9px] font-extrabold text-slate-700 uppercase">First Name</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{selectedInstaller.first_name}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">Last Name</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{selectedInstaller.last_name || "-"}</p>
+                  <p className="text-[9px] font-extrabold text-slate-700 uppercase">Last Name</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{selectedInstaller.last_name || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">Contact Number</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{selectedInstaller.contact || "-"}</p>
+                  <p className="text-[9px] font-extrabold text-slate-700 uppercase">Contact Number</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{selectedInstaller.contact || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">CNIC (National ID)</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{getInstallerField(selectedInstaller, "cnic")}</p>
+                  <p className="text-[9px] font-extrabold text-slate-700 uppercase">CNIC (National ID)</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{getInstallerField(selectedInstaller, "cnic")}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">City</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{getInstallerField(selectedInstaller, "city")}</p>
+                  <p className="text-[9px] font-extrabold text-slate-700 uppercase">City</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{getInstallerField(selectedInstaller, "city")}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">State</p>
-                  <p className="font-bold text-slate-800 mt-0.5">{getInstallerField(selectedInstaller, "state")}</p>
+                  <p className="text-[9px] font-extrabold text-slate-700 uppercase">State</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{getInstallerField(selectedInstaller, "state")}</p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">Marital Status</p>
-                  <p className="font-semibold text-slate-700 mt-0.5">
+                  <p className="text-[9px] font-extrabold text-slate-700 uppercase">Marital Status</p>
+                  <p className="font-bold text-slate-900 mt-0.5">
                     {parseInstallerMetadata(selectedInstaller.designation).marital_status || "Single"}
                   </p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">EasyPaisa / JazzCash No.</p>
-                  <p className="font-semibold text-emerald-600 mt-0.5">
+                  <p className="text-[9px] font-extrabold text-slate-700 uppercase">EasyPaisa / JazzCash No.</p>
+                  <p className="font-bold text-emerald-700 mt-0.5">
                     {parseInstallerMetadata(selectedInstaller.designation).easypaisa_jazzcash_no || "-"}
                   </p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">Gmail / Email Address</p>
-                  <p className="font-semibold text-[#00B4D8] mt-0.5">
+                  <p className="text-[9px] font-extrabold text-slate-700 uppercase">Gmail / Email Address</p>
+                  <p className="font-bold text-[#0077B6] mt-0.5">
                     {parseInstallerMetadata(selectedInstaller.designation).email || selectedInstaller.email || "-"}
                   </p>
                 </div>
                 <div className="col-span-2">
-                  <p className="text-[9px] font-bold text-slate-400 uppercase">Street Address</p>
-                  <p className="font-semibold text-slate-700 mt-0.5">{getInstallerField(selectedInstaller, "address")}</p>
+                  <p className="text-[9px] font-extrabold text-slate-700 uppercase">Street Address</p>
+                  <p className="font-bold text-slate-900 mt-0.5">{getInstallerField(selectedInstaller, "address")}</p>
                 </div>
               </div>
 
               {/* Audit Timeline */}
               <div className="border border-slate-100 rounded-[8px] p-3 bg-slate-50 space-y-3 mt-4">
-                <p className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Approval Progress Timeline</p>
+                <p className="font-bold text-slate-800 text-[10px] uppercase tracking-wider">Approval Progress Timeline</p>
                 <div className="flex gap-2.5 items-start">
                   <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-100 border border-emerald-300 text-emerald-700 text-[9px] font-bold">✓</span>
                   <div>
-                    <p className="font-bold text-slate-700">Submitted Registration</p>
-                    <p className="text-[10px] text-slate-550">{selectedInstaller.created_at ? new Date(selectedInstaller.created_at).toLocaleString() : ""}</p>
+                    <p className="font-bold text-slate-800">Submitted Registration</p>
+                    <p className="text-[10px] text-slate-800 font-bold">{selectedInstaller.created_at ? new Date(selectedInstaller.created_at).toLocaleString() : ""}</p>
                   </div>
                 </div>
 
@@ -518,14 +518,14 @@ export default function InstallerListPage() {
                     {selectedInstaller.status === "pending_verification" || selectedInstaller.status === "pending" ? "2" : "✓"}
                   </span>
                   <div>
-                    <p className="font-bold text-slate-700">Stage 1: Retail Manager Verification</p>
+                    <p className="font-bold text-slate-800">Stage 1: Retail Manager Verification</p>
                     {selectedInstaller.verified_at ? (
-                      <p className="text-[10px] text-slate-550">Verified by <span className="font-bold">{verifierName}</span> on {new Date(selectedInstaller.verified_at).toLocaleString()}</p>
+                      <p className="text-[10px] text-slate-800 font-bold">Verified by <span className="font-extrabold text-slate-900">{verifierName}</span> on {new Date(selectedInstaller.verified_at).toLocaleString()}</p>
                     ) : (
-                      <p className="text-[10px] text-slate-400">Awaiting credentials audit.</p>
+                      <p className="text-[10px] text-slate-700 font-bold">Awaiting credentials audit.</p>
                     )}
                     {selectedInstaller.verification_note && (
-                      <p className="text-[10px] italic text-slate-550 mt-1 bg-white border border-slate-100 rounded p-1.5">
+                      <p className="text-[10px] italic text-slate-800 font-bold mt-1 bg-white border border-slate-100 rounded p-1.5">
                         "{selectedInstaller.verification_note}"
                       </p>
                     )}
@@ -545,16 +545,16 @@ export default function InstallerListPage() {
                     {selectedInstaller.status === "approved" ? "✓" : selectedInstaller.status === "rejected" ? "✗" : "3"}
                   </span>
                   <div>
-                    <p className="font-bold text-slate-700">Stage 2: Country Head Approval</p>
+                    <p className="font-bold text-slate-800">Stage 2: Country Head Approval</p>
                     {selectedInstaller.approved_at ? (
-                      <p className="text-[10px] text-slate-550">
-                        {selectedInstaller.status === "rejected" ? "Rejected" : "Approved"} by <span className="font-bold">{approverName}</span> on {new Date(selectedInstaller.approved_at).toLocaleString()}
+                      <p className="text-[10px] text-slate-800 font-bold">
+                        {selectedInstaller.status === "rejected" ? "Rejected" : "Approved"} by <span className="font-extrabold text-slate-900">{approverName}</span> on {new Date(selectedInstaller.approved_at).toLocaleString()}
                       </p>
                     ) : (
-                      <p className="text-[10px] text-slate-400">Awaiting final approval decision.</p>
+                      <p className="text-[10px] text-slate-700 font-bold">Awaiting final approval decision.</p>
                     )}
                     {selectedInstaller.approval_note && (
-                      <p className="text-[10px] italic text-slate-555 mt-1 bg-white border border-slate-100 rounded p-1.5">
+                      <p className="text-[10px] italic text-slate-800 font-bold mt-1 bg-white border border-slate-100 rounded p-1.5">
                         "{selectedInstaller.approval_note}"
                       </p>
                     )}
