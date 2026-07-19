@@ -28,7 +28,7 @@ export default function InstallerListPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState("active");
+  const [statusFilter, setStatusFilter] = useState("approved");
   const [editingUser, setEditingUser] = useState<any>(undefined);
   const perPage = 10;
 
@@ -186,11 +186,15 @@ export default function InstallerListPage() {
       render: (status: string, row: any) => (
         <div className="flex items-center gap-3">
           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
-            status === "active" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-            status === "pending" ? "bg-amber-50 text-amber-500 border-amber-100" :
+            status === "approved" || status === "active" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+            status === "pending_verification" || status === "pending" ? "bg-amber-50 text-amber-500 border-amber-100" :
+            status === "pending_approval" || status === "verified" ? "bg-sky-50 text-sky-600 border-sky-100" :
+            status === "rejected" ? "bg-rose-50 text-rose-500 border-rose-100" :
             "bg-slate-50 text-slate-500 border-slate-200"
           }`}>
-            {status}
+            {status === "pending_verification" ? "Pending RM" :
+             status === "pending_approval" ? "Pending CH" :
+             status}
           </span>
         </div>
       )
@@ -219,7 +223,7 @@ export default function InstallerListPage() {
         filters={[
           {
             label: "Status",
-            options: ["active", "pending"],
+            options: ["approved", "pending_verification", "pending_approval", "rejected"],
             value: statusFilter,
             onChange: (val) => {
               setStatusFilter(val);

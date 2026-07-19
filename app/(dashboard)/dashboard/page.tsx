@@ -144,7 +144,7 @@ async function DashboardStats() {
       .from("profiles")
       .select("*", { count: "exact", head: true })
       .eq("role", "installer")
-      .eq("status", "active");
+      .eq("status", "approved");
 
     if (actInstCount !== null && actInstCount > 0) {
       activeInstallersCount = actInstCount;
@@ -226,7 +226,7 @@ async function ReportingDashboard() {
     const { count: jCount } = await supabase
       .from("installer_jobs")
       .select("*", { count: "exact", head: true })
-      .in("status", ["assigned", "in_progress", "pending_installation_approval"]);
+      .in("status", ["assigned", "in_progress", "pending_verification", "pending_approval"]);
     if (jCount !== null) jobsCount = jCount;
 
     const { count: cCount } = await supabase

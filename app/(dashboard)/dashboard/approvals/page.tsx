@@ -78,6 +78,56 @@ export default function ApprovalsPage() {
   // Installation Detail Modal States
   const [selectedInstallation, setSelectedInstallation] = useState<any>(null);
 
+  // Audit notes remarks
+  const [auditNote, setAuditNote] = useState("");
+  const [verifierName, setVerifierName] = useState("");
+  const [approverName, setApproverName] = useState("");
+
+  useEffect(() => {
+    const fetchAuditUserNames = async () => {
+      setVerifierName("");
+      setApproverName("");
+      const target = selectedInstaller || selectedInstallation;
+      if (!target) return;
+
+      if (target.verified_by) {
+        try {
+          const { data } = await supabase
+            .from("profiles")
+            .select("first_name, last_name")
+            .eq("id", target.verified_by)
+            .maybeSingle();
+          if (data) {
+            setVerifierName(`${data.first_name} ${data.last_name || ""}`.trim());
+          } else {
+            setVerifierName("Retail Manager");
+          }
+        } catch (e) {
+          setVerifierName("Retail Manager");
+        }
+      }
+
+      if (target.approved_by) {
+        try {
+          const { data } = await supabase
+            .from("profiles")
+            .select("first_name, last_name")
+            .eq("id", target.approved_by)
+            .maybeSingle();
+          if (data) {
+            setApproverName(`${data.first_name} ${data.last_name || ""}`.trim());
+          } else {
+            setApproverName("Country Head");
+          }
+        } catch (e) {
+          setApproverName("Country Head");
+        }
+      }
+    };
+
+    fetchAuditUserNames();
+  }, [selectedInstaller, selectedInstallation]);
+
   // QR Code Modal
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [qrOrigin, setQrOrigin] = useState("http://localhost:3000");
@@ -846,13 +896,16 @@ export default function ApprovalsPage() {
       key: "status",
       label: "Status",
       render: (val: string) => (
-        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-          val === "active" ? "bg-emerald-50 text-emerald-600 border border-emerald-200" :
-          val === "pending" ? "bg-amber-50 text-amber-600 border border-amber-200" :
-          val === "verified" ? "bg-cyan-50 text-cyan-600 border border-cyan-200" :
+        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+          val === "approved" || val === "active" ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
+          val === "pending_verification" || val === "pending" ? "bg-amber-50 text-amber-600 border-amber-200" :
+          val === "pending_approval" || val === "verified" ? "bg-sky-50 text-sky-600 border-sky-200" :
+          val === "rejected" ? "bg-rose-50 text-rose-600 border-rose-200" :
           "bg-slate-50 text-slate-500 border border-slate-200"
         }`}>
-          {val}
+          {val === "pending_verification" || val === "pending" ? "Pending RM" :
+           val === "pending_approval" || val === "verified" ? "Pending CH" :
+           val}
         </span>
       )
     },
@@ -888,11 +941,15 @@ export default function ApprovalsPage() {
       label: "Status",
       render: (val: string) => (
         <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-          val === "completed" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-          val === "pending_installation_approval" ? "bg-amber-50 text-amber-600 border-amber-100" :
+          val === "approved" || val === "completed" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+          val === "pending_verification" ? "bg-amber-50 text-amber-600 border-amber-100" :
+          val === "pending_approval" || val === "pending_installation_approval" ? "bg-sky-50 text-sky-600 border-sky-100" :
+          val === "rejected" ? "bg-rose-50 text-rose-600 border-rose-100" :
           "bg-blue-50 text-blue-500 border-blue-100"
         }`}>
-          {val === "pending_installation_approval" ? "Pending Approval" : val}
+          {val === "pending_verification" ? "Pending RM" :
+           val === "pending_approval" || val === "pending_installation_approval" ? "Pending CH" :
+           val}
         </span>
       )
     },
@@ -911,9 +968,24 @@ export default function ApprovalsPage() {
     }
   ];
 
-  // Filtered rows calculation for dashboard counters
-  const pendingInstallersCount = installers.filter((i) => i.status === "pending").length;
-  const pendingInstallationsCount = installations.filter((j) => j.status === "pending_installation_approval").length;
+  // Filtered rows calculation for dashboard counters based on roles
+  const isRM = userRole === "retail_manager" || userRole === "rsm";
+  const isCH = userRole === "country_head" || userRole === "admin";
+
+  const displayInstallers = installers.filter((i) => {
+    if (isRM) return i.status === "pending_verification" || i.status === "pending";
+    if (isCH) return i.status === "pending_approval" || i.status === "verified";
+    return false;
+  });
+
+  const displayInstallations = installations.filter((j) => {
+    if (isRM) return j.status === "pending_verification";
+    if (isCH) return j.status === "pending_approval" || j.status === "pending_installation_approval";
+    return false;
+  });
+
+  const pendingInstallersCount = displayInstallers.length;
+  const pendingInstallationsCount = displayInstallations.length;
 
   return (
     <div className="space-y-6 select-none font-sans">
@@ -1042,16 +1114,16 @@ export default function ApprovalsPage() {
           }}
         />
       ) : activeTab === "installers" ? (
-        <DataTable
-          allData={installers}
+         <DataTable
+          allData={displayInstallers}
           title="Registered Installers Application Check"
           columns={installerColumns}
-          data={installers.slice((currentPage - 1) * perPage, currentPage * perPage)}
+          data={displayInstallers.slice((currentPage - 1) * perPage, currentPage * perPage)}
           isLoading={false}
           searchPlaceholder="Search Registered Installers..."
           pagination={{
             current: currentPage,
-            total: installers.length,
+            total: displayInstallers.length,
             perPage: perPage,
             onChange: (page) => setCurrentPage(page),
           }}
@@ -1067,15 +1139,15 @@ export default function ApprovalsPage() {
         />
       ) : (
         <DataTable
-          allData={installations}
+          allData={displayInstallations}
           title="Verify Installations & Release Payouts"
           columns={installationColumns}
-          data={installations.slice((currentPage - 1) * perPage, currentPage * perPage)}
+          data={displayInstallations.slice((currentPage - 1) * perPage, currentPage * perPage)}
           isLoading={false}
           searchPlaceholder="Search Installations..."
           pagination={{
             current: currentPage,
-            total: installations.length,
+            total: displayInstallations.length,
             perPage: perPage,
             onChange: (page) => setCurrentPage(page),
           }}

@@ -38,7 +38,9 @@ export default function WebInstallerPage() {
   
   // Auth & Profile states
   const [installerName, setInstallerName] = useState("");
-  const [profileStatus, setProfileStatus] = useState<string>("active");
+  const [profileStatus, setProfileStatus] = useState<string>("approved");
+  const [verificationNote, setVerificationNote] = useState<string>("");
+  const [approvalNote, setApprovalNote] = useState<string>("");
   const [installerId, setInstallerId] = useState("");
   const [jobs, setJobs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -91,18 +93,20 @@ export default function WebInstallerPage() {
       try {
         const { data: profile } = await supabase
           .from("profiles")
-          .select("first_name, last_name, status")
+          .select("first_name, last_name, status, verification_note, approval_note")
           .eq("id", session.user.id)
           .single();
 
         if (profile) {
           setInstallerName(`${profile.first_name} ${profile.last_name || ""}`.trim());
-          setProfileStatus(profile.status || "active");
+          setProfileStatus(profile.status || "approved");
+          setVerificationNote(profile.verification_note || "");
+          setApprovalNote(profile.approval_note || "");
         }
       } catch (profErr) {
         console.warn("Failed to get profile name. Defaulting.", profErr);
         setInstallerName("Installer");
-        setProfileStatus("active");
+        setProfileStatus("approved");
       }
 
       // Fetch jobs
@@ -358,7 +362,7 @@ export default function WebInstallerPage() {
         installer_id: installerId,
         job_title: siteFormJobId === "new" ? newJobTitle.trim() : (jobs.find(j => j.id === siteFormJobId)?.job_title || "Site Job"),
         address: siteFormJobId === "new" ? newJobAddress.trim() : (jobs.find(j => j.id === siteFormJobId)?.address || "Site Address"),
-        status: "pending_installation_approval", // wait for owner's check
+        status: "pending_verification", // wait for two-stage audit
         serial_number: serialNo.trim(),
         remarks: completionRemarks.trim(),
         photos: allPhotos,
@@ -374,7 +378,7 @@ export default function WebInstallerPage() {
           const { error } = await supabase
             .from("installer_jobs")
             .update({
-              status: "pending_installation_approval",
+              status: "pending_verification",
               serial_number: payload.serial_number,
               remarks: payload.remarks,
               photos: payload.photos,
@@ -443,33 +447,89 @@ export default function WebInstallerPage() {
   };
 
   // Stats calculation
-  const completedCount = jobs.filter((j) => j.status === "completed").length;
-  const pendingApprovalCount = jobs.filter((j) => j.status === "pending_installation_approval").length;
+  const completedCount = jobs.filter((j) => j.status === "approved").length;
+  const pendingApprovalCount = jobs.filter((j) => j.status === "pending_verification" || j.status === "pending_approval").length;
   const assignedCount = jobs.filter((j) => j.status === "assigned").length;
 
   // 1. Pending Approval Card Full View
-  if (!isLoading && profileStatus !== "active") {
+  if (!isLoading && profileStatus !== "approved") {
+    const isPendingVerification = profileStatus === "pending_verification";
+    const isPendingApproval = profileStatus === "pending_approval" || profileStatus === "verified";
+    const isRejected = profileStatus === "rejected";
+
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans select-none">
-        <div className="w-full max-w-md bg-white border border-amber-200 rounded-[16px] p-6 shadow-xl text-center space-y-6">
-          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center mx-auto text-amber-500 shadow-inner">
-            <ShieldAlert className="w-9 h-9" />
+        <div className={`w-full max-w-md bg-white border rounded-[16px] p-6 shadow-xl text-center space-y-6 ${
+          isRejected ? "border-rose-200" : isPendingApproval ? "border-sky-200" : "border-amber-200"
+        }`}>
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto shadow-inner ${
+            isRejected ? "bg-rose-50 text-rose-500" : isPendingApproval ? "bg-sky-50 text-sky-500" : "bg-amber-50 text-amber-500"
+          }`}>
+            {isRejected ? (
+              <X className="w-9 h-9" />
+            ) : (
+              <Clock className="w-9 h-9" />
+            )}
           </div>
+
           <div className="space-y-2">
-            <h2 className="text-lg font-bold text-slate-800">Account Pending Approval</h2>
+            <h2 className="text-lg font-bold text-slate-800">
+              {isRejected ? "Registration Rejected" : isPendingApproval ? "Pending Final Approval" : "Pending Verification"}
+            </h2>
             <p className="text-xs text-slate-500 leading-relaxed px-4">
-              Hello, <span className="font-bold text-slate-700">{installerName}</span>. Your installer account status is currently <span className="text-amber-600 font-bold">Pending Review</span>.
+              Hello, <span className="font-bold text-slate-700">{installerName}</span>. Your installer account status is currently {" "}
+              <span className={`font-bold ${
+                isRejected ? "text-rose-600" : isPendingApproval ? "text-sky-600" : "text-amber-600"
+              }`}>
+                {isRejected ? "Rejected" : isPendingApproval ? "Pending Approval (Stage 2)" : "Pending Verification (Stage 1)"}
+              </span>.
             </p>
           </div>
 
-          <div className="bg-[#F0FAFE] border border-[#00B4D8]/30 rounded-[12px] p-4 text-left text-xs space-y-3">
+          {/* Timeline Audit Trail */}
+          <div className="bg-slate-50 border border-slate-100 rounded-[12px] p-4 text-left text-xs space-y-3">
             <div className="flex gap-2.5 items-start">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00B4D8]/20 text-xs font-bold text-[#0077B6]">1</span>
-              <p className="text-slate-655 font-medium">The Owner is verifying your contact details, CNIC documentation, and verification video.</p>
+              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                isPendingVerification ? "bg-amber-100 text-amber-700 animate-pulse border border-amber-300" : "bg-emerald-100 text-emerald-700 border border-emerald-300"
+              }`}>
+                {isPendingVerification ? "1" : "✓"}
+              </span>
+              <div>
+                <p className="font-bold text-slate-700">Stage 1: Retail Manager Verification</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {isPendingVerification 
+                    ? "Waiting for Retail Manager to audit and verify credentials." 
+                    : "Verified successfully by Retail Manager."}
+                </p>
+                {verificationNote && (
+                  <p className="text-[10px] text-slate-400 italic mt-1 bg-white border border-slate-100 rounded p-1.5">
+                    " {verificationNote} "
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="flex gap-2.5 items-start">
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#00B4D8]/20 text-xs font-bold text-[#0077B6]">2</span>
-              <p className="text-slate-655 font-medium">Features like Job Assignments, Site Verification Forms, and Incentives remain locked until approved.</p>
+
+            <div className="flex gap-2.5 items-start border-t border-slate-100 pt-3">
+              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
+                isPendingVerification ? "bg-slate-100 text-slate-400 border border-slate-200" : 
+                isPendingApproval ? "bg-sky-100 text-sky-700 animate-pulse border border-sky-300" :
+                isRejected ? "bg-rose-100 text-rose-700 border border-rose-300" : "bg-emerald-100 text-emerald-700 border border-emerald-300"
+              }`}>
+                {isPendingVerification ? "2" : isRejected ? "✗" : isPendingApproval ? "2" : "✓"}
+              </span>
+              <div>
+                <p className="font-bold text-slate-700">Stage 2: Country Head Approval</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {isPendingVerification ? "Waiting for Stage 1 completion." :
+                   isPendingApproval ? "Waiting for final approval from Country Head." :
+                   isRejected ? "Rejected by Country Head." : "Approved successfully."}
+                </p>
+                {approvalNote && (
+                  <p className="text-[10px] text-slate-400 italic mt-1 bg-white border border-slate-100 rounded p-1.5">
+                    " {approvalNote} "
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -478,11 +538,11 @@ export default function WebInstallerPage() {
               onClick={fetchInstallerData}
               className="w-full h-10 bg-[#00B4D8] hover:bg-[#0077B6] text-white rounded-[8px] font-bold text-xs shadow transition-all flex items-center justify-center gap-1.5"
             >
-              Check Approval Status
+              Check Status
             </button>
             <button
               onClick={handleSignOut}
-              className="w-full h-10 border border-slate-200 text-slate-600 hover:bg-slate-55 rounded-[8px] font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+              className="w-full h-10 border border-slate-200 text-slate-655 hover:bg-slate-50 rounded-[8px] font-bold text-xs transition-all flex items-center justify-center gap-1.5"
             >
               <LogOut className="w-3.5 h-3.5" />
               Sign Out
@@ -508,11 +568,11 @@ export default function WebInstallerPage() {
           </div>
           <div className="flex items-center gap-2">
             <div className={`border rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${
-              profileStatus !== "active" 
+              profileStatus !== "approved" 
                 ? "bg-amber-50 text-amber-600 border-amber-100" 
                 : "bg-emerald-50 text-emerald-600 border-emerald-100"
             }`}>
-              {profileStatus !== "active" ? "Pending Review" : "Approved"}
+              {profileStatus !== "approved" ? "Pending Review" : "Approved"}
             </div>
             <button
               onClick={handleSignOut}
@@ -598,14 +658,26 @@ export default function WebInstallerPage() {
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                    job.status === "completed" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                    job.status === "pending_installation_approval" ? "bg-amber-50 text-amber-500 border-amber-100" :
+                    job.status === "approved" ? "bg-emerald-55 text-emerald-600 border-emerald-100" :
+                    job.status === "pending_verification" ? "bg-amber-50 text-amber-500 border-amber-100" :
+                    job.status === "pending_approval" ? "bg-sky-50 text-sky-600 border-sky-100" :
+                    job.status === "rejected" ? "bg-rose-50 text-rose-500 border-rose-100" :
                     "bg-blue-50 text-blue-500 border-blue-100"
                   }`}>
-                    {job.status === "pending_installation_approval" ? "Pending Approval" : job.status}
+                    {job.status === "pending_verification" ? "Pending Verification" :
+                     job.status === "pending_approval" ? "Pending Approval" :
+                     job.status === "approved" ? "Approved" :
+                     job.status === "rejected" ? "Rejected" :
+                     job.status}
                   </span>
                 </div>
               </div>
+
+              {(job.status === "rejected") && (job.approval_note || job.verification_note) && (
+                <div className="mt-2 p-2 bg-rose-50 border border-rose-100 rounded-[6px] text-[10px] text-rose-600 leading-tight">
+                  <span className="font-bold">Rejection Reason:</span> {job.approval_note || job.verification_note}
+                </div>
+              )}
 
               <div className="mt-4 flex items-center justify-between text-[9px] text-slate-450 font-bold border-t border-slate-50 pt-2.5">
                 <span className="capitalize text-slate-500">

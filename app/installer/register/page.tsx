@@ -123,7 +123,7 @@ export default function InstallerRegisterPage() {
         contact,
         role: "installer",
         group: "operations",
-        status: "pending", // waiting for owner approval
+        status: "pending_verification", // waiting for two-stage approval
         state,
         address,
         city,
