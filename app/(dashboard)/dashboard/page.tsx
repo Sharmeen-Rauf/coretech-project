@@ -101,11 +101,11 @@ async function DashboardStats() {
       st2Val = st2Count;
     }
 
-    // 5. Fetch SO count from sales
+    // 5. Fetch SO count from stock (units with status = sold_out)
     const { count: soCount } = await supabase
-      .from("sales")
+      .from("stock")
       .select("*", { count: "exact", head: true })
-      .eq("type", "SO");
+      .eq("status", "sold_out");
 
     if (soCount !== null && soCount > 0) {
       soVal = soCount;

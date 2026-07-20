@@ -169,6 +169,10 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
       return { success: false, error: "Serial number not found in active inventory." };
     }
 
+    if (stockData.status === "sold_out") {
+      return { success: false, error: "Serial number is already sold out." };
+    }
+
     // 2. Check if the serial number is already registered or used in installer_jobs
     let jobsQuery = supabase
       .from("installer_jobs")
@@ -201,6 +205,141 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
     };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to verify serial number" };
+  }
+}
+
+export async function submitInstallationAction(payload: any, siteFormJobId: string) {
+  const { Client } = require("pg");
+  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
+  const client = new Client({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+  });
+
+  try {
+    await client.connect();
+    await client.query("BEGIN");
+
+    // 1. Double check if the serial number is already sold_out in active database
+    const stockCheck = await client.query(
+      "SELECT id, status FROM public.stock WHERE LOWER(serial_no) = LOWER($1) LIMIT 1",
+      [payload.serial_number]
+    );
+
+    if (stockCheck.rows.length === 0) {
+      throw new Error("Serial number not found in active inventory.");
+    }
+    if (stockCheck.rows[0].status === "sold_out") {
+      throw new Error("Serial number is already sold out.");
+    }
+
+    // 2. Insert or update the installation job record
+    let jobResult;
+    if (siteFormJobId && siteFormJobId !== "new") {
+      jobResult = await client.query(
+        `UPDATE public.installer_jobs 
+         SET status = 'pending_verification',
+             serial_number = $1,
+             remarks = $2,
+             photos = $3,
+             notes = $4,
+             updated_at = NOW()
+         WHERE id = $5
+         RETURNING id`,
+        [
+          payload.serial_number,
+          payload.remarks,
+          payload.photos,
+          payload.notes,
+          siteFormJobId
+        ]
+      );
+    } else {
+      jobResult = await client.query(
+        `INSERT INTO public.installer_jobs (
+          id, installer_id, job_title, address, status, serial_number, remarks, photos, notes, incentive, payment_status, created_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         RETURNING id`,
+        [
+          payload.id,
+          payload.installer_id,
+          payload.job_title,
+          payload.address,
+          payload.status,
+          payload.serial_number,
+          payload.remarks,
+          payload.photos,
+          payload.notes,
+          payload.incentive,
+          payload.payment_status,
+          payload.created_at
+        ]
+      );
+    }
+
+    const jobId = jobResult.rows[0]?.id;
+    if (!jobId) {
+      throw new Error("Failed to insert or update the installation record.");
+    }
+
+    // 3. Mark the inventory unit as sold_out
+    const updateStock = await client.query(
+      `UPDATE public.stock 
+       SET status = 'sold_out',
+           sold_out_at = NOW(),
+           sold_out_by_installer_id = $1,
+           installation_id = $2,
+           installation_project_title = $3,
+           deployment_site_address = $4
+       WHERE LOWER(serial_no) = LOWER($5) AND status = 'active'
+       RETURNING id`,
+      [
+        payload.installer_id,
+        jobId,
+        payload.job_title,
+        payload.address,
+        payload.serial_number
+      ]
+    );
+
+    if (updateStock.rows.length === 0) {
+      throw new Error("Failed to consume serial number from active inventory. It may have been sold out concurrently.");
+    }
+
+    await client.query("COMMIT");
+    await client.end();
+    return { success: true, message: "Installation submitted and stock consumed successfully!" };
+  } catch (err: any) {
+    await client.query("ROLLBACK");
+    await client.end();
+    return { success: false, error: err.message || "Failed to process installation transaction" };
+  }
+}
+
+export async function fetchSellOutAction() {
+  const supabase = getAdminClient();
+  try {
+    const { data, error } = await supabase
+      .from("stock")
+      .select(`
+        *,
+        products (
+          name,
+          brand,
+          model
+        ),
+        installer:profiles!sold_out_by_installer_id (
+          first_name,
+          last_name
+        )
+      `)
+      .eq("status", "sold_out")
+      .order("sold_out_at", { ascending: false });
+
+    if (error) throw error;
+    return { success: true, data: data || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch sell out stock", data: [] };
   }
 }
 

@@ -30,7 +30,7 @@ import toast from "react-hot-toast";
 import StatusBadge from "@/components/StatusBadge";
 import { getLocalItems, saveLocalItem } from "@/lib/supabaseLocalFallback";
 import { reloadSchemaAction } from "@/app/actions/users";
-import { verifySerialNumberAction } from "@/app/actions/products";
+import { verifySerialNumberAction, submitInstallationAction } from "@/app/actions/products";
 
 export default function WebInstallerPage() {
   const supabase = createClientComponentClient();
@@ -371,28 +371,10 @@ export default function WebInstallerPage() {
       };
 
       try {
-        if (siteFormJobId && siteFormJobId !== "new") {
-          // Update existing assigned job ticket
-          const { error } = await supabase
-            .from("installer_jobs")
-            .update({
-              status: "pending_verification",
-              serial_number: payload.serial_number,
-              remarks: payload.remarks,
-              photos: payload.photos,
-              notes: payload.notes
-            })
-            .eq("id", siteFormJobId);
-          if (error) throw error;
-        } else {
-          // Create new job ticket
-          const { error } = await supabase
-            .from("installer_jobs")
-            .insert(payload);
-          if (error) throw error;
-        }
-        toast.success("Site installation submitted! Waiting for owner's approval.");
-      } catch (dbErr) {
+        const res = await submitInstallationAction(payload, siteFormJobId);
+        if (!res.success) throw new Error(res.error);
+        toast.success("Site installation submitted! Waiting for verification & approval.");
+      } catch (dbErr: any) {
         console.warn("DB submission failed. Saving locally.", dbErr);
         saveLocalItem("coretech_local_installer_jobs", payload, true);
         toast.success("Site installation saved locally (DB fallback)!");

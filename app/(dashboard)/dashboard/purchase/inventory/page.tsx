@@ -40,7 +40,7 @@ export default function InventoryPage() {
       try {
         const res = await fetchStockAction();
         if (res.success && res.data) {
-          dbData = res.data;
+          dbData = res.data.filter((item: any) => item.status !== "sold_out");
         }
       } catch (dbErr) {
         console.warn("Failed to fetch stock from database, using local fallback.", dbErr);

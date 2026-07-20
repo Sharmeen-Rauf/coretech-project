@@ -558,6 +558,12 @@ export default function Sidebar() {
                       >
                         Warehouse
                       </Link>
+                      <Link
+                        href="/dashboard/purchase/sellout"
+                        className={linkClass("/dashboard/purchase/sellout")}
+                      >
+                        Sell Out
+                      </Link>
                     </div>
                   )}
                 </div>
