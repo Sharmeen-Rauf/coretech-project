@@ -803,20 +803,30 @@ export default function AdminJobsPage() {
                     </div>
                   ) : (
                     <div className="grid grid-cols-2 gap-2">
-                      {selectedJob.photos.map((url, idx) => (
-                        <a 
-                          key={idx} 
-                          href={url} 
-                          target="_blank" 
-                          rel="noreferrer" 
-                          className="relative w-full h-28 rounded-[6px] border border-slate-150 overflow-hidden group shadow-sm"
-                        >
-                          <img src={url} alt={`Doc ${idx}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-250" />
-                          <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <span className="text-white text-[9px] font-bold bg-slate-900/60 px-2 py-0.5 rounded-full">Zoom Image</span>
-                          </div>
-                        </a>
-                      ))}
+                      {selectedJob.photos.map((url, idx) => {
+                        const getFullImageUrl = (urlStr: string) => {
+                          if (!urlStr) return "";
+                          if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
+                            return urlStr;
+                          }
+                          return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
+                        };
+                        const fullUrl = getFullImageUrl(url);
+                        return (
+                          <a 
+                            key={idx} 
+                            href={fullUrl} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            className="relative w-full h-28 rounded-[6px] border border-slate-150 overflow-hidden group shadow-sm"
+                          >
+                            <img src={fullUrl} alt={`Doc ${idx}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-250" />
+                            <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <span className="text-white text-[9px] font-bold bg-slate-900/60 px-2 py-0.5 rounded-full">Zoom Image</span>
+                            </div>
+                          </a>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

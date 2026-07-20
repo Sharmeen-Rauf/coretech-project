@@ -1747,11 +1747,22 @@ export default function ApprovalsPage() {
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Site Images Proof</p>
                   <div className="grid grid-cols-3 gap-2">
-                    {selectedInstallation.photos.filter((url: string) => !url.startsWith("blob:")).map((url: string, idx: number) => (
-                      <div key={idx} className="w-full h-16 bg-slate-50 border rounded-[6px] overflow-hidden">
-                        <img src={url} alt="installation-proof" className="w-full h-full object-cover" />
-                      </div>
-                    ))}
+                    {selectedInstallation.photos.filter((url: string) => !url.startsWith("blob:")).map((url: string, idx: number) => {
+                      const getFullImageUrl = (urlStr: string) => {
+                        if (!urlStr) return "";
+                        if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
+                          return urlStr;
+                        }
+                        return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
+                      };
+                      return (
+                        <div key={idx} className="w-full h-16 bg-slate-50 border rounded-[6px] overflow-hidden">
+                          <a href={getFullImageUrl(url)} target="_blank" rel="noreferrer">
+                            <img src={getFullImageUrl(url)} alt="installation-proof" className="w-full h-full object-cover hover:scale-105 transition-all cursor-pointer" />
+                          </a>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1769,9 +1780,16 @@ export default function ApprovalsPage() {
                   const videoUrl = match ? match[1] : null;
                   
                   if (videoUrl) {
+                    const getFullVideoUrl = (urlStr: string) => {
+                      if (!urlStr) return "";
+                      if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
+                        return urlStr;
+                      }
+                      return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
+                    };
                     return (
                       <div className="relative w-full h-44 bg-slate-900 rounded-[8px] overflow-hidden border">
-                        <video src={videoUrl} controls className="w-full h-full object-contain" />
+                        <video src={getFullVideoUrl(videoUrl)} controls className="w-full h-full object-contain" />
                       </div>
                     );
                   }
