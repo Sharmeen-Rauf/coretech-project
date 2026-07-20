@@ -70,11 +70,28 @@ export default function DataTable({
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [searchValue, setSearchValue] = useState("");
 
+  const rawData = allData || data || [];
+  const displayData = onSearch 
+    ? rawData 
+    : rawData.filter((row) => {
+        if (!searchValue.trim()) return true;
+        const q = searchValue.toLowerCase();
+        return Object.values(row).some((val) => {
+          if (val === null || val === undefined) return false;
+          if (typeof val === "object") {
+            return Object.values(val).some(nestedVal =>
+              String(nestedVal).toLowerCase().includes(q)
+            );
+          }
+          return String(val).toLowerCase().includes(q);
+        });
+      });
+
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     const checked = e.target.checked;
     const nextSelect: Record<string, boolean> = {};
     if (checked) {
-      data.forEach((row, idx) => {
+      displayData.forEach((row, idx) => {
         const rowId = row.id || `row-${idx}`;
         nextSelect[rowId] = true;
       });
@@ -97,12 +114,12 @@ export default function DataTable({
     }
   };
 
-  const isAllSelected = data.length > 0 && data.every((row, idx) => {
+  const isAllSelected = displayData.length > 0 && displayData.every((row, idx) => {
     const rowId = row.id || `row-${idx}`;
     return selectedRows[rowId];
   });
 
-  const isAnySelected = data.some((row, idx) => {
+  const isAnySelected = displayData.some((row, idx) => {
     const rowId = row.id || `row-${idx}`;
     return selectedRows[rowId];
   });
@@ -249,18 +266,16 @@ export default function DataTable({
           )}
 
           {/* Search Field */}
-          {onSearch && (
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                placeholder={searchPlaceholder}
-                value={searchValue}
-                onChange={handleSearchChange}
-                className="h-9 w-60 pl-9 pr-4 rounded-[6px] border border-slate-200 text-xs text-slate-800 bg-white placeholder-slate-400 focus:outline-none focus:border-[#00B4D8] transition-colors"
-              />
-            </div>
-          )}
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder={searchPlaceholder}
+              value={searchValue}
+              onChange={handleSearchChange}
+              className="h-9 w-60 pl-9 pr-4 rounded-[6px] border border-slate-200 text-xs text-slate-800 bg-white placeholder-slate-400 focus:outline-none focus:border-[#00B4D8] transition-colors"
+            />
+          </div>
         </div>
       </div>
 
@@ -343,7 +358,7 @@ export default function DataTable({
                   )}
                 </tr>
               ))
-            ) : data.length === 0 ? (
+            ) : displayData.length === 0 ? (
               // Empty State UI
               <tr>
                 <td
@@ -351,7 +366,7 @@ export default function DataTable({
                   className="px-5 py-12 text-center"
                 >
                   <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
-                    <Info className="w-8 h-8 text-slate-300" />
+                     <Info className="w-8 h-8 text-slate-300" />
                     <p className="text-xs font-semibold">No records found</p>
                     <p className="text-[10px] text-slate-500">
                       Try adjusting filters or searching for another term.
@@ -361,7 +376,7 @@ export default function DataTable({
               </tr>
             ) : (
               // Active Data Rows
-              data.map((row, rowIdx) => {
+              displayData.map((row, rowIdx) => {
                 const rowId = row.id || `row-${rowIdx}`;
                 const isSelected = selectedRows[rowId] || false;
                 return (
@@ -428,41 +443,12 @@ export default function DataTable({
         </table>
       </div>
 
-      {/* Footer / Pagination Controls */}
-      {!isLoading && data.length > 0 && (
+      {/* Footer / Entry count Info */}
+      {!isLoading && displayData.length > 0 && (
         <div className="px-5 py-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-            Showing {startEntry} to {endEntry} of {pagination.total} entries
+            Showing all {displayData.length} entries
           </span>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => pagination.onChange(Math.max(pagination.current - 1, 1))}
-              disabled={pagination.current === 1}
-              className="h-8 px-2.5 rounded-[6px] border border-slate-200 text-xs font-semibold text-slate-600 hover:border-[#00B4D8] hover:text-[#00B4D8] disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:text-slate-600 transition-colors flex items-center justify-center gap-1 bg-white select-none"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              <span>Previous</span>
-            </button>
-            <span className="text-xs font-bold text-slate-700 px-3 py-1 bg-slate-50 rounded border border-slate-200/50">
-              {pagination.current}
-            </span>
-            <button
-              onClick={() =>
-                pagination.onChange(
-                  Math.min(
-                    pagination.current + 1,
-                    Math.ceil(pagination.total / pagination.perPage)
-                  )
-                )
-              }
-              disabled={pagination.current >= Math.ceil(pagination.total / pagination.perPage)}
-              className="h-8 px-2.5 rounded-[6px] border border-slate-200 text-xs font-semibold text-slate-600 hover:border-[#00B4D8] hover:text-[#00B4D8] disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:text-slate-600 transition-colors flex items-center justify-center gap-1 bg-white select-none"
-            >
-              <span>Next</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
         </div>
       )}
     </div>
