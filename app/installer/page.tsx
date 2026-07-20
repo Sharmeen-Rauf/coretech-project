@@ -445,9 +445,9 @@ export default function WebInstallerPage() {
   };
 
   // Stats calculation
-  const completedCount = jobs.filter((j) => j.status === "approved").length;
-  const pendingApprovalCount = jobs.filter((j) => j.status === "pending_verification" || j.status === "pending_approval").length;
-  const assignedCount = jobs.filter((j) => j.status === "assigned").length;
+  const completedCount = jobs.filter((j) => j.status === "approved" || j.status === "completed").length;
+  const pendingApprovalCount = jobs.filter((j) => j.status === "pending_verification" || j.status === "pending_approval" || j.status === "pending_installation_approval").length;
+  const assignedCount = jobs.filter((j) => j.status === "assigned" || j.status === "in_progress").length;
 
   // 1. Pending Approval Card Full View
   if (!isLoading && (profileStatus === "pending" || profileStatus === "pending_verification" || profileStatus === "rejected")) {
@@ -566,11 +566,11 @@ export default function WebInstallerPage() {
           </div>
           <div className="flex items-center gap-2">
             <div className={`border rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${
-              profileStatus !== "approved" 
-                ? "bg-amber-50 text-amber-600 border-amber-100" 
-                : "bg-emerald-50 text-emerald-600 border-emerald-100"
+              (profileStatus === "active" || profileStatus === "approved") 
+                ? "bg-emerald-50 text-emerald-600 border-emerald-100" 
+                : "bg-amber-50 text-amber-600 border-amber-100"
             }`}>
-              {profileStatus !== "approved" ? "Pending Review" : "Approved"}
+              {(profileStatus === "active" || profileStatus === "approved") ? "Approved" : "Pending Review"}
             </div>
             <button
               onClick={handleSignOut}
@@ -656,15 +656,15 @@ export default function WebInstallerPage() {
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                    job.status === "approved" ? "bg-emerald-55 text-emerald-600 border-emerald-100" :
+                    job.status === "approved" || job.status === "completed" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
                     job.status === "pending_verification" ? "bg-amber-50 text-amber-500 border-amber-100" :
-                    job.status === "pending_approval" ? "bg-sky-50 text-sky-600 border-sky-100" :
+                    job.status === "pending_approval" || job.status === "pending_installation_approval" ? "bg-sky-50 text-sky-600 border-sky-100" :
                     job.status === "rejected" ? "bg-rose-50 text-rose-500 border-rose-100" :
                     "bg-blue-50 text-blue-500 border-blue-100"
                   }`}>
                     {job.status === "pending_verification" ? "Pending Verification" :
-                     job.status === "pending_approval" ? "Pending Approval" :
-                     job.status === "approved" ? "Approved" :
+                     job.status === "pending_approval" || job.status === "pending_installation_approval" ? "Pending Approval" :
+                     job.status === "approved" || job.status === "completed" ? "Approved" :
                      job.status === "rejected" ? "Rejected" :
                      job.status}
                   </span>
