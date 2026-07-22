@@ -137,9 +137,9 @@ export default function DataTable({
     let customRows: string[][] = [];
 
     // Check if the dataset is Installer Register
-    const isInstallerList = title === "Installer Register" || dataToExport.some(r => r.role === "installer" || (typeof r.designation === "string" && r.designation.includes("INSTALLER_METADATA")));
+    const isInstallerList = title === "Installers Register" || title === "Installer Register" || dataToExport.some(r => r.role === "installer" || (typeof r.designation === "string" && r.designation.includes("INSTALLER_METADATA")));
     // Check if the dataset is Distributor Register
-    const isDistributorList = title === "Distributor Register" || dataToExport.some(r => r.role === "distributor" || (typeof r.designation === "string" && r.designation.includes("DISTRIBUTOR_METADATA")));
+    const isDistributorList = title === "Distributors Register" || title === "Distributor Register" || dataToExport.some(r => r.role === "distributor" || (typeof r.designation === "string" && r.designation.includes("DISTRIBUTOR_METADATA")));
 
     if (isInstallerList) {
       exportHeaders = [
@@ -248,7 +248,7 @@ export default function DataTable({
     }
 
     const csvRows = [];
-    csvRows.push(exportHeaders.join(","));
+    csvRows.push(exportHeaders.map(h => `"${h.replace(/"/g, '""')}"`).join(","));
 
     if (customExport) {
       customRows.forEach(row => {
@@ -290,8 +290,8 @@ export default function DataTable({
       });
     }
 
-    const csvContent = csvRows.join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const csvContent = "sep=,\n" + csvRows.join("\n");
+    const blob = new Blob(["\ufeff" + csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
