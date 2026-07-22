@@ -131,25 +131,154 @@ export default function DataTable({
       return;
     }
 
-    const exportHeaders = columns.map(c => c.label);
-    const keys = columns.map(c => c.key);
+    let exportHeaders = columns.map(c => c.label);
+    let keys = columns.map(c => c.key);
+    let customExport = false;
+    let customRows: string[][] = [];
+
+    // Check if the dataset is Installer Register
+    const isInstallerList = title === "Installer Register" || dataToExport.some(r => r.role === "installer" || (typeof r.designation === "string" && r.designation.includes("INSTALLER_METADATA")));
+    // Check if the dataset is Distributor Register
+    const isDistributorList = title === "Distributor Register" || dataToExport.some(r => r.role === "distributor" || (typeof r.designation === "string" && r.designation.includes("DISTRIBUTOR_METADATA")));
+
+    if (isInstallerList) {
+      exportHeaders = [
+        "Installer ID",
+        "Installer Name",
+        "Email Address",
+        "Contact Phone",
+        "Marital Status",
+        "JazzCash / EasyPaisa No",
+        "Registered Via",
+        "Status",
+        "Verification Status",
+        "Approval Status"
+      ];
+      
+      dataToExport.forEach(row => {
+        let meta: any = {};
+        const des = row.designation || "";
+        if (typeof des === "string" && des.includes("INSTALLER_METADATA")) {
+          try {
+            const cleanVal = des.replace("[DISTRIBUTOR_METADATA]", "");
+            const outer = JSON.parse(cleanVal);
+            const innerVal = outer.designation || "";
+            if (innerVal.startsWith("[INSTALLER_METADATA]")) {
+              meta = JSON.parse(innerVal.replace("[INSTALLER_METADATA]", ""));
+            } else if (outer.marital_status) {
+              meta = outer;
+            }
+          } catch (e) {}
+        }
+
+        const verStr = row.verified_by ? "Verified (Stage 1)" : "Pending Verification";
+        const appStr = row.approved_by ? "Approved (Stage 2)" : "Pending Approval";
+
+        customRows.push([
+          row.installer_id || row.id?.substring(0, 8).toUpperCase() || "",
+          row.installer_name || `${row.first_name || ""} ${row.last_name || ""}`.trim(),
+          meta.email || row.email || "",
+          row.contact || "",
+          meta.marital_status || "Single",
+          meta.easypaisa_jazzcash_no || "",
+          meta.registered_via || "QR Code Scan",
+          row.status || "",
+          verStr,
+          appStr
+        ]);
+      });
+      customExport = true;
+    } else if (isDistributorList) {
+      exportHeaders = [
+        "Distributor ID",
+        "Distributor Name",
+        "Owner Name",
+        "Email Address",
+        "Contact Phone",
+        "CNIC",
+        "State",
+        "Region",
+        "Warehouse",
+        "City",
+        "Address",
+        "Bank Name",
+        "Bank Account",
+        "Account Holder Name",
+        "Status"
+      ];
+
+      dataToExport.forEach(row => {
+        let meta: any = {};
+        const des = row.designation || "";
+        if (typeof des === "string" && des.startsWith("[DISTRIBUTOR_METADATA]")) {
+          try {
+            meta = JSON.parse(des.replace("[DISTRIBUTOR_METADATA]", ""));
+          } catch (e) {}
+        }
+
+        customRows.push([
+          row.id?.substring(0, 8).toUpperCase() || "",
+          row.first_name || "",
+          row.last_name || "",
+          row.email || meta.email || "",
+          row.contact || "",
+          row.cnic || meta.cnic || "",
+          row.state || meta.state || "",
+          row.region || meta.region || "",
+          row.warehouse || meta.warehouse || "",
+          row.city || meta.city || "",
+          row.address || meta.address || "",
+          row.bank_name || meta.bankName || "",
+          row.bank_account || meta.bankAccount || "",
+          row.account_holder_name || meta.accountHolderName || "",
+          row.status || ""
+        ]);
+      });
+      customExport = true;
+    }
 
     const csvRows = [];
     csvRows.push(exportHeaders.join(","));
 
-    dataToExport.forEach(row => {
-      const values = keys.map(key => {
-        let val = row[key];
-        if (val === undefined || val === null) {
-          val = "";
-        } else if (typeof val === "object") {
-          val = val.name || val.warehouse || JSON.stringify(val);
-        }
-        const escaped = ("" + val).replace(/"/g, '""');
-        return `"${escaped}"`;
+    if (customExport) {
+      customRows.forEach(row => {
+        const escapedValues = row.map(val => {
+          const escaped = ("" + (val ?? "")).replace(/"/g, '""');
+          return `"${escaped}"`;
+        });
+        csvRows.push(escapedValues.join(","));
       });
-      csvRows.push(values.join(","));
-    });
+    } else {
+      dataToExport.forEach(row => {
+        const values = keys.map(key => {
+          let val = row[key];
+          if (val === undefined || val === null) {
+            val = "";
+          } else if (typeof val === "string") {
+            if (val.startsWith("[INSTALLER_METADATA]")) {
+              try {
+                const meta = JSON.parse(val.replace("[INSTALLER_METADATA]", ""));
+                val = `Installer (${meta.marital_status || "Single"})`;
+              } catch (e) {
+                val = "Installer";
+              }
+            } else if (val.startsWith("[DISTRIBUTOR_METADATA]")) {
+              try {
+                const parsed = JSON.parse(val.replace("[DISTRIBUTOR_METADATA]", ""));
+                val = parsed.designation || "Distributor";
+              } catch (e) {
+                val = "Distributor";
+              }
+            }
+          } else if (typeof val === "object") {
+            val = val.name || val.warehouse || JSON.stringify(val);
+          }
+          const escaped = ("" + val).replace(/"/g, '""');
+          return `"${escaped}"`;
+        });
+        csvRows.push(values.join(","));
+      });
+    }
 
     const csvContent = csvRows.join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
