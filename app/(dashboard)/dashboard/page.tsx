@@ -617,7 +617,7 @@ export default async function DashboardPage() {
     const { data: employees } = await supabase
       .from("profiles")
       .select("first_name, last_name")
-      .eq("role", "employee")
+      .in("role", ["employee", "rsm", "country_head", "retail_manager", "marketing_manager"])
       .limit(1);
     if (employees && employees.length > 0) {
       topEmployee = `${employees[0].first_name} ${employees[0].last_name || ""}`.trim();

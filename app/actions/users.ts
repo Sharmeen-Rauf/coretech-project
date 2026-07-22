@@ -213,6 +213,7 @@ export async function updateUserAction(id: string, formData: any) {
     lastName,
     designation,
     contact,
+    role,
     group,
     status,
     state,
@@ -232,6 +233,7 @@ export async function updateUserAction(id: string, formData: any) {
       last_name: lastName,
       designation,
       contact,
+      role: role || null,
       group_name: group,
       status,
       state: state || null,
@@ -252,6 +254,17 @@ export async function updateUserAction(id: string, formData: any) {
       .select()
       .maybeSingle();
 
+    if (!error && data) {
+      // Sync role change to allowed_users for authentication triggers
+      const userEmail = data.email || `${data.first_name.toLowerCase()}.${data.last_name.toLowerCase() || "user"}@coretech.com`;
+      if (userEmail && role) {
+        await supabase
+          .from("allowed_users")
+          .update({ role })
+          .eq("email", userEmail.trim().toLowerCase());
+      }
+    }
+
     if (error) {
       // If RLS or other errors happened, let's keep going to column-missing checks
     } else if (!data) {
@@ -265,6 +278,7 @@ export async function updateUserAction(id: string, formData: any) {
         last_name: lastName,
         designation: `[DISTRIBUTOR_METADATA]${JSON.stringify(metadata)}`,
         contact,
+        role: role || null,
         group_name: group,
         status,
       };

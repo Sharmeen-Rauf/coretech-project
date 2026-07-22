@@ -80,10 +80,14 @@ export default function UserModal({
         setLastName(editingUser.last_name || "");
         setEmail(editingUser.email || "");
         setContact(editingUser.contact || "");
-        setGroup(editingUser.group_name || "sales");
+        if (role === "Employee") {
+          setGroup(editingUser.role || "rsm");
+        } else {
+          setGroup(editingUser.group_name || "sales");
+        }
         setStatus(editingUser.status || "active");
         setPassword("");
-
+ 
         // Check for serialized metadata fallback in designation
         let meta: any = {};
         let cleanDesignation = editingUser.designation || "";
@@ -112,7 +116,11 @@ export default function UserModal({
         setPassword("");
         setDesignation(role === "Distributor" ? "Distributor" : "");
         setContact("");
-        setGroup("sales");
+        if (role === "Employee") {
+          setGroup("rsm");
+        } else {
+          setGroup("sales");
+        }
         setStatus("active");
         setState("");
         setRegion("");
@@ -164,6 +172,16 @@ export default function UserModal({
     if (!validate()) return;
 
     setIsLoading(true);
+    const finalRole = role === "Employee" ? group : role.toLowerCase().replace(" ", "_");
+    const finalGroup = 
+      finalRole === "rsm" ? "sales" :
+      finalRole === "country_head" ? "sales" :
+      finalRole === "retail_manager" ? "sales" :
+      finalRole === "marketing_manager" ? "operations" :
+      finalRole === "admin" ? "owner" :
+      role === "Distributor" ? "sales" :
+      group;
+
     const formData = {
       firstName,
       lastName,
@@ -171,8 +189,8 @@ export default function UserModal({
       password,
       designation: role === "Distributor" ? "Distributor" : role === "Installer" ? "Installer" : designation,
       contact,
-      role: role.toLowerCase().replace(" ", "_"),
-      group: role === "Distributor" ? "sales" : group,
+      role: finalRole,
+      group: finalGroup,
       status,
       state,
       region,
@@ -710,9 +728,11 @@ export default function UserModal({
                     onChange={(e) => setGroup(e.target.value)}
                     className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
                   >
-                    <option value="owner">Owner</option>
-                    <option value="sales">Sales</option>
-                    <option value="operations">Operations</option>
+                    <option value="rsm">RSM</option>
+                    <option value="country_head">CH</option>
+                    <option value="retail_manager">RETAIL MANAGER</option>
+                    <option value="admin">ADMIN</option>
+                    <option value="marketing_manager">MARKETING MANAGER</option>
                   </select>
                 </div>
                 <div>

@@ -41,11 +41,13 @@ export default function UsersPage() {
     setIsLoading(true);
     try {
       // Fetch profiles
-      const { data: profiles, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("role", activeRole)
-        .order("created_at", { ascending: false });
+      let query = supabase.from("profiles").select("*");
+      if (activeRole === "employee") {
+        query = query.in("role", ["employee", "rsm", "country_head", "retail_manager", "admin", "marketing_manager"]);
+      } else {
+        query = query.eq("role", activeRole);
+      }
+      const { data: profiles, error } = await query.order("created_at", { ascending: false });
 
       if (error) throw error;
 
