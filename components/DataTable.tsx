@@ -163,17 +163,38 @@ export default function DataTable({
       dataToExport.forEach(row => {
         let meta: any = {};
         const des = row.designation || "";
-        if (typeof des === "string" && des.includes("INSTALLER_METADATA")) {
-          try {
-            const cleanVal = des.replace("[DISTRIBUTOR_METADATA]", "");
-            const outer = JSON.parse(cleanVal);
-            const innerVal = outer.designation || "";
-            if (innerVal.startsWith("[INSTALLER_METADATA]")) {
-              meta = JSON.parse(innerVal.replace("[INSTALLER_METADATA]", ""));
-            } else if (outer.marital_status) {
-              meta = outer;
+        if (typeof des === "string") {
+          if (des.includes("INSTALLER_METADATA")) {
+            try {
+              const cleanVal = des.replace("[DISTRIBUTOR_METADATA]", "");
+              const outer = JSON.parse(cleanVal);
+              
+              meta.state = outer.state || "";
+              meta.region = outer.region || "";
+              meta.city = outer.city || "";
+              meta.address = outer.address || "";
+              meta.cnic = outer.cnic || "";
+
+              const innerVal = outer.designation || "";
+              if (innerVal.startsWith("[INSTALLER_METADATA]")) {
+                const innerParsed = JSON.parse(innerVal.replace("[INSTALLER_METADATA]", ""));
+                Object.assign(meta, innerParsed);
+              } else if (outer.marital_status) {
+                Object.assign(meta, outer);
+              }
+            } catch (e) {
+              try {
+                const cleanVal = des.replace("[INSTALLER_METADATA]", "");
+                const parsed = JSON.parse(cleanVal);
+                Object.assign(meta, parsed);
+              } catch (e2) {}
             }
-          } catch (e) {}
+          } else if (des.startsWith("[DISTRIBUTOR_METADATA]")) {
+            try {
+              const parsed = JSON.parse(des.replace("[DISTRIBUTOR_METADATA]", ""));
+              Object.assign(meta, parsed);
+            } catch (e) {}
+          }
         }
 
         const verStr = row.verified_by ? "Verified (Stage 1)" : "Pending Verification";
