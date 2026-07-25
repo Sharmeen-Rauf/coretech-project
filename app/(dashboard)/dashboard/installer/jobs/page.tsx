@@ -233,10 +233,21 @@ export default function AdminJobsPage() {
       }
       return uploadedUrls;
     } catch (err: any) {
-      console.error("Storage upload error:", err);
-      toast.error("Failed to upload photos. Mocking URLs instead.");
-      // Fallback: create visual mock URLs if storage bucket fails
-      return photoFiles.map((f, i) => `https://images.unsplash.com/photo-1600585154340-${i}?auto=format&fit=crop&w=500&q=80`);
+      console.warn("Storage bucket upload fallback. Converting actual files to Data URL.", err);
+      // Fallback: Convert actual user image files to Data URLs (Base64) to preserve real uploaded photos
+      try {
+        const base64Promises = photoFiles.map((file) => {
+          return new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string || "");
+            reader.readAsDataURL(file);
+          });
+        });
+        const dataUrls = await Promise.all(base64Promises);
+        return dataUrls.filter(Boolean);
+      } catch (e) {
+        return [];
+      }
     } finally {
       setIsUploading(false);
     }
@@ -795,40 +806,70 @@ export default function AdminJobsPage() {
 
                 {/* Pictures grid */}
                 <div className="space-y-2 pb-4">
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Job Documentation Photos</p>
-                  {selectedJob.photos.length === 0 ? (
-                    <div className="text-center py-6 bg-slate-50 rounded-[6px] border border-slate-100 text-slate-400">
-                      <ImageIcon className="w-6 h-6 mx-auto mb-1 text-slate-300" />
-                      <p className="text-[10px]">No uploaded photos documented</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      {selectedJob.photos.map((url, idx) => {
-                        const getFullImageUrl = (urlStr: string) => {
-                          if (!urlStr) return "";
-                          if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
-                            return urlStr;
-                          }
-                          return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
-                        };
-                        const fullUrl = getFullImageUrl(url);
-                        return (
-                          <a 
-                            key={idx} 
-                            href={fullUrl} 
-                            target="_blank" 
-                            rel="noreferrer" 
-                            className="relative w-full h-28 rounded-[6px] border border-slate-150 overflow-hidden group shadow-sm"
-                          >
-                            <img src={fullUrl} alt={`Doc ${idx}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-250" />
-                            <div className="absolute inset-0 bg-slate-950/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <span className="text-white text-[9px] font-bold bg-slate-900/60 px-2 py-0.5 rounded-full">Zoom Image</span>
-                            </div>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <div className="flex items-center justify-between">
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Job Documentation Photos</p>
+                    {selectedJob.installer_name && (
+                      <span className="text-[9px] font-bold text-[#00B4D8] bg-cyan-50 px-2 py-0.5 rounded-full border border-cyan-100">
+                        Technician: {selectedJob.installer_name}
+                      </span>
+                    )}
+                  </div>
+
+                  {(() => {
+                    // Filter out sample unsplash fallback images to ensure only real uploaded images appear
+                    const realPhotos = selectedJob.photos.filter(
+                      (urlStr) => urlStr && !urlStr.includes("unsplash.com")
+                    );
+
+                    if (realPhotos.length === 0) {
+                      return (
+                        <div className="text-center py-6 px-4 bg-slate-50 rounded-[8px] border border-slate-200 text-slate-500 space-y-1.5">
+                          <ImageIcon className="w-8 h-8 mx-auto text-slate-300" />
+                          <p className="text-xs font-bold text-slate-700">No Real Field Photos Uploaded Yet</p>
+                          <p className="text-[10px] text-slate-400 leading-relaxed max-w-xs mx-auto">
+                            Installer <span className="font-bold text-slate-700">{selectedJob.installer_name}</span> has not uploaded live site photos from their device for this ticket yet.
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between text-[10px] bg-emerald-50 border border-emerald-100 p-2 rounded-[6px] text-emerald-800 font-semibold">
+                          <span>Verified Device Upload ({realPhotos.length} Photos)</span>
+                          <span>By: {selectedJob.installer_name}</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          {realPhotos.map((url, idx) => {
+                            const getFullImageUrl = (urlStr: string) => {
+                              if (!urlStr) return "";
+                              if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
+                                return urlStr;
+                              }
+                              return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
+                            };
+                            const fullUrl = getFullImageUrl(url);
+                            return (
+                              <a 
+                                key={idx} 
+                                href={fullUrl} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="relative w-full h-28 rounded-[6px] border border-slate-200 overflow-hidden group shadow-sm"
+                              >
+                                <img src={fullUrl} alt={`Uploaded by ${selectedJob.installer_name}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-250" />
+                                <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-2 text-center">
+                                  <span className="text-white text-[9px] font-bold bg-slate-900/80 px-2 py-0.5 rounded-full">Zoom Photo</span>
+                                  <span className="text-[8px] text-slate-200 font-medium">Uploaded by {selectedJob.installer_name}</span>
+                                </div>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
