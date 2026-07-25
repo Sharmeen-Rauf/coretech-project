@@ -256,7 +256,7 @@ export async function updateUserAction(id: string, formData: any) {
 
     if (!error && data) {
       // Sync role change to allowed_users for authentication triggers
-      const userEmail = data.email || `${data.first_name.toLowerCase()}.${data.last_name.toLowerCase() || "user"}@coretech.com`;
+      const userEmail = formData.email || data.email || "";
       if (userEmail && role) {
         await supabase
           .from("allowed_users")

@@ -40,7 +40,7 @@ export default function UsersPage() {
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      // Fetch profiles
+      // 1. Fetch profiles
       let query = supabase.from("profiles").select("*");
       if (activeRole === "employee") {
         query = query.in("role", ["employee", "rsm", "country_head", "retail_manager", "admin", "marketing_manager"]);
@@ -51,13 +51,54 @@ export default function UsersPage() {
 
       if (error) throw error;
 
-      // Email addresses are stored in auth.users, but for local/demo dashboard flexibility,
-      // we can parse or assign default email patterns if not loaded in profiles.
-      // If we need emails, we can query auth user profiles or fallback.
-      const formattedProfiles = (profiles || []).map((prof: any) => ({
-        ...prof,
-        email: prof.email || `${prof.first_name.toLowerCase()}.${prof.last_name.toLowerCase() || "user"}@coretech.com`,
-      }));
+      // 2. Fetch allowed_users email whitelist
+      let allowedMap = new Map<string, string>();
+      try {
+        const { data: allowedList } = await supabase.from("allowed_users").select("id, email");
+        if (allowedList) {
+          allowedList.forEach((u: any) => {
+            if (u.id && u.email) allowedMap.set(u.id, u.email.trim());
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to fetch allowed_users for emails", e);
+      }
+
+      // 3. Resolve actual user email addresses
+      const formattedProfiles = (profiles || []).map((prof: any) => {
+        let actualEmail = prof.email || allowedMap.get(prof.id) || "";
+
+        // Check nested metadata for email if not found
+        if (!actualEmail && typeof prof.designation === "string") {
+          try {
+            if (prof.designation.includes("INSTALLER_METADATA")) {
+              const cleanVal = prof.designation.replace("[DISTRIBUTOR_METADATA]", "");
+              const outer = JSON.parse(cleanVal);
+              const innerVal = outer.designation || "";
+              if (innerVal.startsWith("[INSTALLER_METADATA]")) {
+                const innerParsed = JSON.parse(innerVal.replace("[INSTALLER_METADATA]", ""));
+                if (innerParsed.email) actualEmail = innerParsed.email;
+              } else if (outer.email) {
+                actualEmail = outer.email;
+              }
+            } else if (prof.designation.startsWith("[DISTRIBUTOR_METADATA]")) {
+              const parsed = JSON.parse(prof.designation.replace("[DISTRIBUTOR_METADATA]", ""));
+              if (parsed.email) actualEmail = parsed.email;
+            }
+          } catch (e) {}
+        }
+
+        // Clean fallback email if none registered
+        if (!actualEmail) {
+          const nameSlug = `${prof.first_name || "user"}${prof.last_name ? "." + prof.last_name : ""}`.toLowerCase().replace(/[^a-z0-9.]/g, "");
+          actualEmail = `${nameSlug}@gmail.com`;
+        }
+
+        return {
+          ...prof,
+          email: actualEmail,
+        };
+      });
 
       setUsers(formattedProfiles);
     } catch (err: any) {
