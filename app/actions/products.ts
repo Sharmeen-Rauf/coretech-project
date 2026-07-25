@@ -483,3 +483,91 @@ export async function bulkImportStockAction(
   }
 }
 
+export async function bulkDeleteStockAction(ids: string[]) {
+  if (!ids || ids.length === 0) {
+    return { success: true, count: 0 };
+  }
+
+  const { Client } = require("pg");
+  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
+  const client = new Client({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+  });
+
+  try {
+    await client.connect();
+
+    // Filter out local temporary IDs
+    const dbIds = ids.filter(id => id && !id.startsWith("local-"));
+    if (dbIds.length === 0) {
+      await client.end();
+      return { success: true, count: ids.length };
+    }
+
+    const deleteQuery = `DELETE FROM public.stock WHERE id = ANY($1);`;
+    const res = await client.query(deleteQuery, [dbIds]);
+
+    await client.end();
+    return { success: true, count: res.rowCount || dbIds.length };
+  } catch (err: any) {
+    try { await client.end(); } catch {}
+    return { success: false, error: err.message || "Failed bulk delete operation" };
+  }
+}
+
+export async function bulkDeleteStockByFilterAction(filters: {
+  importDate?: string;
+  productName?: string;
+  modelNo?: string;
+  warehouseName?: string;
+}) {
+  const { Client } = require("pg");
+  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
+  const client = new Client({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+  });
+
+  try {
+    await client.connect();
+
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let pIdx = 1;
+
+    if (filters.importDate) {
+      conditions.push(`import_date = $${pIdx}`);
+      params.push(filters.importDate);
+      pIdx++;
+    }
+
+    if (filters.modelNo) {
+      conditions.push(`model_no ILIKE $${pIdx}`);
+      params.push(`%${filters.modelNo}%`);
+      pIdx++;
+    }
+
+    if (filters.warehouseName) {
+      conditions.push(`warehouse_name ILIKE $${pIdx}`);
+      params.push(`%${filters.warehouseName}%`);
+      pIdx++;
+    }
+
+    if (conditions.length === 0) {
+      await client.end();
+      return { success: false, error: "At least one filter criterion is required for bulk deletion" };
+    }
+
+    const query = `DELETE FROM public.stock WHERE ${conditions.join(" AND ")};`;
+    const res = await client.query(query, params);
+
+    await client.end();
+    return { success: true, count: res.rowCount || 0, message: `Bulk deleted ${res.rowCount || 0} stock items matching filter!` };
+  } catch (err: any) {
+    try { await client.end(); } catch {}
+    return { success: false, error: err.message || "Failed bulk filter delete operation" };
+  }
+}
+
+

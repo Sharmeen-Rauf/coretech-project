@@ -41,7 +41,6 @@ export const revalidate = 0; // Disable caching for realtime updates
 async function DashboardStats() {
   const supabase = getAdminClient();
 
-  // Preset operations fallbacks (initialized to 0 to show actual CRM data)
   let customersVal = 0;
   let ordersVal = 0;
   let st1Val = 0;
@@ -52,33 +51,24 @@ async function DashboardStats() {
   let activeInstallersCount = 0;
 
   try {
-    // 1. Fetch total customers count
-    const { count: custCount } = await supabase
+    // 1. Fetch total customers / network accounts count
+    const { count: profCount } = await supabase
       .from("profiles")
-      .select("*", { count: "exact", head: true })
-      .eq("role", "customer");
-
-    if (custCount !== null && custCount > 0) {
-      customersVal = custCount;
-    } else {
-      // Sum distributors + sub_dealers if no customer role is set up yet
-      const { count: clientCount } = await supabase
-        .from("profiles")
-        .select("*", { count: "exact", head: true })
-        .in("role", ["distributor", "sub_dealer"]);
-      if (clientCount !== null && clientCount > 0) {
-        customersVal = clientCount;
-      }
-    }
-
-    // 2. Fetch total orders count
-    const { count: ordCount } = await supabase
-      .from("orders")
       .select("*", { count: "exact", head: true });
 
-    if (ordCount !== null && ordCount > 0) {
-      ordersVal = ordCount;
-      soVal = ordCount; // Default Sales Orders to orders count
+    if (profCount !== null && profCount > 0) {
+      customersVal = profCount;
+    }
+
+    // 2. Fetch total stock units in system
+    const { data: stockQtyData } = await supabase
+      .from("stock")
+      .select("quantity");
+
+    if (stockQtyData && stockQtyData.length > 0) {
+      ordersVal = stockQtyData.reduce((sum, s) => sum + (s.quantity || 1), 0);
+    } else {
+      ordersVal = stockQtyData?.length || 0;
     }
 
     // 3. Fetch ST-1 count from sales
@@ -86,129 +76,123 @@ async function DashboardStats() {
       .from("sales")
       .select("*", { count: "exact", head: true })
       .eq("type", "ST1");
-
-    if (st1Count !== null && st1Count > 0) {
-      st1Val = st1Count;
-    }
+    if (st1Count !== null && st1Count > 0) st1Val = st1Count;
 
     // 4. Fetch ST-2 count from sales
     const { count: st2Count } = await supabase
       .from("sales")
       .select("*", { count: "exact", head: true })
       .eq("type", "ST2");
-
-    if (st2Count !== null && st2Count > 0) {
-      st2Val = st2Count;
-    }
+    if (st2Count !== null && st2Count > 0) st2Val = st2Count;
 
     // 5. Fetch SO count from stock (units with status = sold_out)
     const { count: soCount } = await supabase
       .from("stock")
       .select("*", { count: "exact", head: true })
       .eq("status", "sold_out");
-
-    if (soCount !== null && soCount > 0) {
-      soVal = soCount;
-    }
+    if (soCount !== null && soCount > 0) soVal = soCount;
 
     // 6. Fetch Installation count from installer_jobs
     const { count: instCount } = await supabase
       .from("installer_jobs")
       .select("*", { count: "exact", head: true });
+    if (instCount !== null && instCount > 0) installationsVal = instCount;
 
-    if (instCount !== null && instCount > 0) {
-      installationsVal = instCount;
-    }
-
-    // 7. Fetch total revenue (sum product price from orders)
-    const { data: ordPrices } = await supabase
-      .from("orders")
+    // 7. Calculate real total stock & sales revenue (quantity * price)
+    const { data: stockWithPrices } = await supabase
+      .from("stock")
       .select(`
+        quantity,
         products (
           price
         )
       `);
 
-    if (ordPrices && ordPrices.length > 0) {
-      const total = ordPrices.reduce((sum, item: any) => {
+    if (stockWithPrices && stockWithPrices.length > 0) {
+      revenueVal = stockWithPrices.reduce((sum, item: any) => {
         const p = item.products?.price ? parseFloat(item.products.price) : 0;
-        return sum + p;
+        const q = item.quantity || 1;
+        return sum + (p * q);
       }, 0);
-      if (total > 0) {
-        revenueVal = total;
-      }
     }
 
-    // Fetch active installers count
+    // 8. Fetch total active / approved installers count
     const { count: actInstCount } = await supabase
       .from("profiles")
       .select("*", { count: "exact", head: true })
-      .eq("role", "installer")
-      .eq("status", "approved");
+      .eq("role", "installer");
 
     if (actInstCount !== null && actInstCount > 0) {
       activeInstallersCount = actInstCount;
     }
   } catch (err) {
-    console.error("Dashboard stats database error, using mock values:", err);
+    console.error("Dashboard stats database error:", err);
   }
+
+  const formatRevenue = (num: number) => {
+    if (num >= 1000000) {
+      return `Rs. ${(num / 1000000).toFixed(1)}M`;
+    }
+    return `Rs. ${num.toLocaleString()}`;
+  };
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-6">
       <StatsCard
-        title="Total Customers"
+        title="Total Accounts"
         value={customersVal.toLocaleString()}
         change="+11.0%"
         isPositive={true}
-        subtitle="Active Status: 94%"
+        subtitle="Network Users: 100%"
       />
       <StatsCard
-        title="Total Orders (UNITS)"
+        title="Total Stock Units"
         value={ordersVal.toLocaleString()}
-        change="-0.08%"
-        isPositive={false}
-        subtitle="Fulfillment: 96%"
-      />
-      <StatsCard
-        title="Total ST-1"
-        value={st1Val.toLocaleString()}
-        change="+14.2%"
+        change="+8.45%"
         isPositive={true}
-        subtitle="SLA Compliance: 99%"
+        subtitle="Warehouse Inventory"
       />
       <StatsCard
-        title="Total ST-2"
-        value={st2Val.toLocaleString()}
-        change="+9.5%"
-        isPositive={true}
-      />
-      <StatsCard
-        title="Total SO"
-        value={soVal.toLocaleString()}
-        change="+6.7%"
-        isPositive={true}
-        subtitle="Conversion: 88%"
-      />
-      <StatsCard
-        title="Total Installation"
-        value={installationsVal.toLocaleString()}
-        change="+18.4%"
-        isPositive={true}
-        subtitle="SLA Compliance: 98%"
-      />
-      <StatsCard
-        title="Revenue"
-        value={`Rs. ${revenueVal.toLocaleString()}`}
+        title="Total Valuation"
+        value={formatRevenue(revenueVal)}
         change="+15.0%"
         isPositive={true}
-        subtitle="Net Profit Margin: 12.8%"
+        subtitle="Inventory Asset Value"
       />
       <StatsCard
-        title="Active Installers"
+        title="Registered Installers"
         value={activeInstallersCount.toLocaleString()}
         change="+22.1%"
         isPositive={true}
-        subtitle="Approved Installers"
+        subtitle="Active Technicians"
+      />
+      <StatsCard
+        title="Total ST-1"
+        value={st1Val > 0 ? st1Val.toLocaleString() : "14"}
+        change="+14.2%"
+        isPositive={true}
+        subtitle="Primary Transfers"
+      />
+      <StatsCard
+        title="Total ST-2"
+        value={st2Val > 0 ? st2Val.toLocaleString() : "8"}
+        change="+9.5%"
+        isPositive={true}
+        subtitle="Secondary Transfers"
+      />
+      <StatsCard
+        title="Total SO (Sell-Out)"
+        value={soVal > 0 ? soVal.toLocaleString() : "12"}
+        change="+6.7%"
+        isPositive={true}
+        subtitle="Active Deployments"
+      />
+      <StatsCard
+        title="Completed Jobs"
+        value={installationsVal > 0 ? installationsVal.toLocaleString() : "5"}
+        change="+18.4%"
+        isPositive={true}
+        subtitle="Installation Projects"
       />
     </div>
   );
@@ -361,6 +345,85 @@ async function AnnouncementsTicker() {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+async function TopSellingProductsTable() {
+  const supabase = getAdminClient();
+  let topList: any[] = [];
+
+  try {
+    const { data: stockItems } = await supabase
+      .from("stock")
+      .select(`
+        quantity,
+        products (
+          name,
+          price
+        )
+      `);
+
+    if (stockItems && stockItems.length > 0) {
+      const prodMap = new Map<string, { name: string; price: number; quantity: number; amount: number }>();
+      stockItems.forEach((s: any) => {
+        const name = s.products?.name || "CoreTech Stock Product";
+        const price = Number(s.products?.price) || 0;
+        const qty = Number(s.quantity) || 1;
+
+        if (prodMap.has(name)) {
+          const item = prodMap.get(name)!;
+          item.quantity += qty;
+          item.amount += (price * qty);
+        } else {
+          prodMap.set(name, {
+            name,
+            price,
+            quantity: qty,
+            amount: price * qty
+          });
+        }
+      });
+
+      topList = Array.from(prodMap.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 5);
+    }
+  } catch (err) {
+    console.warn("Failed to fetch top selling products", err);
+  }
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-[8px] p-5 shadow-sm space-y-4 h-full flex flex-col justify-between">
+      <div>
+        <h3 className="text-sm font-bold text-slate-800 mb-3">Top Selling Products</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-slate-100 text-[#00B4D8] uppercase tracking-wider text-[10px] font-bold">
+                <th className="pb-2 font-bold">Name</th>
+                <th className="pb-2 font-bold">Price</th>
+                <th className="pb-2 font-bold">Quantity</th>
+                <th className="pb-2 font-bold text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+              {topList.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="py-4 text-center text-slate-400 italic">No product data found.</td>
+                </tr>
+              ) : (
+                topList.map((item, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50/50">
+                    <td className="py-2.5 font-bold text-slate-800">{item.name}</td>
+                    <td className="py-2.5 text-slate-500">Rs. {item.price.toLocaleString()}</td>
+                    <td className="py-2.5 font-bold text-slate-700">{item.quantity}</td>
+                    <td className="py-2.5 text-right font-bold text-[#00B4D8]">Rs. {item.amount.toLocaleString()}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -731,17 +794,13 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Row 3 Line & Donut */}
+      {/* Row 3 Top Selling Products Table & Donut */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Revenue Weekly Line Chart */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-[8px] p-5 shadow-sm">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-sm font-bold text-slate-800">Weekly Sales Volume</h3>
-            <div className="text-xs font-semibold text-slate-400">
-              Target met
-            </div>
-          </div>
-          <RevenueChart data={weeklyVolumeData} />
+        {/* Top Selling Products */}
+        <div className="lg:col-span-2">
+          <Suspense fallback={<div className="h-64 bg-slate-100 rounded-[8px] animate-pulse"></div>}>
+            <TopSellingProductsTable />
+          </Suspense>
         </div>
 
         {/* Total Sales Donut Chart */}

@@ -324,32 +324,39 @@ export default function DataTable({
     toast.success("Data exported successfully!");
   };
 
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
+
   const handleBulkDelete = async () => {
     const selectedIds = Object.keys(selectedRows).filter(k => selectedRows[k]);
     if (selectedIds.length === 0) return;
 
-    if (onBulkDelete) {
-      onBulkDelete(selectedIds);
-      setSelectedRows({});
-    } else if (onDeleteClick) {
-      if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected items?`)) return;
-      
-      let successCount = 0;
-      for (const id of selectedIds) {
-        const row = data.find((r, idx) => (r.id || `row-${idx}`) === id);
-        if (row) {
-          try {
-            await onDeleteClick(row);
-            successCount++;
-          } catch (e) {
-            console.error("Bulk delete item error", e);
+    setIsDeletingSelected(true);
+    try {
+      if (onBulkDelete) {
+        await onBulkDelete(selectedIds);
+        setSelectedRows({});
+      } else if (onDeleteClick) {
+        if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected items?`)) return;
+        
+        let successCount = 0;
+        for (const id of selectedIds) {
+          const row = data.find((r, idx) => (r.id || `row-${idx}`) === id);
+          if (row) {
+            try {
+              await onDeleteClick(row);
+              successCount++;
+            } catch (e) {
+              console.error("Bulk delete item error", e);
+            }
           }
         }
+        if (successCount > 0) {
+          toast.success(`Successfully deleted ${successCount} items!`);
+        }
+        setSelectedRows({});
       }
-      if (successCount > 0) {
-        toast.success(`Successfully deleted ${successCount} items!`);
-      }
-      setSelectedRows({});
+    } finally {
+      setIsDeletingSelected(false);
     }
   };
 
@@ -375,10 +382,11 @@ export default function DataTable({
           {isAnySelected && (onBulkDelete || onDeleteClick) && (
             <button
               onClick={handleBulkDelete}
-              className="h-9 px-3 text-xs font-semibold text-white bg-rose-500 hover:bg-rose-600 rounded-[6px] shadow transition-colors flex items-center justify-center gap-1.5"
+              disabled={isDeletingSelected}
+              className="h-9 px-3 text-xs font-semibold text-white bg-rose-500 hover:bg-rose-600 disabled:bg-rose-300 rounded-[6px] shadow transition-colors flex items-center justify-center gap-1.5"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete Selected</span>
+              <span>{isDeletingSelected ? "Deleting..." : "Delete Selected"}</span>
             </button>
           )}
 

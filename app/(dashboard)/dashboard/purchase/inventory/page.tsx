@@ -239,45 +239,116 @@ export default function InventoryPage() {
     }
   };
 
+  // Filter states
+  const [filterDate, setFilterDate] = useState("");
+  const [filterModel, setFilterModel] = useState("");
+  const [filterWarehouse, setFilterWarehouse] = useState("");
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
   const handleBulkDeleteStock = async (selectedIds: string[]) => {
-    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected stock items?`)) return;
+    if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} selected stock items?`)) return;
 
+    setIsBulkDeleting(true);
     try {
-      let successCount = 0;
+      const { bulkDeleteStockAction } = await import("@/app/actions/products");
+      const res = await bulkDeleteStockAction(selectedIds);
+      
+      // Clean local storage items if any
       let localStock = getLocalItems("coretech_local_stock") || [];
-
-      for (const id of selectedIds) {
+      selectedIds.forEach((id) => {
         if (id.startsWith("local-")) {
-          const stockItemObj = stock.find(item => item.id === id);
-          if (stockItemObj) {
-            localStock = localStock.filter((s: any) => s.serial_no !== stockItemObj.serial_no);
-            successCount++;
-          }
-        } else {
-          const res = await deleteRecordAction("stock", id);
-          if (res.success) {
-            successCount++;
+          const item = stock.find((s) => s.id === id);
+          if (item) {
+            localStock = localStock.filter((s: any) => s.serial_no !== item.serial_no);
           }
         }
-      }
-
+      });
       localStorage.setItem("coretech_local_stock", JSON.stringify(localStock));
-      toast.success(`Successfully deleted ${successCount} stock items!`);
+
+      if (!res.success) throw new Error(res.error || "Failed bulk delete");
+      toast.success(`Successfully bulk deleted ${res.count || selectedIds.length} stock items!`);
       fetchInventory();
     } catch (err: any) {
-      toast.error(err.message || "Failed to perform bulk deletion");
+      toast.error(err.message || "Failed to bulk delete stock items");
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
+  const handleBulkDeleteByFilter = async () => {
+    if (!filterDate && !filterModel && !filterWarehouse) {
+      toast.error("Please select at least a Date, Product Model, or Warehouse filter first!");
+      return;
+    }
+
+    const matchingCount = filtered.length;
+    if (matchingCount === 0) {
+      toast.error("No stock items match the currently selected filter.");
+      return;
+    }
+
+    const filterDesc = [
+      filterDate && `Import Date: ${filterDate}`,
+      filterModel && `Model: ${filterModel}`,
+      filterWarehouse && `Warehouse: ${filterWarehouse}`,
+    ].filter(Boolean).join(" | ");
+
+    if (!window.confirm(`CRITICAL WARNING: Are you sure you want to BULK DELETE ALL ${matchingCount} stock items matching (${filterDesc})? This action cannot be undone!`)) {
+      return;
+    }
+
+    setIsBulkDeleting(true);
+    try {
+      const { bulkDeleteStockByFilterAction } = await import("@/app/actions/products");
+      const res = await bulkDeleteStockByFilterAction({
+        importDate: filterDate,
+        modelNo: filterModel,
+        warehouseName: filterWarehouse,
+      });
+
+      if (!res.success) throw new Error(res.error || "Failed bulk deletion by filter");
+      toast.success(res.message || `Successfully deleted ${matchingCount} stock items!`);
+
+      setFilterDate("");
+      setFilterModel("");
+      setFilterWarehouse("");
+      fetchInventory();
+    } catch (err: any) {
+      toast.error(err.message || "Failed bulk deletion by filter");
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
+  // Derive unique models & warehouses for filter dropdowns
+  const uniqueModels = Array.from(new Set(stock.map((item) => item.model).filter((m) => m && m !== "-")));
+  const uniqueWarehouses = Array.from(new Set(stock.map((item) => item.warehouse_name).filter((w) => w && w !== "-")));
+  const uniqueDates = Array.from(new Set(stock.map((item) => item.import_date).filter((d) => d && d !== "-"))).sort().reverse();
+
   const filtered = stock.filter((item) => {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return true;
-    return (
-      item.product_name.toLowerCase().includes(q) ||
-      item.serial_no.toLowerCase().includes(q) ||
-      item.brand.toLowerCase().includes(q) ||
-      item.warehouse_name.toLowerCase().includes(q)
-    );
+    // Search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch = (
+        item.product_name.toLowerCase().includes(q) ||
+        item.serial_no.toLowerCase().includes(q) ||
+        item.brand.toLowerCase().includes(q) ||
+        item.model.toLowerCase().includes(q) ||
+        item.warehouse_name.toLowerCase().includes(q)
+      );
+      if (!matchesSearch) return false;
+    }
+
+    // Date filter
+    if (filterDate && item.import_date !== filterDate) return false;
+
+    // Model filter
+    if (filterModel && item.model.toLowerCase() !== filterModel.toLowerCase()) return false;
+
+    // Warehouse filter
+    if (filterWarehouse && item.warehouse_name.toLowerCase() !== filterWarehouse.toLowerCase()) return false;
+
+    return true;
   });
 
   const paginated = filtered.slice(
@@ -321,6 +392,102 @@ export default function InventoryPage() {
         )}
       </div>
 
+      {/* Date & Product Filter Controls Bar */}
+      <div className="bg-white border border-slate-200 rounded-[8px] p-4 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Filter Stock By:</span>
+            
+            {/* Import Date Filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-500">Date:</span>
+              <select
+                value={filterDate}
+                onChange={(e) => {
+                  setFilterDate(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-[6px] text-xs font-medium text-slate-700 focus:outline-none focus:border-[#00B4D8]"
+              >
+                <option value="">All Import Dates</option>
+                {uniqueDates.map((date) => (
+                  <option key={date} value={date}>{date}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Product Model Filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-500">Product Model:</span>
+              <select
+                value={filterModel}
+                onChange={(e) => {
+                  setFilterModel(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-[6px] text-xs font-medium text-slate-700 focus:outline-none focus:border-[#00B4D8]"
+              >
+                <option value="">All Products / Models</option>
+                {uniqueModels.map((model) => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Warehouse Filter */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-slate-500">Warehouse:</span>
+              <select
+                value={filterWarehouse}
+                onChange={(e) => {
+                  setFilterWarehouse(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-[6px] text-xs font-medium text-slate-700 focus:outline-none focus:border-[#00B4D8]"
+              >
+                <option value="">All Warehouses</option>
+                {uniqueWarehouses.map((wh) => (
+                  <option key={wh} value={wh}>{wh}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Clear Filters button */}
+            {(filterDate || filterModel || filterWarehouse) && (
+              <button
+                onClick={() => {
+                  setFilterDate("");
+                  setFilterModel("");
+                  setFilterWarehouse("");
+                  setCurrentPage(1);
+                }}
+                className="text-xs font-bold text-rose-600 hover:underline ml-2"
+              >
+                Reset Filters
+              </button>
+            )}
+          </div>
+
+          {/* Bulk Delete All Filtered Button */}
+          {(filterDate || filterModel || filterWarehouse) && (
+            <button
+              onClick={handleBulkDeleteByFilter}
+              disabled={isBulkDeleting || filtered.length === 0}
+              className="h-8 px-3.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-[6px] shadow flex items-center gap-1.5 transition-all animate-in fade-in"
+            >
+              {isBulkDeleting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              )}
+              <span>Bulk Delete All Filtered ({filtered.length} Items)</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       <DataTable allData={filtered}
         title="Warehouse Inventory"
         columns={columns}
@@ -343,3 +510,4 @@ export default function InventoryPage() {
     </div>
   );
 }
+
