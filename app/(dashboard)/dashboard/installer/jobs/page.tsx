@@ -386,6 +386,50 @@ export default function AdminJobsPage() {
     }
   };
 
+  const handleDeleteJob = async (row: any) => {
+    if (!window.confirm(`Are you sure you want to delete job "${row.job_title}"?`)) return;
+
+    try {
+      const { deleteRecordAction } = await import("@/app/actions/products");
+      const res = await deleteRecordAction("installer_jobs", row.id);
+      
+      let localJobs = getLocalItems("coretech_local_installer_jobs") || [];
+      localJobs = localJobs.filter((j: any) => j.id !== row.id);
+      saveLocalItem("coretech_local_installer_jobs", localJobs, true);
+
+      if (res.success) {
+        toast.success(`Job "${row.job_title}" deleted successfully!`);
+      } else {
+        toast.success(`Job deleted locally!`);
+      }
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete job");
+    }
+  };
+
+  const handleBulkDeleteJobs = async (selectedIds: string[]) => {
+    if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} selected jobs?`)) return;
+
+    try {
+      const { deleteRecordAction } = await import("@/app/actions/products");
+      let count = 0;
+      for (const id of selectedIds) {
+        const res = await deleteRecordAction("installer_jobs", id);
+        if (res.success) count++;
+      }
+
+      let localJobs = getLocalItems("coretech_local_installer_jobs") || [];
+      localJobs = localJobs.filter((j: any) => !selectedIds.includes(j.id));
+      saveLocalItem("coretech_local_installer_jobs", localJobs, true);
+
+      toast.success(`Successfully deleted ${count || selectedIds.length} jobs!`);
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete selected jobs");
+    }
+  };
+
   const columns = [
     { key: "job_title", label: "Job Title" },
     { key: "address", label: "Installation Location" },
@@ -453,9 +497,9 @@ export default function AdminJobsPage() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setIsCreating(false)}
-            className="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-full transition-colors"
+            className="p-2 border border-slate-200 hover:bg-slate-100 rounded-full transition-colors"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-4 h-4 text-slate-600" />
           </button>
           <div>
             <h1 className="text-2xl font-bold text-slate-800">New Installation Job Ticket</h1>
@@ -480,6 +524,8 @@ export default function AdminJobsPage() {
           isLoading={false}
           searchPlaceholder="Search Job Title or Location..."
           onRowClick={(row) => setSelectedJob(row)}
+          onDeleteClick={handleDeleteJob}
+          onBulkDelete={handleBulkDeleteJobs}
           pagination={{
             current: currentPage,
             total: jobs.length,
