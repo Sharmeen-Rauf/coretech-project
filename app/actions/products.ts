@@ -343,3 +343,143 @@ export async function fetchSellOutAction() {
   }
 }
 
+export async function bulkImportStockAction(
+  items: Array<{
+    name?: string;
+    code?: string;
+    serial_no: string;
+    brand?: string;
+    category?: string;
+    model?: string;
+    price?: number;
+    cost?: number;
+    warehouse_name?: string;
+  }>,
+  globalImportDate?: string,
+  globalWarehouse?: string
+) {
+  if (!items || items.length === 0) {
+    return { success: true, count: 0, message: "No items to import" };
+  }
+
+  const { Client } = require("pg");
+  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
+  const client = new Client({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+  });
+
+  try {
+    await client.connect();
+
+    // 1. Fetch existing products to resolve IDs
+    const prodRes = await client.query(`SELECT id, code, model FROM public.products;`);
+    const existingProducts = prodRes.rows || [];
+    const codeMap = new Map<string, string>();
+    const modelMap = new Map<string, string>();
+
+    existingProducts.forEach((p: any) => {
+      if (p.code) codeMap.set(p.code.toLowerCase(), p.id);
+      if (p.model) modelMap.set(p.model.toLowerCase(), p.id);
+    });
+
+    // 2. Identify missing products in items list
+    const missingProdsMap = new Map<string, any>();
+    items.forEach((item) => {
+      const codeKey = (item.code || "").toLowerCase();
+      const modelKey = (item.model || "").toLowerCase();
+      if (!codeMap.has(codeKey) && !modelMap.has(modelKey) && item.code) {
+        if (!missingProdsMap.has(codeKey)) {
+          missingProdsMap.set(codeKey, {
+            name: item.name || item.code,
+            code: item.code,
+            brand: item.brand || "CoreTech",
+            category: (item.category || "inverter").toLowerCase(),
+            model: item.model || item.code,
+            price: Number(item.price) || 0,
+            cost: Number(item.cost) || 0,
+            alert_quantity: 5,
+          });
+        }
+      }
+    });
+
+    // Bulk insert missing products
+    if (missingProdsMap.size > 0) {
+      const prodValues: string[] = [];
+      const prodParams: any[] = [];
+      let pIdx = 1;
+
+      for (const prod of missingProdsMap.values()) {
+        prodValues.push(`(gen_random_uuid(), $${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}, $${pIdx + 7}, NOW())`);
+        prodParams.push(prod.name, prod.code, prod.brand, prod.category, prod.model, prod.price, prod.cost, prod.alert_quantity);
+        pIdx += 8;
+      }
+
+      const prodInsertQuery = `
+        INSERT INTO public.products (id, name, code, brand, category, model, price, cost, alert_quantity, created_at)
+        VALUES ${prodValues.join(",\n")}
+        ON CONFLICT (code) DO UPDATE SET model = EXCLUDED.model
+        RETURNING id, code, model;
+      `;
+
+      const insertedProds = await client.query(prodInsertQuery, prodParams);
+      (insertedProds.rows || []).forEach((p: any) => {
+        if (p.code) codeMap.set(p.code.toLowerCase(), p.id);
+        if (p.model) modelMap.set(p.model.toLowerCase(), p.id);
+      });
+    }
+
+    const fallbackProdId = existingProducts[0]?.id || null;
+    const defaultDate = globalImportDate || new Date().toISOString().split("T")[0];
+
+    // 3. Bulk insert/upsert stock items in chunks of 2,500
+    const batchSize = 2500;
+    let insertedCount = 0;
+
+    for (let i = 0; i < items.length; i += batchSize) {
+      const chunk = items.slice(i, i + batchSize);
+      const valuePlaceholders: string[] = [];
+      const params: any[] = [];
+      let sIdx = 1;
+
+      chunk.forEach((item) => {
+        const codeKey = (item.code || "").toLowerCase();
+        const modelKey = (item.model || "").toLowerCase();
+        const prodId = codeMap.get(codeKey) || modelMap.get(modelKey) || fallbackProdId;
+        const targetWarehouse = item.warehouse_name || globalWarehouse || "Main Warehouse (275)";
+
+        valuePlaceholders.push(`(gen_random_uuid(), $${sIdx}, $${sIdx + 1}, $${sIdx + 2}, $${sIdx + 3}, $${sIdx + 4}, 1, NOW(), 'active')`);
+        params.push(
+          prodId,
+          item.model || "CoreTech Product",
+          item.serial_no,
+          targetWarehouse,
+          defaultDate
+        );
+        sIdx += 5;
+      });
+
+      const stockQuery = `
+        INSERT INTO public.stock (id, product_id, model_no, serial_no, warehouse_name, import_date, quantity, created_at, status)
+        VALUES ${valuePlaceholders.join(",\n")}
+        ON CONFLICT (serial_no) DO UPDATE
+        SET quantity = public.stock.quantity + EXCLUDED.quantity,
+            warehouse_name = EXCLUDED.warehouse_name,
+            import_date = EXCLUDED.import_date;
+      `;
+
+      await client.query(stockQuery, params);
+      insertedCount += chunk.length;
+    }
+
+    await client.end();
+    return { success: true, count: insertedCount, message: `Successfully imported ${insertedCount} stock entries!` };
+  } catch (err: any) {
+    try {
+      await client.end();
+    } catch {}
+    return { success: false, error: err.message || "Failed bulk stock import operation" };
+  }
+}
+

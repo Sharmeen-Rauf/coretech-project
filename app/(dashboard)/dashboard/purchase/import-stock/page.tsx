@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
-import { Download, UploadCloud, FileText, Loader2, ArrowRight } from "lucide-react";
+import { Download, UploadCloud, FileText, Loader2, ArrowRight, Zap, CheckCircle2 } from "lucide-react";
 import toast from "react-hot-toast";
-import { getOrCreateProductByCode, fetchStockAction } from "@/app/actions/products";
+import { getOrCreateProductByCode, fetchStockAction, bulkImportStockAction } from "@/app/actions/products";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { fetchRecordsAction, updateRecordAction, createRecordAction } from "@/app/actions/users";
 
@@ -18,6 +18,9 @@ export default function ImportStockPage() {
   const [serialNo, setSerialNo] = useState("");
   const [warehouseName, setWarehouseName] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [progressText, setProgressText] = useState("");
+  const [importSpeedInfo, setImportSpeedInfo] = useState("");
   const [modelsList, setModelsList] = useState<string[]>([]);
   const [warehousesList, setWarehousesList] = useState<string[]>([]);
   const [userRole, setUserRole] = useState("");
@@ -143,179 +146,112 @@ export default function ImportStockPage() {
     if (!validate()) return;
 
     setIsImporting(true);
-    try {
-      // Fetch full DB stock list to check for duplicates (RLS bypassed)
-      let dbStockList: any[] = [];
-      const stockRes = await fetchStockAction();
-      if (stockRes.success && stockRes.data) {
-        dbStockList = stockRes.data;
-      }
+    setProgressPercent(0);
+    setProgressText("Initializing bulk import pipeline...");
+    setImportSpeedInfo("");
 
+    const startTime = Date.now();
+
+    try {
       if (file) {
-        // Mode A: CSV Bulk Import
+        // Mode A: High-Speed CSV Bulk Import
+        setProgressText("Reading & parsing CSV file...");
         const text = await file.text();
-        const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+        const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
         if (lines.length <= 1) {
           throw new Error("CSV file is empty or only contains headers");
         }
 
         const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
-        let successCount = 0;
-        
-        // Keep track of local stock mutations during the loop
-        let localStock = getLocalItems("coretech_local_stock");
+        const parsedItems: any[] = [];
 
         for (let i = 1; i < lines.length; i++) {
           const row = lines[i].split(",").map((cell) => cell.replace(/^["']|["']$/g, "").trim());
-          if (row.length < headers.length) continue;
+          if (row.length < 2) continue;
 
-          // Map cells (Name, Code, Serial Number, Brand, Category, Model, Price, Cost, Warehouse)
           const name = row[0];
-          const code = row[1];
-          const serialNum = row[2];
-          const brand = row[3];
+          const code = row[1] || name;
+          const serialNum = row[2] || `${serialNo || "SN"}-${i}`;
+          const brand = row[3] || "CoreTech";
           let category = row[4]?.toLowerCase() || "inverter";
           if (!["inverter", "battery", "aio"].includes(category)) {
             category = "inverter";
           }
-          const model = row[5];
+          const model = row[5] || modelNo || name;
           const price = parseFloat(row[6]) || 0;
           const cost = parseFloat(row[7]) || 0;
-          const csvWarehouse = row[8];
+          const csvWarehouse = row[8] || warehouseName || "Main Warehouse (275)";
 
-          if (!name) continue;
+          if (!name && !code) continue;
 
-          const finalSerial = serialNum || `${serialNo}-${i}`;
-
-          // Check if serial number already exists in DB stock list
-          const existingDb = dbStockList.find((s: any) => s.serial_no === finalSerial);
-          if (existingDb) {
-            const newQty = (existingDb.quantity || 0) + 1;
-            await updateRecordAction("stock", existingDb.id, { quantity: newQty });
-            existingDb.quantity = newQty; // update local representation
-            successCount++;
-            continue;
-          }
-
-          // Check if serial number already exists in local stock
-          const existingLocalIdx = localStock.findIndex((s: any) => s.serial_no === finalSerial);
-          if (existingLocalIdx >= 0) {
-            localStock[existingLocalIdx].quantity = (localStock[existingLocalIdx].quantity || 0) + 1;
-            successCount++;
-            continue;
-          }
-
-          // Otherwise, create a new stock item
-          const fallbackData = {
+          parsedItems.push({
             name,
             code,
+            serial_no: serialNum,
             brand,
             category,
             model,
             price,
             cost,
-            alert_quantity: 5, // fallback alert quantity
-          };
-          const res = await getOrCreateProductByCode(code, fallbackData);
-          if (!res.success) {
-            throw new Error(res.error || "Failed to resolve product");
-          }
-          const productId = res.data.id;
-
-          const stockPayload = {
-            product_id: productId,
-            model_no: model || modelNo || "Unknown Model",
-            serial_no: finalSerial,
-            warehouse_name: csvWarehouse || warehouseName || "General Warehouse",
-            import_date: importDate,
-            quantity: 1,
-          };
-
-          try {
-            const res = await createRecordAction("stock", stockPayload);
-            if (!res.success) throw new Error(res.error);
-            if (res.data) {
-              dbStockList.push(res.data);
-            }
-          } catch (dbErr) {
-            console.warn("Database stock insert failed. Saving locally.", dbErr);
-            // Push to local stock list (will save to localStorage below)
-            const localId = typeof crypto !== "undefined" && crypto.randomUUID 
-              ? crypto.randomUUID() 
-              : "local_" + Math.random().toString(36).substring(2, 11);
-            
-            localStock.push({
-              id: localId,
-              ...stockPayload,
-              created_at: new Date().toISOString()
-            });
-          }
-          successCount++;
+            warehouse_name: csvWarehouse,
+          });
         }
 
-        // Save local stock mutations
-        localStorage.setItem("coretech_local_stock", JSON.stringify(localStock));
-        toast.success(`Import completed successfully! Processed ${successCount} stock entries.`);
+        const totalItems = parsedItems.length;
+        if (totalItems === 0) {
+          throw new Error("No valid data rows found in CSV file");
+        }
+
+        setProgressText(`Processing ${totalItems.toLocaleString()} items in bulk batches...`);
+
+        // Execute in chunks of 3,000 items
+        const chunkSize = 3000;
+        let processedCount = 0;
+
+        for (let i = 0; i < totalItems; i += chunkSize) {
+          const chunk = parsedItems.slice(i, i + chunkSize);
+          const currentBatchNumber = Math.floor(i / chunkSize) + 1;
+          const totalBatches = Math.ceil(totalItems / chunkSize);
+
+          setProgressText(`Importing batch ${currentBatchNumber} of ${totalBatches} (${processedCount.toLocaleString()} / ${totalItems.toLocaleString()} items)...`);
+
+          const res = await bulkImportStockAction(chunk, importDate, warehouseName || "Main Warehouse (275)");
+          if (!res.success) {
+            throw new Error(res.error || `Bulk batch ${currentBatchNumber} failed`);
+          }
+
+          processedCount += chunk.length;
+          const percent = Math.min(100, Math.round((processedCount / totalItems) * 100));
+          setProgressPercent(percent);
+        }
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+        const speedMsg = `Successfully imported ${totalItems.toLocaleString()} stock entries in ${duration} seconds!`;
+        setImportSpeedInfo(speedMsg);
+        toast.success(speedMsg);
         setFile(null);
       } else {
-        // Mode B: Manual Stock Entry
+        // Mode B: Fast Manual Stock Entry
         const finalSerial = serialNo.trim();
-        let localStock = getLocalItems("coretech_local_stock");
+        setProgressText("Saving manual stock entry...");
 
-        // Check DB duplicates
-        const existingDb = dbStockList.find((s: any) => s.serial_no === finalSerial);
-        if (existingDb) {
-          const newQty = (existingDb.quantity || 0) + 1;
-          const upd = await updateRecordAction("stock", existingDb.id, { quantity: newQty });
-          if (!upd.success) throw new Error(upd.error || "Failed to update stock quantity");
-          toast.success("Stock item already exists. Quantity incremented in Database!");
-        } else {
-          // Check local duplicates
-          const existingLocalIdx = localStock.findIndex((s: any) => s.serial_no === finalSerial);
-          if (existingLocalIdx >= 0) {
-            localStock[existingLocalIdx].quantity = (localStock[existingLocalIdx].quantity || 0) + 1;
-            localStorage.setItem("coretech_local_stock", JSON.stringify(localStock));
-            toast.success("Local stock item already exists. Quantity incremented!");
-          } else {
-            // Resolve product ID based on model selection
-            let productId = "";
-            const { data: matchedProducts, error: modelSearchErr } = await supabase
-              .from("products")
-              .select("id")
-              .eq("model", modelNo)
-              .limit(1);
+        const manualItem = [{
+          name: modelNo,
+          code: modelNo,
+          serial_no: finalSerial,
+          brand: "CoreTech",
+          category: "inverter",
+          model: modelNo,
+          price: 0,
+          cost: 0,
+          warehouse_name: warehouseName || "Main Warehouse (275)",
+        }];
 
-            if (!modelSearchErr && matchedProducts && matchedProducts.length > 0) {
-              productId = matchedProducts[0].id;
-            } else {
-              const localProds = getLocalItems("coretech_local_products") || [];
-              const localMatch = localProds.find((p: any) => p.model === modelNo);
-              if (localMatch) {
-                productId = localMatch.id;
-              } else {
-                throw new Error("No product matching the selected model name was found in database or local fallback.");
-              }
-            }
-            const stockPayload = {
-              product_id: productId,
-              model_no: modelNo,
-              serial_no: finalSerial,
-              warehouse_name: warehouseName,
-              import_date: importDate,
-              quantity: 1,
-            };
+        const res = await bulkImportStockAction(manualItem, importDate, warehouseName || "Main Warehouse (275)");
+        if (!res.success) throw new Error(res.error || "Failed manual stock insert");
 
-            try {
-              const res = await createRecordAction("stock", stockPayload);
-              if (!res.success) throw new Error(res.error);
-              toast.success(`Manual stock entry registered successfully!`);
-            } catch (dbErr) {
-              console.warn("Database stock insert failed. Saving locally.", dbErr);
-              saveLocalItem("coretech_local_stock", stockPayload);
-              toast.success(`Manual stock registered locally (Database fallback)`);
-            }
-          }
-        }
+        setProgressPercent(100);
+        toast.success("Manual stock entry registered successfully!");
       }
 
       setModelNo("");
@@ -364,6 +300,43 @@ export default function ImportStockPage() {
       </div>
 
       <form onSubmit={handleImportSubmit} className="space-y-6 bg-white border border-slate-200 rounded-[8px] p-6 shadow-sm">
+        {/* Progress Bar & Performance Ticker */}
+        {(isImporting || importSpeedInfo) && (
+          <div className="p-4 rounded-[8px] bg-slate-900 text-white space-y-3 shadow-lg border border-slate-800 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between text-xs font-bold">
+              <span className="flex items-center gap-2 text-[#00B4D8]">
+                {isImporting ? (
+                  <>
+                    <Zap className="w-4 h-4 text-amber-400 animate-bounce" />
+                    Ultra-Fast Bulk Importer Active
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    Bulk Import Complete
+                  </>
+                )}
+              </span>
+              <span className="text-slate-300 font-mono">{progressPercent}%</span>
+            </div>
+
+            {/* Progress Bar Track */}
+            <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden p-0.5 border border-slate-700">
+              <div 
+                className="bg-gradient-to-r from-[#00B4D8] to-emerald-400 h-full rounded-full transition-all duration-300 shadow"
+                style={{ width: `${progressPercent}%` }}
+              ></div>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-slate-300 font-medium">
+              <span>{progressText}</span>
+              {importSpeedInfo && (
+                <span className="font-mono text-emerald-400 font-bold">{importSpeedInfo}</span>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Upload Field */}
         <div>
           <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
@@ -539,7 +512,7 @@ export default function ImportStockPage() {
             className="h-10 px-6 text-xs font-semibold text-white bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/60 rounded-[6px] shadow flex items-center justify-center gap-1.5 transition-colors ml-auto animate-in fade-in"
           >
             {isImporting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            {file ? "Import CSV File" : "Add Stock Manually"}
+            {isImporting ? `Importing (${progressPercent}%)...` : (file ? "Import CSV Stock File" : "Add Stock Manually")}
           </button>
         </div>
       </form>
