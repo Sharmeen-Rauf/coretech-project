@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
+import { deleteRecordAction } from "@/app/actions/users";
 
 interface JobRow {
   id: string;
@@ -150,7 +151,16 @@ export default function AdminJobsPage() {
             : (row.local_installer_name || "Unassigned"),
           status: row.status,
           payment_status: row.payment_status || "unpaid",
-          created_at: row.created_at ? new Date(row.created_at).toLocaleDateString() : "-",
+          created_at: row.created_at 
+            ? new Date(row.created_at).toLocaleString("en-GB", { 
+                day: "2-digit", 
+                month: "2-digit", 
+                year: "numeric", 
+                hour: "2-digit", 
+                minute: "2-digit", 
+                hour12: true 
+              }) 
+            : "-",
           photos: row.photos || [],
           notes: notesText,
           serial_number: sn,
@@ -390,7 +400,6 @@ export default function AdminJobsPage() {
     if (!window.confirm(`Are you sure you want to delete job "${row.job_title}"?`)) return;
 
     try {
-      const { deleteRecordAction } = await import("@/app/actions/products");
       const res = await deleteRecordAction("installer_jobs", row.id);
       
       let localJobs = getLocalItems("coretech_local_installer_jobs") || [];
@@ -412,7 +421,6 @@ export default function AdminJobsPage() {
     if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} selected jobs?`)) return;
 
     try {
-      const { deleteRecordAction } = await import("@/app/actions/products");
       let count = 0;
       for (const id of selectedIds) {
         const res = await deleteRecordAction("installer_jobs", id);
