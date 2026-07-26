@@ -209,6 +209,20 @@ export async function middleware(request: NextRequest) {
       if (!isAllowed) {
         return NextResponse.redirect(new URL('/dashboard', request.url));
       }
+    } else if (role === 'retail_manager') {
+      const allowedRetailManagerPrefixes = [
+        '/dashboard/approvals',
+        '/dashboard/installer/list',
+        '/dashboard/installer/jobs',
+        '/dashboard/account',
+      ];
+
+      const isExactDashboard = pathname === '/dashboard';
+      const isAllowed = isExactDashboard || allowedRetailManagerPrefixes.some(prefix => pathname.startsWith(prefix));
+
+      if (!isAllowed) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
     }
   }
 

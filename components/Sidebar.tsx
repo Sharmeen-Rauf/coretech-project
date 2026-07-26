@@ -413,6 +413,49 @@ export default function Sidebar() {
                   Invoices & Payments
                 </Link>
               </>
+            ) : userRole === "retail_manager" ? (
+              <>
+                {/* Home */}
+                <Link href="/dashboard" className={linkClass("/dashboard")}>
+                  <Home className="w-4 h-4 mr-3" />
+                  Home
+                </Link>
+
+                {/* Approvals & Passes */}
+                <Link href="/dashboard/approvals" className={linkClass("/dashboard/approvals")}>
+                  <CheckSquare className="w-4 h-4 mr-3" />
+                  Approvals & Passes
+                </Link>
+
+                {/* Installer & Job Verification */}
+                <div>
+                  <button
+                    onClick={() => toggleMenu("installer")}
+                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
+                  >
+                    <div className="flex items-center">
+                      <Wrench className="w-4 h-4 mr-3" />
+                      <span>Installer Verifications</span>
+                    </div>
+                    {openMenus.installer ? (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+
+                  {openMenus.installer && (
+                    <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
+                      <Link href="/dashboard/installer/list" className={linkClass("/dashboard/installer/list")}>
+                        Verify Installers
+                      </Link>
+                      <Link href="/dashboard/installer/jobs" className={linkClass("/dashboard/installer/jobs")}>
+                        Verify Installations
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </>
             ) : (
               <>
                 {/* Home */}
