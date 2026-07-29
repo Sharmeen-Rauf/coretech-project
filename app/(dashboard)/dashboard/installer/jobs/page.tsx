@@ -1084,22 +1084,39 @@ export default function AdminJobsPage() {
             </div>
 
             {/* Content Body */}
-            <div className="p-4 flex items-center justify-center bg-black min-h-[320px] max-h-[75vh] overflow-auto">
+            <div className="p-4 flex items-center justify-center bg-black min-h-[340px] max-h-[75vh] overflow-auto">
               {activeMediaModal.type === "image" ? (
                 <img
                   src={activeMediaModal.url}
                   alt="Site Inspection Proof"
                   className="max-h-[70vh] max-w-full object-contain rounded-sm shadow-md"
                 />
+              ) : activeMediaModal.url.includes("youtube.com") || activeMediaModal.url.includes("youtu.be") ? (
+                <div className="relative w-full h-[60vh] bg-black rounded-sm overflow-hidden">
+                  <iframe
+                    src={
+                      activeMediaModal.url.includes("watch?v=")
+                        ? activeMediaModal.url.replace("watch?v=", "embed/")
+                        : activeMediaModal.url.includes("youtu.be/")
+                        ? activeMediaModal.url.replace("youtu.be/", "youtube.com/embed/")
+                        : activeMediaModal.url
+                    }
+                    className="w-full h-full border-0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                </div>
               ) : (
                 <video
-                  src={activeMediaModal.url}
+                  key={activeMediaModal.url}
                   controls
                   autoPlay
                   playsInline
+                  preload="auto"
                   className="max-h-[70vh] w-full object-contain bg-black rounded-sm"
                 >
                   <source src={activeMediaModal.url} type="video/mp4" />
+                  <source src={activeMediaModal.url} type="video/webm" />
                   Your browser does not support video playback.
                 </video>
               )}
