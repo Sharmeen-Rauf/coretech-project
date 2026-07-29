@@ -78,6 +78,7 @@ export default function ApprovalsPage() {
   
   // Installation Detail Modal States
   const [selectedInstallation, setSelectedInstallation] = useState<any>(null);
+  const [activeMediaModal, setActiveMediaModal] = useState<{ type: "image" | "video"; url: string; title?: string } | null>(null);
 
   // Audit notes remarks
   const [auditNote, setAuditNote] = useState("");
@@ -1755,11 +1756,17 @@ export default function ApprovalsPage() {
                         }
                         return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
                       };
+                      const imgUrl = getFullImageUrl(url);
                       return (
-                        <div key={idx} className="w-full h-16 bg-slate-50 border rounded-[6px] overflow-hidden">
-                          <a href={getFullImageUrl(url)} target="_blank" rel="noreferrer">
-                            <img src={getFullImageUrl(url)} alt="installation-proof" className="w-full h-full object-cover hover:scale-105 transition-all cursor-pointer" />
-                          </a>
+                        <div
+                          key={idx}
+                          onClick={() => setActiveMediaModal({ type: "image", url: imgUrl, title: selectedInstallation.job_title })}
+                          className="w-full h-16 bg-slate-50 border rounded-[6px] overflow-hidden relative group cursor-pointer shadow-xs"
+                        >
+                          <img src={imgUrl} alt="installation-proof" className="w-full h-full object-cover group-hover:scale-105 transition-all" />
+                          <div className="absolute inset-0 bg-slate-950/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <span className="text-[8px] font-bold text-white bg-slate-900/80 px-1.5 py-0.5 rounded-full">Zoom</span>
+                          </div>
                         </div>
                       );
                     })}
@@ -1820,7 +1827,7 @@ export default function ApprovalsPage() {
                         src={fullUrl}
                         controls
                         playsInline
-                        preload="metadata"
+                        preload="auto"
                         className="w-full max-h-48 object-contain bg-black"
                       >
                         <source src={fullUrl} type="video/mp4" />
@@ -1830,14 +1837,13 @@ export default function ApprovalsPage() {
                       </video>
                       <div className="p-2 flex items-center justify-between text-[10px] bg-slate-900 text-slate-300 border-t border-slate-800">
                         <span className="font-semibold text-cyan-400">Site Recording Player</span>
-                        <a
-                          href={fullUrl}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => setActiveMediaModal({ type: "video", url: fullUrl, title: selectedInstallation.job_title })}
                           className="px-2.5 py-1 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-[9px] font-bold rounded-[4px] shadow flex items-center gap-1 transition-all"
                         >
-                          Watch / Stream Video ↗
-                        </a>
+                          Fullscreen Stream ↗
+                        </button>
                       </div>
                     </div>
                   );
@@ -2146,6 +2152,71 @@ export default function ApprovalsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* In-Page Lightbox Media Preview Modal (No about:blank#blocked) */}
+      {activeMediaModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            onClick={() => setActiveMediaModal(null)}
+            className="absolute inset-0 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200"
+          ></div>
+
+          <div className="relative bg-slate-900 border border-slate-800 rounded-[14px] shadow-2xl overflow-hidden max-w-3xl w-full flex flex-col z-10 animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between p-3.5 px-4 bg-slate-950 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-white tracking-wide">
+                  {activeMediaModal.type === "image" ? "📷 Site Photo Lightbox Preview" : "🎥 Site Video Demonstration Stream"}
+                </span>
+                {activeMediaModal.title && (
+                  <span className="text-[10px] text-cyan-400 font-semibold bg-cyan-950/80 border border-cyan-800/60 px-2 py-0.5 rounded-full">
+                    {activeMediaModal.title}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setActiveMediaModal(null)}
+                className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-4 flex items-center justify-center bg-black min-h-[320px] max-h-[75vh] overflow-auto">
+              {activeMediaModal.type === "image" ? (
+                <img
+                  src={activeMediaModal.url}
+                  alt="Site Inspection Proof"
+                  className="max-h-[70vh] max-w-full object-contain rounded-sm shadow-md"
+                />
+              ) : (
+                <video
+                  src={activeMediaModal.url}
+                  controls
+                  autoPlay
+                  playsInline
+                  className="max-h-[70vh] w-full object-contain bg-black rounded-sm"
+                >
+                  <source src={activeMediaModal.url} type="video/mp4" />
+                  Your browser does not support video playback.
+                </video>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+              <span>CoreTECH Site Verification Inspection Documentation</span>
+              <button
+                onClick={() => setActiveMediaModal(null)}
+                className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-[6px] text-xs transition-colors"
+              >
+                Close Lightbox
+              </button>
+            </div>
           </div>
         </div>
       )}
