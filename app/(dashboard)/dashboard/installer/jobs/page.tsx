@@ -870,57 +870,147 @@ export default function AdminJobsPage() {
                   </div>
 
                   {(() => {
-                    // Filter out sample unsplash fallback images to ensure only real uploaded images appear
-                    const realPhotos = selectedJob.photos.filter(
-                      (urlStr) => urlStr && !urlStr.includes("unsplash.com")
+                    // Extract all photos from selectedJob.photos (Array, stringified JSON, or comma-separated string)
+                    let rawPhotoList: string[] = [];
+
+                    if (Array.isArray(selectedJob.photos)) {
+                      rawPhotoList = selectedJob.photos;
+                    } else if (typeof selectedJob.photos === "string" && selectedJob.photos.trim()) {
+                      try {
+                        const parsed = JSON.parse(selectedJob.photos);
+                        if (Array.isArray(parsed)) rawPhotoList = parsed;
+                        else if (typeof parsed === "string") rawPhotoList = [parsed];
+                      } catch {
+                        rawPhotoList = selectedJob.photos.split(",").map((s: string) => s.trim());
+                      }
+                    }
+
+                    // Extract Video URLs from notes or remarks
+                    let videoList: string[] = [];
+                    const combinedText = `${selectedJob.notes || ""} ${selectedJob.remarks || ""}`;
+                    const videoMatch = combinedText.match(/VIDEO:([^\s|]+)/gi);
+                    if (videoMatch) {
+                      videoMatch.forEach((vStr) => {
+                        const cleanUrl = vStr.replace(/VIDEO:/i, "").trim();
+                        if (cleanUrl) videoList.push(cleanUrl);
+                      });
+                    }
+
+                    // Also check for direct .mp4/.mov/.webm URLs or data:video in rawPhotoList
+                    const realVideos = [
+                      ...videoList,
+                      ...rawPhotoList.filter(
+                        (url) => typeof url === "string" && (url.includes(".mp4") || url.includes(".mov") || url.includes(".webm") || url.startsWith("data:video/"))
+                      )
+                    ];
+
+                    // Filter out real images (exclude unsplash fallbacks and videos)
+                    const realPhotos = rawPhotoList.filter(
+                      (urlStr) =>
+                        urlStr &&
+                        typeof urlStr === "string" &&
+                        urlStr.trim() !== "" &&
+                        !urlStr.includes("unsplash.com") &&
+                        !urlStr.includes(".mp4") &&
+                        !urlStr.includes(".mov") &&
+                        !urlStr.includes(".webm") &&
+                        !urlStr.startsWith("data:video/")
                     );
 
-                    if (realPhotos.length === 0) {
+                    const totalMediaCount = realPhotos.length + realVideos.length;
+
+                    if (totalMediaCount === 0) {
                       return (
                         <div className="text-center py-6 px-4 bg-slate-50 rounded-[8px] border border-slate-200 text-slate-500 space-y-1.5">
                           <ImageIcon className="w-8 h-8 mx-auto text-slate-300" />
-                          <p className="text-xs font-bold text-slate-700">No Real Field Photos Uploaded Yet</p>
+                          <p className="text-xs font-bold text-slate-700">No Field Media Uploaded Yet</p>
                           <p className="text-[10px] text-slate-400 leading-relaxed max-w-xs mx-auto">
-                            Installer <span className="font-bold text-slate-700">{selectedJob.installer_name}</span> has not uploaded live site photos from their device for this ticket yet.
+                            Installer <span className="font-bold text-slate-700">{selectedJob.installer_name}</span> has not uploaded live site photos or video recordings for this ticket yet.
                           </p>
                         </div>
                       );
                     }
 
+                    const getFullMediaUrl = (urlStr: string) => {
+                      if (!urlStr) return "";
+                      if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
+                        return urlStr;
+                      }
+                      return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
+                    };
+
                     return (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between text-[10px] bg-emerald-50 border border-emerald-100 p-2 rounded-[6px] text-emerald-800 font-semibold">
-                          <span>Verified Device Upload ({realPhotos.length} Photos)</span>
-                          <span>By: {selectedJob.installer_name}</span>
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between text-[10px] bg-emerald-50 border border-emerald-100 p-2.5 rounded-[6px] text-emerald-800 font-semibold shadow-xs">
+                          <span>Verified Device Upload ({realPhotos.length} Photos, {realVideos.length} Videos)</span>
+                          <span>Technician: {selectedJob.installer_name}</span>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-2">
-                          {realPhotos.map((url, idx) => {
-                            const getFullImageUrl = (urlStr: string) => {
-                              if (!urlStr) return "";
-                              if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
-                                return urlStr;
-                              }
-                              return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
-                            };
-                            const fullUrl = getFullImageUrl(url);
-                            return (
-                              <a 
-                                key={idx} 
-                                href={fullUrl} 
-                                target="_blank" 
-                                rel="noreferrer" 
-                                className="relative w-full h-28 rounded-[6px] border border-slate-200 overflow-hidden group shadow-sm"
-                              >
-                                <img src={fullUrl} alt={`Uploaded by ${selectedJob.installer_name}`} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-250" />
-                                <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-2 text-center">
-                                  <span className="text-white text-[9px] font-bold bg-slate-900/80 px-2 py-0.5 rounded-full">Zoom Photo</span>
-                                  <span className="text-[8px] text-slate-200 font-medium">Uploaded by {selectedJob.installer_name}</span>
-                                </div>
-                              </a>
-                            );
-                          })}
-                        </div>
+                        {/* Video Section if available */}
+                        {realVideos.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Live Installation Video Recording</p>
+                            <div className="space-y-2">
+                              {realVideos.map((vUrl, vIdx) => {
+                                const fullVideoUrl = getFullMediaUrl(vUrl);
+                                return (
+                                  <div key={vIdx} className="bg-slate-900 rounded-[8px] overflow-hidden border border-slate-800 shadow">
+                                    <video
+                                      src={fullVideoUrl}
+                                      controls
+                                      className="w-full max-h-48 object-contain bg-black"
+                                      poster="https://images.unsplash.com/photo-1509391365360-2e959784a276?w=600&q=80"
+                                    >
+                                      Your browser does not support HTML5 video playback.
+                                    </video>
+                                    <div className="p-2 flex items-center justify-between text-[10px] text-slate-300 bg-slate-950">
+                                      <span className="font-semibold text-cyan-400">Site Video Recording #{vIdx + 1}</span>
+                                      <a
+                                        href={fullVideoUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-white hover:text-cyan-300 font-bold underline"
+                                      >
+                                        Open Fullscreen Video ↗
+                                      </a>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Image Photos Section */}
+                        {realPhotos.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Field Site Documentation Photos</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {realPhotos.map((url, idx) => {
+                                const fullUrl = getFullMediaUrl(url);
+                                return (
+                                  <a
+                                    key={idx}
+                                    href={fullUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="relative w-full h-28 rounded-[6px] border border-slate-200 overflow-hidden group shadow-sm bg-slate-100"
+                                  >
+                                    <img
+                                      src={fullUrl}
+                                      alt={`Uploaded by ${selectedJob.installer_name}`}
+                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-250"
+                                    />
+                                    <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-2 text-center">
+                                      <span className="text-white text-[9px] font-bold bg-slate-900/80 px-2 py-0.5 rounded-full">Zoom Photo</span>
+                                      <span className="text-[8px] text-slate-200 font-medium">Uploaded by {selectedJob.installer_name}</span>
+                                    </div>
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
