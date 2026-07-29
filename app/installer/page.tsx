@@ -2,19 +2,19 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
-import { 
-  LogOut, 
-  Wrench, 
-  CheckCircle, 
-  Clock, 
-  AlertCircle, 
-  Loader2, 
-  MapPin, 
-  DollarSign, 
-  Check, 
-  Camera, 
-  X, 
-  CheckSquare, 
+import {
+  LogOut,
+  Wrench,
+  CheckCircle,
+  Clock,
+  AlertCircle,
+  Loader2,
+  MapPin,
+  DollarSign,
+  Check,
+  Camera,
+  X,
+  CheckSquare,
   Square,
   Upload,
   Video,
@@ -35,7 +35,7 @@ import { verifySerialNumberAction, submitInstallationAction } from "@/app/action
 export default function WebInstallerPage() {
   const supabase = createClientComponentClient();
   const router = useRouter();
-  
+
   // Auth & Profile states
   const [installerName, setInstallerName] = useState("");
   const [profileStatus, setProfileStatus] = useState<string>("approved");
@@ -44,10 +44,10 @@ export default function WebInstallerPage() {
   const [installerId, setInstallerId] = useState("");
   const [jobs, setJobs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   // Selected job completion modal (existing flow)
   const [selectedJob, setSelectedJob] = useState<any>(null);
-  
+
   // Independent Site Form / New Installation States
   const [isSiteFormOpen, setIsSiteFormOpen] = useState(false);
   const [siteFormJobId, setSiteFormJobId] = useState(""); // can link to existing job, or "new"
@@ -55,7 +55,7 @@ export default function WebInstallerPage() {
   const [newJobAddress, setNewJobAddress] = useState("");
   const [serialNo, setSerialNo] = useState("");
   const [completionRemarks, setCompletionRemarks] = useState("");
-  
+
   // Connected Inventory States
   const [validatedProduct, setValidatedProduct] = useState<any>(null);
   const [isVerifyingSerial, setIsVerifyingSerial] = useState(false);
@@ -154,7 +154,7 @@ export default function WebInstallerPage() {
             console.warn("Failed to sync local job to database:", e);
           }
         }
-        
+
         // Clean up synced jobs from local storage
         if (syncedIds.length > 0) {
           const updatedLocal = localJobs.filter((j: any) => !syncedIds.includes(j.id));
@@ -217,11 +217,11 @@ export default function WebInstallerPage() {
       if (localMatch) {
         const localProds = getLocalItems("coretech_local_products") || [];
         const prod = localProds.find((p: any) => p.id === localMatch.product_id);
-        
+
         // Also check duplicate for local job assignments (since they might have completed jobs locally)
         const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
-        const localDuplicate = localJobs.find((j: any) => 
-          j.id !== siteFormJobId && 
+        const localDuplicate = localJobs.find((j: any) =>
+          j.id !== siteFormJobId &&
           String(j.serial_number || "").trim().toLowerCase() === cleanSNo
         );
 
@@ -352,7 +352,7 @@ export default function WebInstallerPage() {
 
       // Combined photos + video URL representation for metadata
       const allPhotos = photosUrls;
-      
+
       const serializedNotes = `[METADATA] SN:${serialNo.trim()} | VIDEO:${videoUrl} | REM:${completionRemarks.trim()}\nCONNECTED PRODUCT: ${validatedProduct.product_name} (${validatedProduct.model})`;
 
       const payload = {
@@ -417,7 +417,7 @@ export default function WebInstallerPage() {
     setNewJobAddress(job.address);
     setSerialNo(job.serial_number || "");
     setCompletionRemarks(job.remarks || "");
-    
+
     // Parse metadata
     if (job.serial_number) {
       verifySerialNumber(job.serial_number);
@@ -439,12 +439,10 @@ export default function WebInstallerPage() {
 
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 font-sans select-none">
-        <div className={`w-full max-w-md bg-white border rounded-[16px] p-6 shadow-xl text-center space-y-6 ${
-          isRejected ? "border-rose-200" : isPendingApproval ? "border-sky-200" : "border-amber-200"
-        }`}>
-          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto shadow-inner ${
-            isRejected ? "bg-rose-50 text-rose-500" : isPendingApproval ? "bg-sky-50 text-sky-500" : "bg-amber-50 text-amber-500"
+        <div className={`w-full max-w-md bg-white border rounded-[16px] p-6 shadow-xl text-center space-y-6 ${isRejected ? "border-rose-200" : isPendingApproval ? "border-sky-200" : "border-amber-200"
           }`}>
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto shadow-inner ${isRejected ? "bg-rose-50 text-rose-500" : isPendingApproval ? "bg-sky-50 text-sky-500" : "bg-amber-50 text-amber-500"
+            }`}>
             {isRejected ? (
               <X className="w-9 h-9" />
             ) : (
@@ -458,9 +456,8 @@ export default function WebInstallerPage() {
             </h2>
             <p className="text-xs text-slate-500 leading-relaxed px-4">
               Hello, <span className="font-bold text-slate-700">{installerName}</span>. Your installer account status is currently {" "}
-              <span className={`font-bold ${
-                isRejected ? "text-rose-600" : isPendingApproval ? "text-sky-600" : "text-amber-600"
-              }`}>
+              <span className={`font-bold ${isRejected ? "text-rose-600" : isPendingApproval ? "text-sky-600" : "text-amber-600"
+                }`}>
                 {isRejected ? "Rejected" : isPendingApproval ? "Pending Approval (Stage 2)" : "Pending Verification (Stage 1)"}
               </span>.
             </p>
@@ -469,16 +466,15 @@ export default function WebInstallerPage() {
           {/* Timeline Audit Trail */}
           <div className="bg-slate-50 border border-slate-100 rounded-[12px] p-4 text-left text-xs space-y-3">
             <div className="flex gap-2.5 items-start">
-              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                isPendingVerification ? "bg-amber-100 text-amber-700 animate-pulse border border-amber-300" : "bg-emerald-100 text-emerald-700 border border-emerald-300"
-              }`}>
+              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${isPendingVerification ? "bg-amber-100 text-amber-700 animate-pulse border border-amber-300" : "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                }`}>
                 {isPendingVerification ? "1" : "✓"}
               </span>
               <div>
                 <p className="font-bold text-slate-700">Stage 1: Retail Manager Verification</p>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  {isPendingVerification 
-                    ? "Waiting for Retail Manager to audit and verify credentials." 
+                  {isPendingVerification
+                    ? "Waiting for Retail Manager to audit and verify credentials."
                     : "Verified successfully by Retail Manager."}
                 </p>
                 {verificationNote && (
@@ -490,19 +486,18 @@ export default function WebInstallerPage() {
             </div>
 
             <div className="flex gap-2.5 items-start border-t border-slate-100 pt-3">
-              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${
-                isPendingVerification ? "bg-slate-100 text-slate-400 border border-slate-200" : 
-                isPendingApproval ? "bg-sky-100 text-sky-700 animate-pulse border border-sky-300" :
-                isRejected ? "bg-rose-100 text-rose-700 border border-rose-300" : "bg-emerald-100 text-emerald-700 border border-emerald-300"
-              }`}>
+              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${isPendingVerification ? "bg-slate-100 text-slate-400 border border-slate-200" :
+                  isPendingApproval ? "bg-sky-100 text-sky-700 animate-pulse border border-sky-300" :
+                    isRejected ? "bg-rose-100 text-rose-700 border border-rose-300" : "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                }`}>
                 {isPendingVerification ? "2" : isRejected ? "✗" : isPendingApproval ? "2" : "✓"}
               </span>
               <div>
                 <p className="font-bold text-slate-700">Stage 2: Country Head Approval</p>
                 <p className="text-[11px] text-slate-500 mt-0.5">
                   {isPendingVerification ? "Waiting for Stage 1 completion." :
-                   isPendingApproval ? "Waiting for final approval from Country Head." :
-                   isRejected ? "Rejected by Country Head." : "Approved successfully."}
+                    isPendingApproval ? "Waiting for final approval from Country Head." :
+                      isRejected ? "Rejected by Country Head." : "Approved successfully."}
                 </p>
                 {approvalNote && (
                   <p className="text-[10px] text-slate-400 italic mt-1 bg-white border border-slate-100 rounded p-1.5">
@@ -547,11 +542,10 @@ export default function WebInstallerPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <div className={`border rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${
-              (profileStatus === "active" || profileStatus === "approved") 
-                ? "bg-emerald-50 text-emerald-600 border-emerald-100" 
+            <div className={`border rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${(profileStatus === "active" || profileStatus === "approved")
+                ? "bg-emerald-50 text-emerald-600 border-emerald-100"
                 : "bg-amber-50 text-amber-600 border-amber-100"
-            }`}>
+              }`}>
               {(profileStatus === "active" || profileStatus === "approved") ? "Approved" : "Pending Review"}
             </div>
             <button
@@ -637,18 +631,17 @@ export default function WebInstallerPage() {
                   <p className="text-[9px] font-medium text-slate-400">{job.address}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                    job.status === "approved" || job.status === "completed" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                    job.status === "pending_verification" ? "bg-amber-50 text-amber-500 border-amber-100" :
-                    job.status === "pending_approval" || job.status === "pending_installation_approval" ? "bg-sky-50 text-sky-600 border-sky-100" :
-                    job.status === "rejected" ? "bg-rose-50 text-rose-500 border-rose-100" :
-                    "bg-blue-50 text-blue-500 border-blue-100"
-                  }`}>
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${job.status === "approved" || job.status === "completed" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                      job.status === "pending_verification" ? "bg-amber-50 text-amber-500 border-amber-100" :
+                        job.status === "pending_approval" || job.status === "pending_installation_approval" ? "bg-sky-50 text-sky-600 border-sky-100" :
+                          job.status === "rejected" ? "bg-rose-50 text-rose-500 border-rose-100" :
+                            "bg-blue-50 text-blue-500 border-blue-100"
+                    }`}>
                     {job.status === "pending_verification" ? "Pending Verification" :
-                     job.status === "pending_approval" || job.status === "pending_installation_approval" ? "Pending Approval" :
-                     job.status === "approved" || job.status === "completed" ? "Approved" :
-                     job.status === "rejected" ? "Rejected" :
-                     job.status}
+                      job.status === "pending_approval" || job.status === "pending_installation_approval" ? "Pending Approval" :
+                        job.status === "approved" || job.status === "completed" ? "Approved" :
+                          job.status === "rejected" ? "Rejected" :
+                            job.status}
                   </span>
                 </div>
               </div>
@@ -673,11 +666,11 @@ export default function WebInstallerPage() {
       {/* Interactive Site Form Modal Sheet */}
       {isSiteFormOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div 
-            onClick={() => setIsSiteFormOpen(false)} 
+          <div
+            onClick={() => setIsSiteFormOpen(false)}
             className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
           ></div>
-          
+
           <div className="relative bg-white w-full max-w-md border border-slate-100 rounded-[12px] shadow-2xl p-5 flex flex-col max-h-[85vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
             {/* Header */}
             <div className="flex justify-between items-start border-b border-slate-100 pb-3 mb-4">
@@ -687,7 +680,7 @@ export default function WebInstallerPage() {
                 </h3>
                 <p className="text-[8px] text-slate-400 mt-0.5 uppercase tracking-wider font-bold">SITE FORM</p>
               </div>
-              <button 
+              <button
                 onClick={() => setIsSiteFormOpen(false)}
                 className="p-1 hover:bg-slate-100 text-slate-450 hover:text-slate-600 rounded-full transition-colors"
               >
@@ -696,7 +689,7 @@ export default function WebInstallerPage() {
             </div>
 
             <form onSubmit={handleSiteFormSubmit} className="space-y-4 text-left">
-              
+
               {/* Installer Title (Auto) */}
               <div>
                 <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -777,7 +770,7 @@ export default function WebInstallerPage() {
                     Verify
                   </button>
                 </div>
-                
+
                 {/* Real-time Validation display */}
                 {isVerifyingSerial && (
                   <div className="flex items-center gap-1.5 mt-1.5 text-[10px] text-[#0077B6]">
@@ -814,7 +807,7 @@ export default function WebInstallerPage() {
                 <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                   Video of Installation*
                 </label>
-                
+
                 {videoPreview ? (
                   <div className="relative w-full h-32 bg-slate-900 border rounded-[6px] overflow-hidden">
                     <video src={videoPreview} controls className="w-full h-full object-contain" />
@@ -828,7 +821,7 @@ export default function WebInstallerPage() {
                   </div>
                 ) : (
                   <>
-                    <input 
+                    <input
                       type="file"
                       ref={videoInputRef}
                       onChange={handleVideoSelect}
@@ -852,7 +845,7 @@ export default function WebInstallerPage() {
                 <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                   Reference Site Photos
                 </label>
-                
+
                 {photoPreviews.length > 0 && (
                   <div className="grid grid-cols-3 gap-2 mb-2">
                     {photoPreviews.map((url, idx) => (
@@ -869,8 +862,8 @@ export default function WebInstallerPage() {
                     ))}
                   </div>
                 )}
-                
-                <input 
+
+                <input
                   type="file"
                   ref={fileInputRef}
                   onChange={handlePhotoSelect}
