@@ -1775,25 +1775,72 @@ export default function ApprovalsPage() {
                 </p>
                 {/* Parse video url from notes metadata */}
                 {(() => {
-                  const notesStr = selectedInstallation.notes || "";
-                  const match = notesStr.match(/VIDEO:([^\s|]+)/);
-                  const videoUrl = match ? match[1] : null;
+                  const notesStr = `${selectedInstallation.notes || ""} ${selectedInstallation.remarks || ""}`;
+                  const match = notesStr.match(/VIDEO:([^\s|]+)/i);
+                  const videoUrl = match ? match[1].trim() : null;
                   
-                  if (videoUrl) {
-                    const getFullVideoUrl = (urlStr: string) => {
-                      if (!urlStr) return "";
-                      if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
-                        return urlStr;
-                      }
-                      return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
-                    };
+                  if (!videoUrl) {
+                    return <p className="text-slate-400 italic bg-slate-50 py-3 rounded text-center text-xs">No installation video uploaded for this ticket.</p>;
+                  }
+
+                  const getFullVideoUrl = (urlStr: string) => {
+                    if (!urlStr) return "";
+                    if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
+                      return urlStr;
+                    }
+                    return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
+                  };
+
+                  const fullUrl = getFullVideoUrl(videoUrl);
+
+                  // 1. YouTube link support
+                  if (fullUrl.includes("youtube.com") || fullUrl.includes("youtu.be")) {
+                    let embedUrl = fullUrl;
+                    if (fullUrl.includes("watch?v=")) {
+                      embedUrl = fullUrl.replace("watch?v=", "embed/");
+                    } else if (fullUrl.includes("youtu.be/")) {
+                      embedUrl = fullUrl.replace("youtu.be/", "youtube.com/embed/");
+                    }
                     return (
-                      <div className="relative w-full h-44 bg-slate-900 rounded-[8px] overflow-hidden border">
-                        <video src={getFullVideoUrl(videoUrl)} controls className="w-full h-full object-contain" />
+                      <div className="relative w-full h-48 bg-slate-900 rounded-[8px] overflow-hidden border border-slate-800 shadow">
+                        <iframe
+                          src={embedUrl}
+                          className="w-full h-full border-0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
                       </div>
                     );
                   }
-                  return <p className="text-slate-400 italic bg-slate-55 py-3 rounded text-center">No installation video uploaded.</p>;
+
+                  // 2. Direct Video / MP4 / WEBM / Storage URL
+                  return (
+                    <div className="relative w-full rounded-[8px] overflow-hidden border border-slate-800 bg-slate-950 shadow space-y-1">
+                      <video
+                        src={fullUrl}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="w-full max-h-48 object-contain bg-black"
+                      >
+                        <source src={fullUrl} type="video/mp4" />
+                        <source src={fullUrl} type="video/webm" />
+                        <source src={fullUrl} type="video/quicktime" />
+                        Your browser does not support HTML5 video playback.
+                      </video>
+                      <div className="p-2 flex items-center justify-between text-[10px] bg-slate-900 text-slate-300 border-t border-slate-800">
+                        <span className="font-semibold text-cyan-400">Site Recording Player</span>
+                        <a
+                          href={fullUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2.5 py-1 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-[9px] font-bold rounded-[4px] shadow flex items-center gap-1 transition-all"
+                        >
+                          Watch / Stream Video ↗
+                        </a>
+                      </div>
+                    </div>
+                  );
                 })()}
               </div>
 

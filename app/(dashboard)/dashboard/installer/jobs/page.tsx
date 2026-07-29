@@ -953,25 +953,50 @@ export default function AdminJobsPage() {
                             <div className="space-y-2">
                               {realVideos.map((vUrl, vIdx) => {
                                 const fullVideoUrl = getFullMediaUrl(vUrl);
+                                
+                                // YouTube embed support
+                                if (fullVideoUrl.includes("youtube.com") || fullVideoUrl.includes("youtu.be")) {
+                                  let embedUrl = fullVideoUrl;
+                                  if (fullVideoUrl.includes("watch?v=")) {
+                                    embedUrl = fullVideoUrl.replace("watch?v=", "embed/");
+                                  } else if (fullVideoUrl.includes("youtu.be/")) {
+                                    embedUrl = fullVideoUrl.replace("youtu.be/", "youtube.com/embed/");
+                                  }
+                                  return (
+                                    <div key={vIdx} className="relative w-full h-52 bg-slate-900 rounded-[8px] overflow-hidden border border-slate-800 shadow">
+                                      <iframe
+                                        src={embedUrl}
+                                        className="w-full h-full border-0"
+                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                        allowFullScreen
+                                      />
+                                    </div>
+                                  );
+                                }
+
                                 return (
-                                  <div key={vIdx} className="bg-slate-900 rounded-[8px] overflow-hidden border border-slate-800 shadow">
+                                  <div key={vIdx} className="bg-slate-950 rounded-[8px] overflow-hidden border border-slate-800 shadow space-y-1">
                                     <video
                                       src={fullVideoUrl}
                                       controls
-                                      className="w-full max-h-48 object-contain bg-black"
-                                      poster="https://images.unsplash.com/photo-1509391365360-2e959784a276?w=600&q=80"
+                                      playsInline
+                                      preload="metadata"
+                                      className="w-full max-h-52 object-contain bg-black"
                                     >
+                                      <source src={fullVideoUrl} type="video/mp4" />
+                                      <source src={fullVideoUrl} type="video/webm" />
+                                      <source src={fullVideoUrl} type="video/quicktime" />
                                       Your browser does not support HTML5 video playback.
                                     </video>
-                                    <div className="p-2 flex items-center justify-between text-[10px] text-slate-300 bg-slate-950">
+                                    <div className="p-2 flex items-center justify-between text-[10px] text-slate-300 bg-slate-900 border-t border-slate-800">
                                       <span className="font-semibold text-cyan-400">Site Video Recording #{vIdx + 1}</span>
                                       <a
                                         href={fullVideoUrl}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="text-white hover:text-cyan-300 font-bold underline"
+                                        className="px-2.5 py-1 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-[9px] font-bold rounded-[4px] shadow flex items-center gap-1 transition-all"
                                       >
-                                        Open Fullscreen Video ↗
+                                        Watch / Stream Video ↗
                                       </a>
                                     </div>
                                   </div>
