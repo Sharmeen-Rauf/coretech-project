@@ -1784,10 +1784,27 @@ export default function ApprovalsPage() {
                 {(() => {
                   const notesStr = `${selectedInstallation.notes || ""} ${selectedInstallation.remarks || ""}`;
                   const match = notesStr.match(/VIDEO:([^\s|]+)/i);
-                  const videoUrl = match ? match[1].trim() : null;
+                  const rawVideoUrl = match ? match[1].trim() : null;
                   
+                  // Filter out sample test videos to ensure ONLY real technician video recordings appear
+                  const isSampleVideo = rawVideoUrl && (
+                    rawVideoUrl.includes("mixkit") ||
+                    rawVideoUrl.includes("zencdn") ||
+                    rawVideoUrl.includes("gtv-videos-bucket")
+                  );
+
+                  const videoUrl = isSampleVideo ? null : rawVideoUrl;
+
                   if (!videoUrl) {
-                    return <p className="text-slate-400 italic bg-slate-50 py-3 rounded text-center text-xs">No installation video uploaded for this ticket.</p>;
+                    return (
+                      <div className="text-center py-4 px-3 bg-slate-50 rounded-[6px] border border-slate-200 text-slate-500 space-y-1">
+                        <Video className="w-6 h-6 mx-auto text-slate-300" />
+                        <p className="text-xs font-bold text-slate-700">No Real Site Video Uploaded Yet</p>
+                        <p className="text-[10px] text-slate-400 leading-relaxed max-w-xs mx-auto">
+                          Technician has not recorded or uploaded a live site video for this installation ticket yet.
+                        </p>
+                      </div>
+                    );
                   }
 
                   const getFullVideoUrl = (urlStr: string) => {
@@ -1836,7 +1853,7 @@ export default function ApprovalsPage() {
                         Your browser does not support HTML5 video playback.
                       </video>
                       <div className="p-2 flex items-center justify-between text-[10px] bg-slate-900 text-slate-300 border-t border-slate-800">
-                        <span className="font-semibold text-cyan-400">Site Recording Player</span>
+                        <span className="font-semibold text-cyan-400">Technician Site Recording</span>
                         <button
                           type="button"
                           onClick={() => setActiveMediaModal({ type: "video", url: fullUrl, title: selectedInstallation.job_title })}

@@ -893,15 +893,27 @@ export default function AdminJobsPage() {
                     if (videoMatch) {
                       videoMatch.forEach((vStr) => {
                         const cleanUrl = vStr.replace(/VIDEO:/i, "").trim();
-                        if (cleanUrl) videoList.push(cleanUrl);
+                        if (
+                          cleanUrl &&
+                          !cleanUrl.includes("mixkit") &&
+                          !cleanUrl.includes("zencdn") &&
+                          !cleanUrl.includes("gtv-videos-bucket")
+                        ) {
+                          videoList.push(cleanUrl);
+                        }
                       });
                     }
 
-                    // Also check for direct .mp4/.mov/.webm URLs or data:video in rawPhotoList
+                    // Also check for direct .mp4/.mov/.webm URLs or data:video in rawPhotoList (excluding sample URLs)
                     const realVideos = [
                       ...videoList,
                       ...rawPhotoList.filter(
-                        (url) => typeof url === "string" && (url.includes(".mp4") || url.includes(".mov") || url.includes(".webm") || url.startsWith("data:video/"))
+                        (url) =>
+                          typeof url === "string" &&
+                          !url.includes("mixkit") &&
+                          !url.includes("zencdn") &&
+                          !url.includes("gtv-videos-bucket") &&
+                          (url.includes(".mp4") || url.includes(".mov") || url.includes(".webm") || url.startsWith("data:video/"))
                       )
                     ];
 
