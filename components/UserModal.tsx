@@ -47,6 +47,7 @@ export default function UserModal({
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dbWarehouses, setDbWarehouses] = useState<string[]>([]);
+  const [systemRegions, setSystemRegions] = useState<{ id: string; name: string; region_code: string; warehouse: string }[]>([]);
 
   const formatCNIC = (value: string) => {
     const clean = value.replace(/\D/g, "");
@@ -56,7 +57,7 @@ export default function UserModal({
   };
 
   useEffect(() => {
-    const loadWHs = async () => {
+    const loadRegionsAndWHs = async () => {
       let dbData: any[] = [];
       try {
         const res = await fetchRecordsAction("regions");
@@ -64,13 +65,21 @@ export default function UserModal({
           dbData = res.data;
         }
       } catch (err) {
-        console.warn("Failed to load warehouses for dropdown", err);
+        console.warn("Failed to load regions for dropdown", err);
       }
       const merged = mergeLocalItems(dbData, "coretech_local_regions");
+      const formatted = merged.map((r: any) => ({
+        id: r.id || r.region_code || r.name,
+        name: r.name || r.region_code || "",
+        region_code: r.region_code || "",
+        warehouse: r.warehouse || "",
+      })).filter((r: any) => r.name);
+      setSystemRegions(formatted);
+
       const names = Array.from(new Set(merged.map((r: any) => r.warehouse).filter(Boolean))) as string[];
       setDbWarehouses(names);
     };
-    loadWHs();
+    loadRegionsAndWHs();
   }, []);
 
   useEffect(() => {
@@ -304,15 +313,25 @@ export default function UserModal({
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Region
+                    System Region
                   </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Lahore Central"
+                  <select
                     value={region}
-                    onChange={(e) => setRegion(e.target.value)}
-                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
-                  />
+                    onChange={(e) => {
+                      const sel = e.target.value;
+                      setRegion(sel);
+                      const matched = systemRegions.find(r => r.name === sel);
+                      if (matched && matched.warehouse) setWarehouse(matched.warehouse);
+                    }}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white font-semibold"
+                  >
+                    <option value="">Select Region</option>
+                    {systemRegions.map((reg) => (
+                      <option key={reg.id || reg.name} value={reg.name}>
+                        {reg.name} ({reg.region_code})
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
@@ -535,14 +554,20 @@ export default function UserModal({
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Region
+                  System Region
                 </label>
-                <input
-                  type="text"
+                <select
                   value={region}
                   onChange={(e) => setRegion(e.target.value)}
-                  className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
-                />
+                  className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white font-semibold"
+                >
+                  <option value="">Select Region</option>
+                  {systemRegions.map((reg) => (
+                    <option key={reg.id || reg.name} value={reg.name}>
+                      {reg.name} ({reg.region_code})
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="col-span-2">
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
@@ -735,6 +760,31 @@ export default function UserModal({
                     <option value="marketing_manager">MARKETING MANAGER</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Assigned Region {group === "rsm" ? "*" : ""}
+                  </label>
+                  <select
+                    value={region}
+                    onChange={(e) => {
+                      const sel = e.target.value;
+                      setRegion(sel);
+                      const matched = systemRegions.find(r => r.name === sel);
+                      if (matched && matched.warehouse) setWarehouse(matched.warehouse);
+                    }}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white font-semibold"
+                  >
+                    <option value="">Select Region</option>
+                    {systemRegions.map((reg) => (
+                      <option key={reg.id || reg.name} value={reg.name}>
+                        {reg.name} ({reg.region_code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                     Status

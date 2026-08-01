@@ -46,13 +46,33 @@ export default function RegionPage() {
     } catch (err: any) {
       console.warn("Regions fetch failed.", err);
     }
+
+    // Fetch user profiles to compute live counts per region
+    let profilesList: any[] = [];
+    try {
+      const { data: profs } = await supabase.from("profiles").select("role, group_name, region");
+      if (profs) profilesList = profs;
+    } catch (e) {
+      console.warn("Failed to fetch profiles for region count", e);
+    }
  
     // Merge database items with local storage custom items
     const merged = mergeLocalItems(dbData, "coretech_local_regions");
-    const formatted = merged.map((r: any, idx: number) => ({
-      ...r,
-      id: r.id || r.region_code || `local-${idx}`,
-    }));
+    const formatted = merged.map((r: any, idx: number) => {
+      const regNameLower = (r.name || "").toLowerCase().trim();
+      const matchedProfiles = profilesList.filter((p: any) => (p.region || "").toLowerCase().trim() === regNameLower);
+      const rsmCount = matchedProfiles.filter((p: any) => p.role === "rsm" || p.group_name === "rsm").length;
+      const distCount = matchedProfiles.filter((p: any) => p.role === "distributor").length;
+      const subDealerCount = matchedProfiles.filter((p: any) => p.role === "sub_dealer" || p.role === "dealer").length;
+
+      return {
+        ...r,
+        id: r.id || r.region_code || `local-${idx}`,
+        rsm_count: rsmCount,
+        distributors: distCount || r.distributors || 0,
+        sub_dealers: subDealerCount || r.sub_dealers || 0,
+      };
+    });
     setRegions(formatted);
     setIsLoading(false);
   };
@@ -186,6 +206,7 @@ export default function RegionPage() {
     { key: "region_code", label: "Region Code" },
     { key: "name", label: "Region Name" },
     { key: "warehouse", label: "Primary Warehouse" },
+    { key: "rsm_count", label: "Assigned RSMs" },
     { key: "distributors", label: "Distributors Count" },
     { key: "sub_dealers", label: "Sub Dealers Count" },
     {

@@ -47,18 +47,23 @@ export default function BuzzcartOrdersPage() {
       if (!session) return;
  
       let roleStr = "sub_dealer";
+      let userRegion = "";
       try {
         const { data: profile } = await supabase
           .from("profiles")
-          .select("role")
+          .select("role, group_name, region")
           .eq("id", session.user.id)
           .single();
         if (profile?.role) roleStr = profile.role;
+        if (profile?.group_name === "rsm" || profile?.role === "rsm") {
+          roleStr = "rsm";
+          userRegion = profile.region || "";
+        }
       } catch (profileErr) {
         console.warn("Failed to fetch user role. Defaulting to sub_dealer.", profileErr);
       }
       setUserRole(roleStr);
- 
+
       let dbData: any[] = [];
       try {
         let query = supabase
@@ -68,20 +73,25 @@ export default function BuzzcartOrdersPage() {
             order_code,
             created_at,
             status,
-            user:profiles!user_id(first_name, last_name),
+            user_id,
+            distributor_id,
+            sales_coordinator_id,
+            user:profiles!user_id(first_name, last_name, region),
             product:products(name),
-            distributor:profiles!distributor_id(first_name, last_name),
+            distributor:profiles!distributor_id(first_name, last_name, region),
             coordinator:profiles!sales_coordinator_id(first_name, last_name)
           `);
- 
+
         if (roleStr === "distributor") {
           query = query.eq("distributor_id", session.user.id);
+        } else if (roleStr === "rsm") {
+          query = query.or(`sales_coordinator_id.eq.${session.user.id},distributor.region.ilike.%${userRegion}%`);
         } else if (roleStr === "employee") {
           query = query.eq("sales_coordinator_id", session.user.id);
         } else if (roleStr === "sub_dealer") {
           query = query.eq("user_id", session.user.id);
         }
- 
+
         const { data, error } = await query.order("created_at", { ascending: false });
         if (error) throw error;
         dbData = data || [];

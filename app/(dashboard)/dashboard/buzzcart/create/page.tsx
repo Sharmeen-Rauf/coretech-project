@@ -118,7 +118,7 @@ export default function CreateOrderPage() {
         try {
           const { data: fullProfileData, error: profileErr } = await supabase
             .from("profiles")
-            .select("id, first_name, last_name, role, rsm_id, warehouse");
+            .select("id, first_name, last_name, role, group_name, rsm_id, warehouse, region");
 
           if (profileErr) throw profileErr;
           profileData = fullProfileData || [];
@@ -133,12 +133,14 @@ export default function CreateOrderPage() {
             profileData = (basicProfileData || []).map((p: any) => {
               let rsmId: string | undefined = undefined;
               let wh: string | undefined = undefined;
+              let reg: string | undefined = undefined;
 
               if (p.designation && p.designation.startsWith("[DISTRIBUTOR_METADATA]")) {
                 try {
                   const meta = JSON.parse(p.designation.substring(22));
                   wh = meta.warehouse;
                   rsmId = meta.rsmId || meta.rsm_id;
+                  reg = meta.region;
                 } catch (e) {
                   // Ignore
                 }
@@ -151,6 +153,7 @@ export default function CreateOrderPage() {
                 role: p.role,
                 rsm_id: rsmId,
                 warehouse: wh,
+                region: reg,
               };
             });
           } catch (basicErr) {
@@ -161,21 +164,31 @@ export default function CreateOrderPage() {
         const profiles: Profile[] = profileData;
 
         // Identify current user's profile
-        const activeProfile = profiles.find(p => p.id === currentUserId) || null;
+        const activeProfile: any = profiles.find(p => p.id === currentUserId) || null;
         setCurrentRsm(activeProfile);
 
-        // Filter employees (role === "employee" || role === "admin")
+        // Filter employees (role === "employee" || role === "rsm" || role === "admin")
         const emps = profiles.filter(
-          p => p.role === "employee" || p.role === "admin"
+          p => p.role === "employee" || p.role === "rsm" || p.role === "admin"
         );
         setEmployees(emps);
 
+        // Check if logged-in user is an RSM
+        const isRsmUser = activeProfile && (activeProfile.role === "rsm" || (activeProfile as any).group_name === "rsm");
+        const rsmRegion = (activeProfile?.region || "").toLowerCase().trim();
+
         // Filter sub dealers (role === "sub_dealer")
-        const subDs = profiles.filter(p => p.role === "sub_dealer");
+        let subDs = profiles.filter(p => p.role === "sub_dealer");
+        if (isRsmUser && rsmRegion) {
+          subDs = subDs.filter(p => !p.region || (p.region || "").toLowerCase().trim() === rsmRegion);
+        }
         setSubDealers(subDs);
 
         // Filter distributors
-        const dists = profiles.filter(p => p.role === "distributor");
+        let dists = profiles.filter(p => p.role === "distributor");
+        if (isRsmUser && rsmRegion) {
+          dists = dists.filter(p => !p.region || (p.region || "").toLowerCase().trim() === rsmRegion);
+        }
         setDistributors(dists);
 
         // 3. Fetch products

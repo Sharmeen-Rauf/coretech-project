@@ -37,6 +37,26 @@ export default function UsersPage() {
 
   const perPage = 10;
 
+  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
+
+  useEffect(() => {
+    const checkCurrentUserRole = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .single();
+        if (prof) setCurrentUserProfile(prof);
+      } catch (e) {
+        console.warn("Failed to fetch session profile", e);
+      }
+    };
+    checkCurrentUserRole();
+  }, [supabase]);
+
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
@@ -64,8 +84,8 @@ export default function UsersPage() {
         console.warn("Failed to fetch allowed_users for emails", e);
       }
 
-      // 3. Resolve actual user email addresses
-      const formattedProfiles = (profiles || []).map((prof: any) => {
+      // 3. Resolve actual user email addresses & region filtering
+      let formattedProfiles = (profiles || []).map((prof: any) => {
         let actualEmail = prof.email || allowedMap.get(prof.id) || "";
 
         // Check nested metadata for email if not found
@@ -99,6 +119,17 @@ export default function UsersPage() {
           email: actualEmail,
         };
       });
+
+      // 4. Strict Regional Data Isolation for RSM Users
+      const isRsmUser = currentUserProfile && (currentUserProfile.role === "rsm" || currentUserProfile.group_name === "rsm");
+      if (isRsmUser && currentUserProfile.region) {
+        const rsmRegionLower = currentUserProfile.region.toLowerCase().trim();
+        formattedProfiles = formattedProfiles.filter((u: any) => {
+          if (u.id === currentUserProfile.id) return true;
+          const uRegionLower = (u.region || "").toLowerCase().trim();
+          return uRegionLower === rsmRegionLower;
+        });
+      }
 
       setUsers(formattedProfiles);
     } catch (err: any) {

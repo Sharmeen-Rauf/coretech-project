@@ -144,6 +144,26 @@ export default function InstallerListPage() {
     }
   };
 
+  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
+
+  useEffect(() => {
+    const checkCurrentUserRole = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .single();
+        if (prof) setCurrentUserProfile(prof);
+      } catch (e) {
+        console.warn("Failed to fetch session profile", e);
+      }
+    };
+    checkCurrentUserRole();
+  }, [supabase]);
+
   const fetchInstallers = async () => {
     setIsLoading(true);
     try {
@@ -165,7 +185,7 @@ export default function InstallerListPage() {
       const localProfiles = getLocalItems("profiles") || [];
       const localInstallers = localProfiles.filter((p: any) => p.role === "installer");
 
-      const merged = [...formatted];
+      let merged = [...formatted];
       localInstallers.forEach((local) => {
         if (!merged.some(db => db.id === local.id)) {
           merged.push({
@@ -175,6 +195,16 @@ export default function InstallerListPage() {
           });
         }
       });
+
+      // Strict Regional Data Isolation for RSM Users
+      const isRsmUser = currentUserProfile && (currentUserProfile.role === "rsm" || currentUserProfile.group_name === "rsm");
+      if (isRsmUser && currentUserProfile.region) {
+        const rsmRegionLower = currentUserProfile.region.toLowerCase().trim();
+        merged = merged.filter((item: any) => {
+          const itemRegionLower = (getInstallerField(item, "region") || item.region || "").toLowerCase().trim();
+          return !itemRegionLower || itemRegionLower === rsmRegionLower;
+        });
+      }
 
       setInstallers(merged);
     } catch (err: any) {
