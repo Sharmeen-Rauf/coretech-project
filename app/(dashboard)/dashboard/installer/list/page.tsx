@@ -439,13 +439,21 @@ export default function InstallerListPage() {
     }
   ];
 
-  // Compute metrics based on date range
+  // Compute metrics based on date range & 2-stage approval workflow
   const registeredCount = installers.filter(item => {
     if (!startDate && !endDate) return true;
     return isInDateRange(item.created_at);
   }).length;
 
-  const verifiedCount = installers.filter(item => {
+  const pendingRmCount = installers.filter(item => {
+    if (item.status === "pending_verification" || item.status === "pending") {
+      if (!startDate && !endDate) return true;
+      return isInDateRange(item.created_at);
+    }
+    return false;
+  }).length;
+
+  const pendingChCount = installers.filter(item => {
     if (item.status === "pending_approval" || item.status === "verified" || item.verified_at) {
       if (!startDate && !endDate) return true;
       return isInDateRange(item.verified_at || item.created_at);
@@ -547,34 +555,64 @@ export default function InstallerListPage() {
         </div>
       </div>
 
-      {/* KPI summaries row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="bg-white border border-slate-200 rounded-[12px] p-4 shadow-sm flex items-center gap-4">
+      {/* KPI summaries row with interactive filtering */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div
+          onClick={() => setStatusFilter("")}
+          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-[#00B4D8] transition-all ${
+            !statusFilter ? "border-[#00B4D8] bg-[#F0FAFE]/40 ring-2 ring-[#00B4D8]/20" : "border-slate-200"
+          }`}
+        >
           <div className="p-2.5 bg-[#F0FAFE] text-[#00B4D8] rounded-[8px]">
             <UserCheck className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Registered</p>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Total Registered</p>
             <p className="text-base font-extrabold text-slate-800">{registeredCount} Installer(s)</p>
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-[12px] p-4 shadow-sm flex items-center gap-4">
+        <div
+          onClick={() => setStatusFilter("pending_verification")}
+          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-amber-400 transition-all ${
+            statusFilter === "pending_verification" ? "border-amber-400 bg-amber-50/40 ring-2 ring-amber-400/20" : "border-slate-200"
+          }`}
+        >
           <div className="p-2.5 bg-amber-50 text-amber-600 rounded-[8px]">
             <Clock className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Verified</p>
-            <p className="text-base font-extrabold text-slate-800">{verifiedCount} Installer(s)</p>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 1: Pending RM</p>
+            <p className="text-base font-extrabold text-slate-800">{pendingRmCount} Installer(s)</p>
           </div>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-[12px] p-4 shadow-sm flex items-center gap-4">
+        <div
+          onClick={() => setStatusFilter("pending_approval")}
+          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-sky-400 transition-all ${
+            statusFilter === "pending_approval" || statusFilter === "verified" ? "border-sky-400 bg-sky-50/40 ring-2 ring-sky-400/20" : "border-slate-200"
+          }`}
+        >
+          <div className="p-2.5 bg-sky-50 text-sky-600 rounded-[8px]">
+            <UserCheck className="w-4 h-4" />
+          </div>
+          <div>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 2: Pending CH</p>
+            <p className="text-base font-extrabold text-slate-800">{pendingChCount} Installer(s)</p>
+          </div>
+        </div>
+
+        <div
+          onClick={() => setStatusFilter("active")}
+          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-emerald-400 transition-all ${
+            statusFilter === "active" || statusFilter === "approved" ? "border-emerald-400 bg-emerald-50/40 ring-2 ring-emerald-400/20" : "border-slate-200"
+          }`}
+        >
           <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-[8px]">
             <Check className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Approved</p>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Active Approved</p>
             <p className="text-base font-extrabold text-slate-800">{approvedCount} Installer(s)</p>
           </div>
         </div>
