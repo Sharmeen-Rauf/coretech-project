@@ -351,6 +351,7 @@ export default function InstallerListPage() {
           }`}>
             {status === "pending_verification" || status === "pending" ? "Pending RM" :
              status === "pending_approval" || status === "verified" ? "Pending CH" :
+             status === "approved" || status === "active" ? "ACTIVE" :
              status}
           </span>
         </div>
@@ -722,11 +723,11 @@ export default function InstallerListPage() {
                       ? "bg-sky-100 text-sky-700 border border-sky-300 animate-pulse"
                       : selectedInstaller.status === "rejected"
                       ? "bg-rose-100 text-rose-700 border border-rose-300"
-                      : selectedInstaller.status === "approved"
+                      : selectedInstaller.status === "approved" || selectedInstaller.status === "active"
                       ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
                       : "bg-slate-100 text-slate-400 border border-slate-200"
                   }`}>
-                    {selectedInstaller.status === "approved" ? "✓" : selectedInstaller.status === "rejected" ? "✗" : "3"}
+                    {selectedInstaller.status === "approved" || selectedInstaller.status === "active" ? "✓" : selectedInstaller.status === "rejected" ? "✗" : "3"}
                   </span>
                   <div>
                     <p className="font-bold text-slate-800">Stage 2: Country Head Approval</p>
