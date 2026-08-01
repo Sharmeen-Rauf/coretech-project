@@ -227,8 +227,16 @@ export default function InstallerListPage() {
   };
 
   const filtered = installers.filter((item) => {
-    if (statusFilter && item.status !== statusFilter) {
-      return false;
+    if (statusFilter) {
+      if (statusFilter === "active" || statusFilter === "approved") {
+        if (item.status !== "active" && item.status !== "approved") return false;
+      } else if (statusFilter === "pending_approval" || statusFilter === "verified") {
+        if (item.status !== "pending_approval" && item.status !== "verified") return false;
+      } else if (statusFilter === "pending_verification" || statusFilter === "pending") {
+        if (item.status !== "pending_verification" && item.status !== "pending") return false;
+      } else if (item.status !== statusFilter) {
+        return false;
+      }
     }
     if (startDate) {
       const startVal = new Date(startDate).getTime();
@@ -256,35 +264,40 @@ export default function InstallerListPage() {
 
   const parseInstallerMetadata = (metadataStr: string) => {
     if (!metadataStr) return {};
-    let clean = metadataStr;
-    if (clean.includes("INSTALLER_METADATA")) {
-      clean = clean.replace("[DISTRIBUTOR_METADATA]", "");
+    
+    const extractJson = (str: string): any => {
+      if (!str || typeof str !== "string") return {};
+      let s = str.trim();
+      if (s.includes("[DISTRIBUTOR_METADATA]")) {
+        s = s.replace("[DISTRIBUTOR_METADATA]", "").trim();
+      }
+      if (s.includes("[INSTALLER_METADATA]")) {
+        s = s.replace("[INSTALLER_METADATA]", "").trim();
+      }
       try {
-        const outer = JSON.parse(clean);
-        const inner = outer.designation || "";
-        if (inner.startsWith("[INSTALLER_METADATA]")) {
-          return JSON.parse(inner.replace("[INSTALLER_METADATA]", ""));
+        const parsed = JSON.parse(s);
+        let nested: any = {};
+        if (parsed.designation && typeof parsed.designation === "string" && (parsed.designation.includes("{") || parsed.designation.includes("["))) {
+          nested = extractJson(parsed.designation);
         }
-        return outer;
+        return { ...parsed, ...nested };
       } catch (e) {
         return {};
       }
-    }
-    if (clean.startsWith("[DISTRIBUTOR_METADATA]")) {
-      try {
-        return JSON.parse(clean.replace("[DISTRIBUTOR_METADATA]", ""));
-      } catch (e) {
-        return {};
-      }
-    }
-    return { designation: metadataStr };
+    };
+
+    return extractJson(metadataStr);
   };
 
   const getInstallerField = (installer: any, fieldKey: string) => {
     if (!installer) return "-";
+    // 1. Direct property check on profile row
+    if (installer[fieldKey] && String(installer[fieldKey]).trim() !== "") return installer[fieldKey];
+    
+    // 2. Parsed JSON metadata check
     const meta = parseInstallerMetadata(installer.designation);
-    if (meta[fieldKey]) return meta[fieldKey];
-    if (installer[fieldKey]) return installer[fieldKey];
+    if (meta && meta[fieldKey] && String(meta[fieldKey]).trim() !== "") return meta[fieldKey];
+    
     return "-";
   };
 
@@ -433,15 +446,19 @@ export default function InstallerListPage() {
   }).length;
 
   const verifiedCount = installers.filter(item => {
-    if (!item.verified_at) return false;
-    if (!startDate && !endDate) return true;
-    return isInDateRange(item.verified_at);
+    if (item.status === "pending_approval" || item.status === "verified" || item.verified_at) {
+      if (!startDate && !endDate) return true;
+      return isInDateRange(item.verified_at || item.created_at);
+    }
+    return false;
   }).length;
 
   const approvedCount = installers.filter(item => {
-    if (!item.approved_at) return false;
-    if (!startDate && !endDate) return true;
-    return isInDateRange(item.approved_at);
+    if (item.status === "active" || item.status === "approved" || item.approved_at) {
+      if (!startDate && !endDate) return true;
+      return isInDateRange(item.approved_at || item.created_at);
+    }
+    return false;
   }).length;
 
   return (
@@ -576,7 +593,7 @@ export default function InstallerListPage() {
         filters={[
           {
             label: "Status",
-            options: ["approved", "pending_verification", "pending_approval", "rejected"],
+            options: ["active", "approved", "pending_verification", "pending_approval", "rejected"],
             value: statusFilter,
             onChange: (val) => {
               setStatusFilter(val);
