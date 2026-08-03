@@ -60,28 +60,27 @@ export default function UsersPage() {
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch profiles
       let query = supabase.from("profiles").select("*");
       if (activeRole === "employee") {
         query = query.in("role", ["employee", "rsm", "country_head", "retail_manager", "admin", "marketing_manager"]);
       } else {
         query = query.eq("role", activeRole);
       }
-      const { data: profiles, error } = await query.order("created_at", { ascending: false });
 
-      if (error) throw error;
+      // Parallel execution of profiles and allowed_users whitelist
+      const [profilesRes, allowedRes] = await Promise.all([
+        query.order("created_at", { ascending: false }),
+        supabase.from("allowed_users").select("id, email")
+      ]);
 
-      // 2. Fetch allowed_users email whitelist
+      if (profilesRes.error) throw profilesRes.error;
+      const profiles = profilesRes.data || [];
+
       let allowedMap = new Map<string, string>();
-      try {
-        const { data: allowedList } = await supabase.from("allowed_users").select("id, email");
-        if (allowedList) {
-          allowedList.forEach((u: any) => {
-            if (u.id && u.email) allowedMap.set(u.id, u.email.trim());
-          });
-        }
-      } catch (e) {
-        console.warn("Failed to fetch allowed_users for emails", e);
+      if (allowedRes.data) {
+        allowedRes.data.forEach((u: any) => {
+          if (u.id && u.email) allowedMap.set(u.id, u.email.trim());
+        });
       }
 
       // 3. Resolve actual user email addresses & region filtering

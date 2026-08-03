@@ -80,6 +80,12 @@ export default function Topbar() {
       }
     };
 
+    // Instant cache check for zero delay rendering
+    try {
+      const cached = sessionStorage.getItem("coretech_user_profile");
+      if (cached) setProfile(JSON.parse(cached));
+    } catch (e) {}
+
     const fetchUserProfile = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -92,10 +98,12 @@ export default function Topbar() {
           .single();
 
         if (error) throw error;
-        setProfile({
+        const fullProf = {
           ...data,
           email: session.user.email,
-        });
+        };
+        setProfile(fullProf);
+        try { sessionStorage.setItem("coretech_user_profile", JSON.stringify(fullProf)); } catch (e) {}
       } catch (err: any) {
         console.warn("Failed to fetch user profile in Topbar", err.message);
       }

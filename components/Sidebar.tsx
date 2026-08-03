@@ -44,10 +44,16 @@ export default function Sidebar() {
   });
 
   useEffect(() => {
+    // Instant cache check for zero delay navigation
+    try {
+      const cached = sessionStorage.getItem("coretech_user_role");
+      if (cached) setUserRole(cached);
+    } catch (e) {}
+
     const fetchUserRole = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
         const { data: profile } = await supabase
           .from("profiles")
           .select("role")
@@ -55,13 +61,14 @@ export default function Sidebar() {
           .single();
         if (profile?.role) {
           setUserRole(profile.role);
+          try { sessionStorage.setItem("coretech_user_role", profile.role); } catch (e) {}
         }
       } catch (err) {
         console.warn("Failed to fetch sidebar user role", err);
       }
     };
     fetchUserRole();
-  }, [supabase]);
+  }, []);
 
   const toggleMenu = (key: string) => {
     setOpenMenus((prev) => ({ ...prev, [key]: !prev[key] }));

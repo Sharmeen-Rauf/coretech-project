@@ -191,18 +191,14 @@ export default function CreateOrderPage() {
         }
         setDistributors(dists);
 
-        // 3. Fetch products
-        let dbProds: any[] = [];
-        try {
-          const { data: prodData, error: prodErr } = await supabase
-            .from("products")
-            .select("id, name, model, price");
-          if (prodErr) throw prodErr;
-          dbProds = prodData || [];
-        } catch (dbErr) {
-          console.warn("Failed to fetch products. Using local fallback.", dbErr);
-        }
-        
+        // 3. Parallel fetch of products, stock, and region warehouses
+        const [prodRes, stockRes, regionRes] = await Promise.all([
+          supabase.from("products").select("id, name, model, price"),
+          supabase.from("stock").select("product_id, quantity, warehouse_name"),
+          fetchRecordsAction("regions")
+        ]);
+
+        const dbProds = prodRes.data || [];
         const mergedProds = mergeLocalItems(dbProds, "coretech_local_products");
         setProducts(mergedProds);
 
@@ -213,30 +209,14 @@ export default function CreateOrderPage() {
         });
         setOrderItems(initialItems);
 
-        // 4. Fetch stock
-        let dbStock: any[] = [];
-        try {
-          const { data: stockList, error: stockErr } = await supabase
-            .from("stock")
-            .select("product_id, quantity, warehouse_name");
-          if (stockErr) throw stockErr;
-          dbStock = stockList || [];
-        } catch (dbErr) {
-          console.warn("Failed to fetch stock. Using local fallback.", dbErr);
-        }
+        const dbStock = stockRes.data || [];
         const localStock = getLocalItems("coretech_local_stock");
         const mergedStock = [...dbStock, ...localStock];
         setStockData(mergedStock);
 
-        // Fetch unique warehouses from regions
         let dbWarehouses: string[] = [];
-        try {
-          const res = await fetchRecordsAction("regions");
-          if (res.success && res.data) {
-            dbWarehouses = Array.from(new Set(res.data.map((r: any) => r.warehouse).filter(Boolean))) as string[];
-          }
-        } catch (e) {
-          console.warn("Failed to fetch regions for unique warehouses", e);
+        if (regionRes.success && regionRes.data) {
+          dbWarehouses = Array.from(new Set(regionRes.data.map((r: any) => r.warehouse).filter(Boolean))) as string[];
         }
 
         const localRegions = getLocalItems("coretech_local_regions");

@@ -6,10 +6,11 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  swcMinify: false,
+  swcMinify: true,
+  compress: true,
+  reactStrictMode: false,
   experimental: {
-    cpus: 1,
-    workerThreads: false,
+    optimizePackageImports: ["lucide-react"],
   },
 };
 

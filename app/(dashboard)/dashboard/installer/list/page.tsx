@@ -127,42 +127,39 @@ export default function InstallerListPage() {
     fetchAuditUserNames();
   }, [selectedInstaller]);
 
-  const fetchUserLookup = async () => {
-    try {
-      const { data } = await supabase
-        .from("profiles")
-        .select("id, first_name, last_name");
-      if (data) {
-        const lookup: Record<string, string> = {};
-        data.forEach((u) => {
-          lookup[u.id] = `${u.first_name} ${u.last_name || ""}`.trim();
-        });
-        setUserLookup(lookup);
-      }
-    } catch (e) {
-      console.warn("Failed to fetch user lookup:", e);
-    }
-  };
-
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
 
   useEffect(() => {
-    const checkCurrentUserRole = async () => {
+    const initPageData = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-        const { data: prof } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single();
-        if (prof) setCurrentUserProfile(prof);
+        const [profilesRes, sessionRes] = await Promise.all([
+          supabase.from("profiles").select("id, first_name, last_name"),
+          supabase.auth.getSession()
+        ]);
+
+        if (profilesRes.data) {
+          const lookup: Record<string, string> = {};
+          profilesRes.data.forEach((u) => {
+            lookup[u.id] = `${u.first_name} ${u.last_name || ""}`.trim();
+          });
+          setUserLookup(lookup);
+        }
+
+        const session = sessionRes.data?.session;
+        if (session) {
+          const { data: prof } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", session.user.id)
+            .single();
+          if (prof) setCurrentUserProfile(prof);
+        }
       } catch (e) {
-        console.warn("Failed to fetch session profile", e);
+        console.warn("Failed to initialize installer list page data:", e);
       }
     };
-    checkCurrentUserRole();
-  }, [supabase]);
+    initPageData();
+  }, []);
 
   const fetchInstallers = async () => {
     setIsLoading(true);
