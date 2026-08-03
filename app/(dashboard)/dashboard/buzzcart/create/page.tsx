@@ -113,63 +113,55 @@ export default function CreateOrderPage() {
         }
         const currentUserId = session.user.id;
 
-        // 2. Fetch profiles with resilient fallback
-        let profileData: any[] = [];
+        // 2. Fetch profiles with resilient fallback & local storage merge
+        let rawProfiles: any[] = [];
         try {
-          const { data: fullProfileData, error: profileErr } = await supabase
+          const { data, error } = await supabase
             .from("profiles")
-            .select("id, first_name, last_name, role, group_name, rsm_id, warehouse, region");
-
-          if (profileErr) throw profileErr;
-          profileData = fullProfileData || [];
-        } catch (profileErr) {
-          console.warn("Profiles schema missing columns. Falling back to metadata extraction.", profileErr);
-          try {
-            const { data: basicProfileData, error: basicErr } = await supabase
-              .from("profiles")
-              .select("id, first_name, last_name, role, designation");
-            
-            if (basicErr) throw basicErr;
-            profileData = (basicProfileData || []).map((p: any) => {
-              let rsmId: string | undefined = undefined;
-              let wh: string | undefined = undefined;
-              let reg: string | undefined = undefined;
-
-              if (p.designation && p.designation.startsWith("[DISTRIBUTOR_METADATA]")) {
-                try {
-                  const meta = JSON.parse(p.designation.substring(22));
-                  wh = meta.warehouse;
-                  rsmId = meta.rsmId || meta.rsm_id;
-                  reg = meta.region;
-                } catch (e) {
-                  // Ignore
-                }
-              }
-
-              return {
-                id: p.id,
-                first_name: p.first_name,
-                last_name: p.last_name,
-                role: p.role,
-                rsm_id: rsmId,
-                warehouse: wh,
-                region: reg,
-              };
-            });
-          } catch (basicErr) {
-            console.error("Failed to read profiles from Supabase. Defaulting to mock.", basicErr);
-          }
+            .select("*");
+          if (!error && data) rawProfiles = data;
+        } catch (e) {
+          console.warn("Failed to query full profiles table, falling back", e);
         }
 
-        const profiles: Profile[] = profileData;
+        // Merge local storage items
+        const mergedLocal = mergeLocalItems(rawProfiles, "coretech_local_users");
+        const extraLocal = getLocalItems("profiles") || [];
+        
+        let allProfilesMap = new Map<string, any>();
+        [...mergedLocal, ...extraLocal].forEach((p: any) => {
+          if (p && p.id) {
+            let rsmId = p.rsm_id;
+            let wh = p.warehouse;
+            let reg = p.region;
+
+            if ((!reg || !wh) && typeof p.designation === "string" && p.designation.includes("DISTRIBUTOR_METADATA")) {
+              try {
+                const meta = JSON.parse(p.designation.replace("[DISTRIBUTOR_METADATA]", ""));
+                if (!reg) reg = meta.region;
+                if (!wh) wh = meta.warehouse;
+                if (!rsmId) rsmId = meta.rsmId || meta.rsm_id;
+              } catch (e) {}
+            }
+
+            allProfilesMap.set(p.id, {
+              ...p,
+              rsm_id: rsmId,
+              warehouse: wh,
+              region: reg,
+            });
+          }
+        });
+
+        const profiles: Profile[] = Array.from(allProfilesMap.values());
 
         // Identify current user's profile
         const activeProfile: any = profiles.find(p => p.id === currentUserId) || null;
         setCurrentRsm(activeProfile);
 
-        // Filter employees (role === "employee" || role === "rsm" || role === "admin")
+        // Filter employees (role === "employee" || role === "rsm" || role === "admin" || role === "country_head")
         const emps = profiles.filter(
-          p => p.role === "employee" || p.role === "rsm" || p.role === "admin"
+          p => p.role === "employee" || p.role === "rsm" || p.role === "admin" || p.role === "country_head"
         );
         setEmployees(emps);
 
@@ -177,7 +169,7 @@ export default function CreateOrderPage() {
         const isRsmUser = activeProfile && (activeProfile.role === "rsm" || (activeProfile as any).group_name === "rsm");
         const rsmRegion = (activeProfile?.region || "").toLowerCase().trim();
 
-        // Filter sub dealers (role === "sub_dealer")
+        // Filter sub dealers
         let subDs = profiles.filter(p => p.role === "sub_dealer");
         if (isRsmUser && rsmRegion) {
           subDs = subDs.filter(p => !p.region || (p.region || "").toLowerCase().trim() === rsmRegion);
@@ -383,6 +375,8 @@ export default function CreateOrderPage() {
       const dRegion = (d.region || "").toLowerCase().trim();
       const dWH = (d.warehouse || "").toLowerCase().trim();
 
+      if (!dRegion && !dWH) return true; // Include unassigned / freshly created distributors
+
       if (empRegion && dRegion) {
         if (dRegion === empRegion || dRegion.includes(empRegion) || empRegion.includes(dRegion)) return true;
       }
@@ -392,7 +386,7 @@ export default function CreateOrderPage() {
       return false;
     });
 
-    return filtered;
+    return filtered.length > 0 ? filtered : distributors;
   };
 
   // Add product to selections
