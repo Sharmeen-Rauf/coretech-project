@@ -312,10 +312,10 @@ export default function Sidebar() {
                   Home
                 </Link>
 
-                {/* Invoices */}
-                <Link href="/dashboard/invoices" className={linkClass("/dashboard/invoices")}>
+                {/* Expenses */}
+                <Link href="/dashboard/expenses" className={linkClass("/dashboard/expenses")}>
                   <CreditCard className="w-4 h-4 mr-3" />
-                  Invoices & Payments
+                  Expenses
                 </Link>
               </>
             ) : userRole === "rsm" ? (

@@ -186,7 +186,7 @@ export async function middleware(request: NextRequest) {
       }
     } else if (role === 'marketing_manager') {
       const allowedMarketingPrefixes = [
-        '/dashboard/invoices',
+        '/dashboard/expenses',
       ];
 
       const isExactDashboard = pathname === '/dashboard';
