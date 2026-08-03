@@ -21,6 +21,7 @@ import {
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { deleteRecordAction } from "@/app/actions/users";
+import { revertRejectedInstallationStockAction } from "@/app/actions/products";
 
 interface JobRow {
   id: string;
@@ -401,6 +402,7 @@ export default function AdminJobsPage() {
     if (!window.confirm(`Are you sure you want to delete job "${row.job_title}"?`)) return;
 
     try {
+      await revertRejectedInstallationStockAction(row.id, row.serial_number);
       const res = await deleteRecordAction("installer_jobs", row.id);
       
       let localJobs = getLocalItems("coretech_local_installer_jobs") || [];
@@ -408,7 +410,7 @@ export default function AdminJobsPage() {
       saveLocalItem("coretech_local_installer_jobs", localJobs, true);
 
       if (res.success) {
-        toast.success(`Job "${row.job_title}" deleted successfully!`);
+        toast.success(`Job "${row.job_title}" deleted & product returned to inventory!`);
       } else {
         toast.success(`Job deleted locally!`);
       }
@@ -424,6 +426,7 @@ export default function AdminJobsPage() {
     try {
       let count = 0;
       for (const id of selectedIds) {
+        await revertRejectedInstallationStockAction(id);
         const res = await deleteRecordAction("installer_jobs", id);
         if (res.success) count++;
       }

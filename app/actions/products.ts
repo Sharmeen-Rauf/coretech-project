@@ -570,4 +570,60 @@ export async function bulkDeleteStockByFilterAction(filters: {
   }
 }
 
+export async function revertRejectedInstallationStockAction(jobId: string, serialNumber?: string) {
+  const { Client } = require("pg");
+  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
+  const client = new Client({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+  });
+
+  try {
+    await client.connect();
+
+    // 1. Revert stock item linked by installation_id
+    const res = await client.query(`
+      UPDATE public.stock
+      SET status = 'active',
+          sold_out_at = NULL,
+          sold_out_by_installer_id = NULL,
+          installation_id = NULL,
+          installation_project_title = NULL,
+          deployment_site_address = NULL
+      WHERE installation_id = $1;
+    `, [jobId]);
+
+    // 2. Revert stock item by serial_number if provided or found in job notes
+    let sn = serialNumber ? serialNumber.trim() : "";
+    if (!sn) {
+      const jobRes = await client.query(`SELECT serial_number, notes FROM public.installer_jobs WHERE id = $1;`, [jobId]);
+      if (jobRes.rows[0]?.serial_number) {
+        sn = jobRes.rows[0].serial_number.trim();
+      } else if (jobRes.rows[0]?.notes && jobRes.rows[0].notes.includes("SN:")) {
+        const match = jobRes.rows[0].notes.match(/SN:\s*([^\s|]+)/);
+        if (match && match[1]) sn = match[1].trim();
+      }
+    }
+
+    if (sn) {
+      await client.query(`
+        UPDATE public.stock
+        SET status = 'active',
+            sold_out_at = NULL,
+            sold_out_by_installer_id = NULL,
+            installation_id = NULL,
+            installation_project_title = NULL,
+            deployment_site_address = NULL
+        WHERE LOWER(serial_no) = LOWER($1) AND status = 'sold_out';
+      `, [sn]);
+    }
+
+    await client.end();
+    return { success: true, count: res.rowCount };
+  } catch (err: any) {
+    try { await client.end(); } catch {}
+    return { success: false, error: err.message || "Failed to revert stock for rejected installation" };
+  }
+}
+
 

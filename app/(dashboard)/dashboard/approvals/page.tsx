@@ -23,6 +23,7 @@ import {
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { updateRecordAction, deleteRecordAction, reloadSchemaAction } from "@/app/actions/users";
+import { revertRejectedInstallationStockAction } from "@/app/actions/products";
 
 interface OrderApprovalRow {
   id: string;
@@ -844,6 +845,14 @@ export default function ApprovalsPage() {
       const res = await updateRecordAction("installer_jobs", jobId, updateData);
       if (!res.success) throw new Error(res.error);
 
+      // Revert product serial number back to active inventory
+      try {
+        const targetJob = installations.find((j) => j.id === jobId);
+        await revertRejectedInstallationStockAction(jobId, targetJob?.serial_number);
+      } catch (revErr) {
+        console.warn("Stock inventory reversal failed during rejection:", revErr);
+      }
+
       const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
       const index = localJobs.findIndex((j: any) => j.id === jobId);
       if (index > -1) {
@@ -851,7 +860,7 @@ export default function ApprovalsPage() {
         localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
       }
 
-      toast.success("Site installation rejected successfully!");
+      toast.success("Site installation rejected & product returned back to Active Inventory!");
       setAuditNote("");
       setSelectedInstallation(null);
       fetchInstallations();
