@@ -174,21 +174,21 @@ export default function InstallerListPage() {
 
       const formatted = (data || []).map((prof: any) => ({
         ...prof,
-        installer_id: prof.id.substring(0, 8).toUpperCase(), // readable installer ID prefix
-        installer_name: `${prof.first_name} ${prof.last_name || ""}`.trim(),
+        installer_id: (prof.id || "").substring(0, 8).toUpperCase(), // readable installer ID prefix
+        installer_name: `${prof.first_name || ""} ${prof.last_name || ""}`.trim() || "Installer",
       }));
 
       // Merge local storage profiles fallback
       const localProfiles = getLocalItems("profiles") || [];
-      const localInstallers = localProfiles.filter((p: any) => p.role === "installer");
+      const localInstallers = localProfiles.filter((p: any) => p && p.role === "installer");
 
       let merged = [...formatted];
       localInstallers.forEach((local) => {
-        if (!merged.some(db => db.id === local.id)) {
+        if (local && local.id && !merged.some(db => db.id === local.id)) {
           merged.push({
             ...local,
-            installer_id: local.id.substring(0, 8).toUpperCase(),
-            installer_name: `${local.first_name} ${local.last_name || ""}`.trim(),
+            installer_id: (local.id || "").substring(0, 8).toUpperCase(),
+            installer_name: `${local.first_name || ""} ${local.last_name || ""}`.trim() || "Installer",
           });
         }
       });
@@ -212,7 +212,6 @@ export default function InstallerListPage() {
   };
 
   useEffect(() => {
-    fetchUserLookup();
     fetchInstallers();
   }, []);
 
