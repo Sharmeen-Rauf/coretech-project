@@ -4,9 +4,9 @@ import React, { useEffect, useState } from "react";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
 import { fetchSellOutAction } from "@/app/actions/products";
-import { fetchRecordsAction } from "@/app/actions/users";
+import { fetchRecordsAction, deleteRecordAction } from "@/app/actions/users";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
-import { Eye, X, Calendar, Clipboard, MapPin, User } from "lucide-react";
+import { Eye, X, Calendar, Clipboard, MapPin, User, Trash2 } from "lucide-react";
 
 interface SellOutItem {
   id: string;
@@ -100,6 +100,38 @@ export default function SellOutPage() {
     fetchSellOuts();
   }, []);
 
+  const handleDeleteSellOut = async (row: SellOutItem) => {
+    if (window.confirm(`Are you sure you want to delete sell out record for Serial #${row.serial_no}?`)) {
+      try {
+        const res = await deleteRecordAction("serial_numbers", row.id);
+        if (!res.success) {
+          await deleteRecordAction("stock", row.id);
+        }
+        toast.success("Sell out record deleted successfully!");
+        fetchSellOuts();
+      } catch (err: any) {
+        toast.error(err.message || "Failed to delete sell out record");
+      }
+    }
+  };
+
+  const handleBulkDeleteSellOuts = async (selectedIds: string[]) => {
+    if (window.confirm(`Are you sure you want to delete ${selectedIds.length} selected sell out records?`)) {
+      try {
+        for (const id of selectedIds) {
+          const res = await deleteRecordAction("serial_numbers", id);
+          if (!res.success) {
+            await deleteRecordAction("stock", id);
+          }
+        }
+        toast.success(`Successfully deleted ${selectedIds.length} sell out records!`);
+        fetchSellOuts();
+      } catch (err: any) {
+        toast.error(err.message || "Failed bulk deletion");
+      }
+    }
+  };
+
   const handleViewInstallation = async (row: SellOutItem) => {
     if (!row.installation_id) {
       toast.error("No installation record associated with this item.");
@@ -108,7 +140,6 @@ export default function SellOutPage() {
 
     setIsLoadingJob(true);
     try {
-      // Query the specific installer job
       const { createClientComponentClient } = require("@/lib/supabase");
       const supabase = createClientComponentClient();
       const { data, error } = await supabase
@@ -195,14 +226,25 @@ export default function SellOutPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        onDeleteClick={(row: SellOutItem) => handleDeleteSellOut(row)}
+        onBulkDelete={handleBulkDeleteSellOuts}
         rowActions={(row: SellOutItem) => (
-          <button
-            onClick={() => handleViewInstallation(row)}
-            className="p-1 hover:bg-sky-50 text-sky-600 hover:text-sky-700 rounded-full transition-colors"
-            title="View Associated Installation"
-          >
-            <Eye className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => handleViewInstallation(row)}
+              className="p-1 hover:bg-sky-50 text-sky-600 hover:text-sky-700 rounded-full transition-colors"
+              title="View Associated Installation"
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => handleDeleteSellOut(row)}
+              className="p-1 hover:bg-rose-50 text-rose-500 hover:text-rose-700 rounded-full transition-colors"
+              title="Delete Sell Out Record"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
         )}
       />
 
