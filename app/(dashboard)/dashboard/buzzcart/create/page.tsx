@@ -261,14 +261,23 @@ export default function CreateOrderPage() {
     fetchOptions();
   }, [supabase, router]);
 
-  // Determine if a product is in stock based on the logged in user's warehouse or general stock
+  const getActiveWarehouse = () => {
+    if (currentRsm?.role === "distributor") return selectedWarehouse;
+    const activeDist = distributors.find(d => d.id === selectedDistributorId);
+    if (activeDist?.warehouse) return activeDist.warehouse;
+    const selectedEmp = employees.find(e => e.id === selectedEmployeeId);
+    if (selectedEmp?.warehouse) return selectedEmp.warehouse;
+    return currentRsm?.warehouse;
+  };
+
+  // Determine if a product is in stock based on active warehouse
   const checkStockStatus = (productId: string) => {
     let filtered = stockData;
-    const wh = currentRsm?.role === "distributor" ? selectedWarehouse : currentRsm?.warehouse;
+    const wh = getActiveWarehouse();
 
     if (wh) {
       filtered = stockData.filter(
-        s => s.warehouse_name?.toLowerCase() === wh.toLowerCase()
+        s => s.warehouse_name?.toLowerCase().trim() === wh.toLowerCase().trim()
       );
     }
 
@@ -345,10 +354,10 @@ export default function CreateOrderPage() {
 
   const getAvailableQty = (productId: string) => {
     let filtered = stockData;
-    const wh = currentRsm?.role === "distributor" ? selectedWarehouse : currentRsm?.warehouse;
+    const wh = getActiveWarehouse();
     if (wh) {
       filtered = stockData.filter(
-        s => s.warehouse_name?.toLowerCase() === wh.toLowerCase()
+        s => s.warehouse_name?.toLowerCase().trim() === wh.toLowerCase().trim()
       );
     }
     return filtered
@@ -378,19 +387,32 @@ export default function CreateOrderPage() {
     }));
   };
 
-  // Get distributors list padded to 16 for exact Figma duplication layout
+  // Get distributors list dynamically filtered by the picked Employee/RSM's assigned Region or Warehouse
   const getDisplayDistributors = () => {
-    const list = [...distributors];
-    // Fill up to 16 mock entries if database is empty/sparse
-    for (let i = list.length + 1; i <= 16; i++) {
-      list.push({
-        id: `mock_dist_${i}`,
-        first_name: `Distributer`,
-        last_name: String(i).padStart(2, "0"),
-        role: "distributor",
-      });
-    }
-    return list;
+    if (!selectedEmployeeId) return distributors;
+
+    const selectedEmp = employees.find(e => e.id === selectedEmployeeId);
+    if (!selectedEmp) return distributors;
+
+    const empRegion = (selectedEmp.region || "").toLowerCase().trim();
+    const empWH = (selectedEmp.warehouse || "").toLowerCase().trim();
+
+    const filtered = distributors.filter(d => {
+      if (d.rsm_id === selectedEmployeeId) return true;
+
+      const dRegion = (d.region || "").toLowerCase().trim();
+      const dWH = (d.warehouse || "").toLowerCase().trim();
+
+      if (empRegion && dRegion) {
+        if (dRegion === empRegion || dRegion.includes(empRegion) || empRegion.includes(dRegion)) return true;
+      }
+      if (empWH && dWH) {
+        if (dWH === empWH || dWH.includes(empWH) || empWH.includes(dWH)) return true;
+      }
+      return false;
+    });
+
+    return filtered.length > 0 ? filtered : distributors;
   };
 
   // Add product to selections
@@ -662,14 +684,18 @@ export default function CreateOrderPage() {
                 </label>
                 <select
                   value={selectedEmployeeId}
-                  onChange={(e) => setSelectedEmployeeId(e.target.value)}
+                  onChange={(e) => {
+                    const empId = e.target.value;
+                    setSelectedEmployeeId(empId);
+                    setSelectedDistributorId("");
+                  }}
                   className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:border-[#00B4D8] cursor-pointer"
                   required
                 >
                   <option value="">Select Employee / RSM</option>
                   {employees.map((emp) => (
                     <option key={emp.id} value={emp.id}>
-                      {emp.first_name} {emp.last_name || ""} {emp.warehouse ? `(${emp.warehouse})` : ""}
+                      {emp.first_name} {emp.last_name || ""} {emp.region ? `(${emp.region})` : emp.warehouse ? `(${emp.warehouse})` : ""}
                     </option>
                   ))}
                 </select>

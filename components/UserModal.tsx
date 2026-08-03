@@ -49,6 +49,19 @@ export default function UserModal({
   const [dbWarehouses, setDbWarehouses] = useState<string[]>([]);
   const [systemRegions, setSystemRegions] = useState<{ id: string; name: string; region_code: string; warehouse: string }[]>([]);
 
+  const resolveRegionValue = (raw: string) => {
+    if (!raw) return "";
+    const clean = raw.toLowerCase().trim();
+    const found = systemRegions.find(
+      r => r.name.toLowerCase().trim() === clean ||
+           r.region_code.toLowerCase().trim() === clean ||
+           `${r.name} (${r.region_code})`.toLowerCase().trim() === clean ||
+           clean.includes(r.name.toLowerCase().trim()) ||
+           clean.includes(r.region_code.toLowerCase().trim())
+    );
+    return found ? found.name : raw;
+  };
+
   const formatCNIC = (value: string) => {
     const clean = value.replace(/\D/g, "");
     if (clean.length <= 5) return clean;
@@ -110,7 +123,9 @@ export default function UserModal({
         }
         setDesignation(cleanDesignation);
         setState(editingUser.state || meta.state || "");
-        setRegion(editingUser.region || meta.region || "");
+        
+        const rawRegion = editingUser.region || meta.region || "";
+        setRegion(rawRegion);
         setWarehouse(editingUser.warehouse || meta.warehouse || "");
         setAddress(editingUser.address || meta.address || "");
         setCity(editingUser.city || meta.city || "");
@@ -316,11 +331,11 @@ export default function UserModal({
                     System Region
                   </label>
                   <select
-                    value={region}
+                    value={resolveRegionValue(region)}
                     onChange={(e) => {
                       const sel = e.target.value;
                       setRegion(sel);
-                      const matched = systemRegions.find(r => r.name === sel);
+                      const matched = systemRegions.find(r => r.name === sel || r.region_code === sel);
                       if (matched && matched.warehouse) setWarehouse(matched.warehouse);
                     }}
                     className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white font-semibold"
@@ -557,8 +572,13 @@ export default function UserModal({
                   System Region
                 </label>
                 <select
-                  value={region}
-                  onChange={(e) => setRegion(e.target.value)}
+                  value={resolveRegionValue(region)}
+                  onChange={(e) => {
+                    const sel = e.target.value;
+                    setRegion(sel);
+                    const matched = systemRegions.find(r => r.name === sel || r.region_code === sel);
+                    if (matched && matched.warehouse) setWarehouse(matched.warehouse);
+                  }}
                   className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white font-semibold"
                 >
                   <option value="">Select Region</option>
@@ -765,11 +785,11 @@ export default function UserModal({
                     Assigned Region {group === "rsm" ? "*" : ""}
                   </label>
                   <select
-                    value={region}
+                    value={resolveRegionValue(region)}
                     onChange={(e) => {
                       const sel = e.target.value;
                       setRegion(sel);
-                      const matched = systemRegions.find(r => r.name === sel);
+                      const matched = systemRegions.find(r => r.name === sel || r.region_code === sel);
                       if (matched && matched.warehouse) setWarehouse(matched.warehouse);
                     }}
                     className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white font-semibold"
