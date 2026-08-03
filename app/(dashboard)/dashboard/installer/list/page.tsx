@@ -480,7 +480,7 @@ export default function InstallerListPage() {
   }).length;
 
   const pendingChCount = installers.filter(item => {
-    if (item.status === "pending_approval" || item.status === "verified" || item.verified_at) {
+    if ((item.status === "pending_approval" || item.status === "verified") && item.status !== "active" && item.status !== "approved") {
       if (!startDate && !endDate) return true;
       return isInDateRange(item.verified_at || item.created_at);
     }
@@ -488,7 +488,7 @@ export default function InstallerListPage() {
   }).length;
 
   const approvedCount = installers.filter(item => {
-    if (item.status === "active" || item.status === "approved" || item.approved_at) {
+    if (item.status === "active" || item.status === "approved") {
       if (!startDate && !endDate) return true;
       return isInDateRange(item.approved_at || item.created_at);
     }
