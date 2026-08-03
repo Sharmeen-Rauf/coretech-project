@@ -215,23 +215,73 @@ export default function InstallerListPage() {
     fetchInstallers();
   }, []);
 
-  const handleApproveInstaller = async (instId: string) => {
+  const handleVerifyInstaller = async (instId: string) => {
     try {
-      const res = await updateRecordAction("profiles", instId, { status: "active" });
+      const updateData = {
+        status: "pending_approval",
+        verified_by: currentUserProfile?.id || null,
+        verified_at: new Date().toISOString(),
+        verification_note: "Credentials and documents verified by Retail Manager."
+      };
+      const res = await updateRecordAction("profiles", instId, updateData);
       if (!res.success) throw new Error(res.error);
 
-      // Keep local profiles in sync
       const localProfiles = getLocalItems("profiles") || [];
       const index = localProfiles.findIndex((p: any) => p.id === instId);
       if (index > -1) {
-        localProfiles[index].status = "active";
+        Object.assign(localProfiles[index], updateData);
         localStorage.setItem("profiles", JSON.stringify(localProfiles));
       }
 
-      toast.success("Installer approved successfully!");
+      toast.success("Installer credentials verified! Passed to Country Head for final approval.");
+      setSelectedInstaller(null);
+      fetchInstallers();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to verify installer");
+    }
+  };
+
+  const handleApproveInstaller = async (instId: string) => {
+    try {
+      const updateData = {
+        status: "active",
+        approved_by: currentUserProfile?.id || null,
+        approved_at: new Date().toISOString(),
+        approval_note: "Final approval granted by Country Head."
+      };
+      const res = await updateRecordAction("profiles", instId, updateData);
+      if (!res.success) throw new Error(res.error);
+
+      const localProfiles = getLocalItems("profiles") || [];
+      const index = localProfiles.findIndex((p: any) => p.id === instId);
+      if (index > -1) {
+        Object.assign(localProfiles[index], updateData);
+        localStorage.setItem("profiles", JSON.stringify(localProfiles));
+      }
+
+      toast.success("Installer approved & activated successfully!");
+      setSelectedInstaller(null);
       fetchInstallers();
     } catch (err: any) {
       toast.error(err.message || "Failed to approve installer");
+    }
+  };
+
+  const handleRejectInstaller = async (instId: string) => {
+    if (!window.confirm("Are you sure you want to reject this installer registration?")) return;
+    try {
+      const res = await deleteUserAction(instId);
+      if (!res.success) throw new Error(res.error);
+
+      const localProfiles = getLocalItems("profiles") || [];
+      const updated = localProfiles.filter((p: any) => p.id !== instId);
+      localStorage.setItem("profiles", JSON.stringify(updated));
+
+      toast.success("Installer registration rejected and removed.");
+      setSelectedInstaller(null);
+      fetchInstallers();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to reject installer");
     }
   };
 
@@ -828,8 +878,39 @@ export default function InstallerListPage() {
                 </div>
               </div>
 
-              {/* Footer */}
-              <div className="flex items-center justify-end pt-4 border-t border-slate-100 mt-6">
+              {/* Footer with Action Buttons */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-100 mt-6">
+                <div className="flex items-center gap-2">
+                  {(selectedInstaller.status === "pending_verification" || selectedInstaller.status === "pending") && (
+                    <button
+                      onClick={() => handleVerifyInstaller(selectedInstaller.id)}
+                      className="h-9 px-4 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-[6px] shadow transition-colors flex items-center gap-1.5"
+                    >
+                      <UserCheck className="w-3.5 h-3.5" />
+                      Verify Credentials (Stage 1)
+                    </button>
+                  )}
+
+                  {(selectedInstaller.status === "pending_approval" || selectedInstaller.status === "verified") && (
+                    <button
+                      onClick={() => handleApproveInstaller(selectedInstaller.id)}
+                      className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-[6px] shadow transition-colors flex items-center gap-1.5"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Approve & Activate (Stage 2)
+                    </button>
+                  )}
+
+                  {selectedInstaller.status !== "active" && selectedInstaller.status !== "approved" && (
+                    <button
+                      onClick={() => handleRejectInstaller(selectedInstaller.id)}
+                      className="h-9 px-3.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-[6px] border border-rose-200 transition-colors"
+                    >
+                      Reject
+                    </button>
+                  )}
+                </div>
+
                 <button
                   onClick={() => setSelectedInstaller(null)}
                   className="h-9 px-5 text-xs font-bold bg-[#00B4D8] hover:bg-[#0077B6] text-white rounded-[6px] shadow transition-colors"
