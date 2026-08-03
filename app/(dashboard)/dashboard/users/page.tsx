@@ -233,6 +233,26 @@ export default function UsersPage() {
     },
     { key: "contact", label: "Contact" },
     {
+      key: "region",
+      label: "System Region",
+      render: (val: string, row: any) => {
+        let displayRegion = val || row.warehouse || "";
+        if (!displayRegion && typeof row.designation === "string" && row.designation.includes("DISTRIBUTOR_METADATA")) {
+          try {
+            const meta = JSON.parse(row.designation.replace("[DISTRIBUTOR_METADATA]", ""));
+            displayRegion = meta.region || meta.warehouse || "";
+          } catch (e) {}
+        }
+        return displayRegion ? (
+          <span className="px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200 text-[10px] font-extrabold uppercase">
+            {displayRegion}
+          </span>
+        ) : (
+          <span className="text-slate-400 text-xs italic">-</span>
+        );
+      }
+    },
+    {
       key: "group_name",
       label: "Group",
       render: (val: string) => (

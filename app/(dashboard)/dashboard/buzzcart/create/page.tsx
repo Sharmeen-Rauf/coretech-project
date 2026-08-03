@@ -412,7 +412,7 @@ export default function CreateOrderPage() {
       return false;
     });
 
-    return filtered.length > 0 ? filtered : distributors;
+    return filtered;
   };
 
   // Add product to selections
@@ -720,29 +720,35 @@ export default function CreateOrderPage() {
 
                   {/* Figma-compliant 2-column dropdown body */}
                   {isDistributorOpen && (
-                    <div className="absolute left-0 mt-1.5 w-[380px] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                        {displayDistributorsList.map((d) => {
-                          const labelText = `${d.first_name} ${d.last_name || ""}`.trim();
-                          const isSelected = selectedDistributorId === d.id;
-                          return (
-                            <div
-                              key={d.id}
-                              onClick={() => {
-                                setSelectedDistributorId(d.id);
-                                setIsDistributorOpen(false);
-                              }}
-                              className={`px-3 py-2 text-[11px] font-bold rounded-[6px] transition-all cursor-pointer ${
-                                isSelected 
-                                  ? "bg-[#00B4D8] text-white" 
-                                  : "text-slate-600 hover:bg-[#F0FAFE] hover:text-[#00B4D8]"
-                              }`}
-                            >
-                              {labelText}
-                            </div>
-                          );
-                        })}
-                      </div>
+                    <div className="absolute left-0 mt-1.5 w-[420px] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+                      {displayDistributorsList.length === 0 ? (
+                        <p className="text-xs text-slate-400 p-2 text-center italic">No distributors assigned to this employee's region.</p>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                          {displayDistributorsList.map((d) => {
+                            const labelText = `${d.first_name} ${d.last_name || ""}`.trim();
+                            const subText = d.region ? ` (${d.region})` : d.warehouse ? ` (${d.warehouse})` : "";
+                            const isSelected = selectedDistributorId === d.id;
+                            return (
+                              <div
+                                key={d.id}
+                                onClick={() => {
+                                  setSelectedDistributorId(d.id);
+                                  setIsDistributorOpen(false);
+                                }}
+                                className={`px-3 py-2 text-[11px] font-bold rounded-[6px] transition-all cursor-pointer border ${
+                                  isSelected 
+                                    ? "bg-[#00B4D8] text-white border-[#00B4D8]" 
+                                    : "text-slate-700 hover:bg-[#F0FAFE] hover:text-[#00B4D8] border-slate-100"
+                                }`}
+                              >
+                                <div>{labelText}</div>
+                                {subText && <div className={`text-[9px] ${isSelected ? "text-white/80" : "text-slate-400"}`}>{subText}</div>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
