@@ -431,6 +431,7 @@ async function TopSellingProductsTable() {
 }
 
 import SubDealerDashboardHome from "@/components/SubDealerDashboardHome";
+import DistributorDashboardHome from "@/components/DistributorDashboardHome";
 
 export default async function DashboardPage() {
   const supabase = getAdminClient();
@@ -442,42 +443,68 @@ export default async function DashboardPage() {
     userRole = prof?.role || "";
   }
 
-  if (userRole === "sub_dealer") {
+  if (userRole === "sub_dealer" || userRole === "distributor") {
     let custCount = 0;
     let ordCount = 0;
     let revTotal = 0;
     let liveTransfers: any[] = [];
+    let liveLocations: { name: string; value: string }[] = [];
 
     try {
-      const { count: cCount } = await supabase.from("profiles").select("*", { count: "exact", head: true });
-      if (cCount) custCount = cCount;
+      const [cRes, oRes, stRes, trRes, regRes] = await Promise.all([
+        supabase.from("profiles").select("*", { count: "exact", head: true }),
+        supabase.from("stock").select("*", { count: "exact", head: true }),
+        supabase.from("stock").select("quantity, products(price)"),
+        supabase.from("sales").select("*, distributor:profiles!distributor_id(first_name, last_name)").order("created_at", { ascending: false }).limit(5),
+        supabase.from("regions").select("name, warehouse").limit(4)
+      ]);
 
-      const { count: oCount } = await supabase.from("stock").select("*", { count: "exact", head: true });
-      if (oCount) ordCount = oCount;
-
-      const { data: stData } = await supabase.from("stock").select("quantity, products(price)");
-      if (stData) {
-        revTotal = stData.reduce((sum, item: any) => sum + ((item.quantity || 1) * (parseFloat(item.products?.price || "0"))), 0);
+      if (cRes.count) custCount = cRes.count;
+      if (oRes.count) ordCount = oRes.count;
+      if (stRes.data) {
+        revTotal = stRes.data.reduce((sum, item: any) => sum + ((item.quantity || 1) * (parseFloat(item.products?.price || "0"))), 0);
       }
-
-      const { data: trData } = await supabase
-        .from("sales")
-        .select("*, distributor:profiles!distributor_id(first_name, last_name)")
-        .order("created_at", { ascending: false })
-        .limit(5);
-      if (trData) liveTransfers = trData;
+      if (trRes.data) liveTransfers = trRes.data;
+      if (regRes.data && regRes.data.length > 0) {
+        liveLocations = regRes.data.map((r: any) => ({
+          name: `${r.warehouse} (${r.name})`,
+          value: "Active Hub"
+        }));
+      }
     } catch (dbErr) {
-      console.warn("Sub dealer db stats fetch warning:", dbErr);
+      console.warn("Dashboard db stats fetch warning:", dbErr);
+    }
+
+    if (liveLocations.length === 0) {
+      liveLocations = [
+        { name: "Karachi Central Hub", value: "72K Units" },
+        { name: "Lahore Region", value: "39K Units" },
+        { name: "Islamabad Capital", value: "25K Units" },
+        { name: "Peshawar / KPK", value: "61K Units" }
+      ];
     }
 
     const formattedRev = revTotal > 0 ? (revTotal >= 1000000 ? `Rs. ${(revTotal / 1000000).toFixed(1)}M` : `Rs. ${revTotal.toLocaleString()}`) : "$695";
 
+    if (userRole === "sub_dealer") {
+      return (
+        <SubDealerDashboardHome
+          customersCount={custCount || 3781}
+          ordersCount={ordCount || 1219}
+          revenueVal={formattedRev}
+          transfers={liveTransfers}
+          locationStats={liveLocations}
+        />
+      );
+    }
+
     return (
-      <SubDealerDashboardHome
+      <DistributorDashboardHome
         customersCount={custCount || 3781}
         ordersCount={ordCount || 1219}
         revenueVal={formattedRev}
         transfers={liveTransfers}
+        locationStats={liveLocations}
       />
     );
   }

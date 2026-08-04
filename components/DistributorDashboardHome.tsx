@@ -7,7 +7,7 @@ import RevenueChart from "@/components/RevenueChart";
 import SalesDonutChart from "@/components/SalesDonutChart";
 import { Globe } from "lucide-react";
 
-interface SubDealerDashboardHomeProps {
+interface DistributorDashboardHomeProps {
   customersCount?: number;
   ordersCount?: number;
   revenueVal?: string;
@@ -18,7 +18,7 @@ interface SubDealerDashboardHomeProps {
   locationStats?: { name: string; value: string }[];
 }
 
-export default function SubDealerDashboardHome({
+export default function DistributorDashboardHome({
   customersCount = 3781,
   ordersCount = 1219,
   revenueVal = "$695",
@@ -50,7 +50,7 @@ export default function SubDealerDashboardHome({
     { name: "Islamabad Capital", value: "25K Units" },
     { name: "Peshawar / KPK", value: "61K Units" }
   ]
-}: SubDealerDashboardHomeProps) {
+}: DistributorDashboardHomeProps) {
   const defaultTransferRequests = [
     { to: "Shoaib", warehouse: "01", product: "Inverter", quantity: 82, status: "Approved" },
     { to: "Hussain", warehouse: "05", product: "Battery", quantity: 37, status: "Approved" },
@@ -61,7 +61,7 @@ export default function SubDealerDashboardHome({
 
   const displayTransfers = transfers && transfers.length > 0
     ? transfers.map((t: any) => ({
-        to: t.distributor ? `${t.distributor.first_name} ${t.distributor.last_name || ""}`.trim() : (t.seller || "Distributor"),
+        to: t.distributor ? `${t.distributor.first_name} ${t.distributor.last_name || ""}`.trim() : (t.seller || "Sub Dealer / Partner"),
         warehouse: t.warehouse || "01",
         product: t.st_id || t.type || "Product Stock",
         quantity: t.total_items || 1,
@@ -83,7 +83,7 @@ export default function SubDealerDashboardHome({
       {/* Top Header Breadcrumb */}
       <div>
         <div className="flex items-center gap-2 text-[11px] font-bold text-slate-400 mb-1">
-          <span>Sub Dealer</span>
+          <span>Distributor</span>
           <span>/</span>
           <span className="text-[#00B4D8]">Home</span>
         </div>
@@ -97,7 +97,7 @@ export default function SubDealerDashboardHome({
           value={customersCount ? customersCount.toLocaleString() : "3,781"}
           change="+11.01%"
           isPositive={true}
-          subtitle="Sub Dealer Clients"
+          subtitle="Distributor Network Accounts"
         />
         <StatsCard
           title="Orders"
@@ -111,7 +111,7 @@ export default function SubDealerDashboardHome({
           value={revenueVal || "$695"}
           change="+15.03%"
           isPositive={true}
-          subtitle="Monthly Sales Revenue"
+          subtitle="Distributor Sales Revenue"
         />
         <StatsCard
           title="Growth"
@@ -122,7 +122,7 @@ export default function SubDealerDashboardHome({
         />
       </div>
 
-      {/* Middle Section: Projections vs Actuals, Line Chart & Revenue by Location */}
+      {/* Middle Section: Projections vs Actuals & Revenue by Location */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Projections vs Actuals */}
         <div className="lg:col-span-2 bg-white border border-slate-200 rounded-[10px] p-5 shadow-sm">

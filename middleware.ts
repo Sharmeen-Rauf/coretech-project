@@ -156,6 +156,7 @@ export async function middleware(request: NextRequest) {
       const allowedDistributorPrefixes = [
         '/dashboard/purchase/import-stock',
         '/dashboard/purchase/inventory',
+        '/dashboard/sales/st1',
         '/dashboard/buzzcart/orders',
         '/dashboard/buzzcart/create',
         '/dashboard/users',
