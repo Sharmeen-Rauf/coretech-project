@@ -7,38 +7,60 @@ import RevenueChart from "@/components/RevenueChart";
 import SalesDonutChart from "@/components/SalesDonutChart";
 import { Globe } from "lucide-react";
 
-export default function SubDealerDashboardHome() {
-  const projectionsData = [
+interface SubDealerDashboardHomeProps {
+  customersCount?: number;
+  ordersCount?: number;
+  revenueVal?: string;
+  transfers?: any[];
+  projectionsData?: any[];
+  weeklyVolumeData?: any[];
+  donutData?: any[];
+}
+
+export default function SubDealerDashboardHome({
+  customersCount = 3781,
+  ordersCount = 1219,
+  revenueVal = "$695",
+  transfers = [],
+  projectionsData = [
     { name: "Jan", Projections: 22, Actuals: 18 },
     { name: "Feb", Projections: 25, Actuals: 21 },
     { name: "Mar", Projections: 28, Actuals: 24 },
     { name: "Apr", Projections: 30, Actuals: 26 },
     { name: "May", Projections: 24, Actuals: 20 },
     { name: "Jun", Projections: 29, Actuals: 27 },
-  ];
-
-  const weeklyVolumeData = [
+  ],
+  weeklyVolumeData = [
     { name: "Jan", current: 4000, previous: 3200 },
     { name: "Feb", current: 5200, previous: 4100 },
     { name: "Mar", current: 6100, previous: 4900 },
     { name: "Apr", current: 7800, previous: 6200 },
     { name: "May", current: 9200, previous: 7500 },
     { name: "Jun", current: 11000, previous: 8900 },
-  ];
-
-  const donutData = [
+  ],
+  donutData = [
     { name: "Inverters", value: 45, fill: "#00B4D8" },
     { name: "Batteries", value: 30, fill: "#10B981" },
     { name: "AIO Systems", value: 25, fill: "#F59E0B" }
-  ];
-
-  const transferRequests = [
+  ]
+}: SubDealerDashboardHomeProps) {
+  const defaultTransferRequests = [
     { to: "Shoaib", warehouse: "01", product: "Inverter", quantity: 82, status: "Approved" },
     { to: "Hussain", warehouse: "05", product: "Battery", quantity: 37, status: "Approved" },
     { to: "Ali", warehouse: "06", product: "Inverter", quantity: 44, status: "Approved" },
     { to: "Omair", warehouse: "08", product: "Battery", quantity: 184, status: "Approved" },
     { to: "Shoaib", warehouse: "04", product: "AIO", quantity: 54, status: "Declined" },
   ];
+
+  const displayTransfers = transfers && transfers.length > 0
+    ? transfers.map((t: any) => ({
+        to: t.distributor ? `${t.distributor.first_name} ${t.distributor.last_name || ""}`.trim() : (t.seller || "Distributor"),
+        warehouse: t.warehouse || "01",
+        product: t.st_id || t.type || "Product Stock",
+        quantity: t.total_items || 1,
+        status: t.status === "rejected" ? "Declined" : "Approved"
+      }))
+    : defaultTransferRequests;
 
   return (
     <div className="space-y-6">
@@ -56,21 +78,21 @@ export default function SubDealerDashboardHome() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <StatsCard
           title="Customers"
-          value="3,781"
+          value={customersCount ? customersCount.toLocaleString() : "3,781"}
           change="+11.01%"
           isPositive={true}
           subtitle="Sub Dealer Clients"
         />
         <StatsCard
           title="Orders"
-          value="1,219"
+          value={ordersCount ? ordersCount.toLocaleString() : "1,219"}
           change="-0.03%"
           isPositive={false}
           subtitle="Total Completed Orders"
         />
         <StatsCard
           title="Revenue"
-          value="$695"
+          value={revenueVal || "$695"}
           change="+15.03%"
           isPositive={true}
           subtitle="Monthly Sales Revenue"
@@ -181,7 +203,7 @@ export default function SubDealerDashboardHome() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700 font-medium">
-              {transferRequests.map((req, idx) => (
+              {displayTransfers.map((req: any, idx: number) => (
                 <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                   <td className="py-3 px-4 font-bold text-slate-800">{req.to}</td>
                   <td className="py-3 px-4 text-slate-500 font-semibold">{req.warehouse}</td>
