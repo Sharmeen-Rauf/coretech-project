@@ -9,8 +9,17 @@ const nextConfig = {
   swcMinify: true,
   compress: true,
   reactStrictMode: false,
+  images: {
+    formats: ['image/avif', 'image/webp'],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'cypbnnohtipwavcwukhl.supabase.co',
+      },
+    ],
+  },
   experimental: {
-    optimizePackageImports: ["lucide-react"],
+    optimizePackageImports: ["lucide-react", "recharts", "@supabase/supabase-js", "react-hot-toast"],
   },
 };
 
