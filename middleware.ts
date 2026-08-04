@@ -172,8 +172,13 @@ export async function middleware(request: NextRequest) {
       }
     } else if (role === 'sub_dealer') {
       const allowedSubDealerPrefixes = [
+        '/dashboard/purchase/import-stock',
+        '/dashboard/purchase/inventory',
+        '/dashboard/purchase/sellout',
         '/dashboard/buzzcart/orders',
         '/dashboard/buzzcart/create',
+        '/dashboard/sales/transfer',
+        '/dashboard/sales/return',
         '/dashboard/support',
         '/dashboard/account',
       ];

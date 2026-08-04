@@ -270,29 +270,97 @@ export default function Sidebar() {
                   Home
                 </Link>
 
-                {/* Buzzcart */}
+                {/* Consignment */}
+                <Link href="/dashboard/purchase/import-stock" className={linkClass("/dashboard/purchase/import-stock")}>
+                  <Box className="w-4 h-4 mr-3" />
+                  Consignment
+                </Link>
+
+                {/* Stock Analysis */}
                 <div>
                   <button
-                    onClick={() => toggleMenu("buzzcart")}
+                    onClick={() => toggleMenu("product")}
                     className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
                   >
                     <div className="flex items-center">
-                      <ShoppingBag className="w-4 h-4 mr-3" />
-                      <span>Buzzcart</span>
+                      <TrendingUp className="w-4 h-4 mr-3" />
+                      <span>Stock Analysis</span>
                     </div>
-                    {openMenus.buzzcart ? (
+                    {openMenus.product ? (
                       <ChevronDown className="w-3.5 h-3.5" />
                     ) : (
                       <ChevronRight className="w-3.5 h-3.5" />
                     )}
                   </button>
-                  {openMenus.buzzcart && (
+                  {openMenus.product && (
                     <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
+                      <Link href="/dashboard/purchase/inventory" className={linkClass("/dashboard/purchase/inventory")}>
+                        Inventory
+                      </Link>
                       <Link href="/dashboard/buzzcart/orders" className={linkClass("/dashboard/buzzcart/orders")}>
                         Orders
                       </Link>
-                      <Link href="/dashboard/buzzcart/create" className={linkClass("/dashboard/buzzcart/create")}>
-                        Create Order
+                    </div>
+                  )}
+                </div>
+
+                {/* Stock Out */}
+                <Link href="/dashboard/purchase/sellout" className={linkClass("/dashboard/purchase/sellout")}>
+                  <ShoppingBag className="w-4 h-4 mr-3" />
+                  Stock Out
+                </Link>
+
+                {/* Transfer */}
+                <div>
+                  <button
+                    onClick={() => toggleMenu("sales")}
+                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
+                  >
+                    <div className="flex items-center">
+                      <Layers className="w-4 h-4 mr-3" />
+                      <span>Transfer</span>
+                    </div>
+                    {openMenus.sales ? (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  {openMenus.sales && (
+                    <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
+                      <Link href="/dashboard/sales/transfer" className={linkClass("/dashboard/sales/transfer")}>
+                        List
+                      </Link>
+                      <Link href="/dashboard/sales/transfer?mode=create" className={linkClass("/dashboard/sales/transfer", { key: "mode", value: "create" })}>
+                        Create
+                      </Link>
+                    </div>
+                  )}
+                </div>
+
+                {/* Return */}
+                <div>
+                  <button
+                    onClick={() => toggleMenu("installer")}
+                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
+                  >
+                    <div className="flex items-center">
+                      <Wrench className="w-4 h-4 mr-3" />
+                      <span>Return</span>
+                    </div>
+                    {openMenus.installer ? (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  {openMenus.installer && (
+                    <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
+                      <Link href="/dashboard/sales/return" className={linkClass("/dashboard/sales/return")}>
+                        List
+                      </Link>
+                      <Link href="/dashboard/sales/return?mode=create" className={linkClass("/dashboard/sales/return", { key: "mode", value: "create" })}>
+                        Create
                       </Link>
                     </div>
                   )}

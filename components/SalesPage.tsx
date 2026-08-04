@@ -15,7 +15,7 @@ import {
   MapPin, 
   AlertCircle 
 } from "lucide-react";
-import toast from "react-hot-toast";
+import { useSearchParams } from "next/navigation";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { fetchRecordsAction } from "@/app/actions/users";
 
@@ -42,9 +42,17 @@ interface OrderDetailRow {
 
 export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: SalesPageProps) {
   const supabase = createClientComponentClient();
+  const searchParams = useSearchParams();
+  const mode = searchParams?.get("mode");
 
   // View toggles
   const [isCreating, setIsCreating] = useState(false);
+
+  useEffect(() => {
+    if (mode === "create") {
+      setIsCreating(true);
+    }
+  }, [mode]);
 
   // Data states
   const [sales, setSales] = useState<any[]>([]);
