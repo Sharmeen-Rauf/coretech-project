@@ -430,8 +430,21 @@ async function TopSellingProductsTable() {
   );
 }
 
+import SubDealerDashboardHome from "@/components/SubDealerDashboardHome";
+
 export default async function DashboardPage() {
   const supabase = getAdminClient();
+  const serverAuth = createServerComponentClient();
+  const { data: { user } } = await serverAuth.auth.getUser();
+  let userRole = "";
+  if (user) {
+    const { data: prof } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+    userRole = prof?.role || "";
+  }
+
+  if (userRole === "sub_dealer") {
+    return <SubDealerDashboardHome />;
+  }
 
   // 1. Donut Chart: Product Category Distribution
   let inverterQty = 0;
