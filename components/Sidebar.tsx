@@ -21,6 +21,7 @@ import {
   Download,
   HelpCircle,
   Activity,
+  Layers,
 } from "lucide-react";
 import { createClientComponentClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
