@@ -1877,13 +1877,13 @@ export default function ApprovalsPage() {
               </div>
 
               {/* Audit Timeline */}
-              <div className="border border-slate-100 rounded-[8px] p-3 bg-slate-50 space-y-3 mt-4">
-                <p className="font-bold text-slate-700 text-[10px] uppercase tracking-wider">Approval Progress Timeline</p>
+              <div className="border border-slate-200 rounded-[8px] p-3 bg-slate-50 space-y-3 mt-4">
+                <p className="font-bold text-slate-800 text-[10px] uppercase tracking-wider">Approval Progress Timeline</p>
                 <div className="flex gap-2.5 items-start">
                   <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-100 border border-emerald-300 text-emerald-700 text-[9px] font-bold">✓</span>
                   <div>
-                    <p className="font-bold text-slate-700">Submitted Installation</p>
-                    <p className="text-[10px] text-slate-550">Reported on {selectedInstallation.created_at ? new Date(selectedInstallation.created_at).toLocaleString() : ""}</p>
+                    <p className="font-bold text-slate-800">Submitted Installation</p>
+                    <p className="text-[11px] font-semibold text-slate-700">Reported on {selectedInstallation.created_at ? new Date(selectedInstallation.created_at).toLocaleString() : ""}</p>
                   </div>
                 </div>
 
@@ -1896,14 +1896,14 @@ export default function ApprovalsPage() {
                     {selectedInstallation.status === "pending_verification" ? "2" : "✓"}
                   </span>
                   <div>
-                    <p className="font-bold text-slate-700">Stage 1: Retail Manager Verification</p>
+                    <p className="font-bold text-slate-800">Stage 1: Retail Manager Verification</p>
                     {selectedInstallation.verified_at ? (
-                      <p className="text-[10px] text-slate-550">Verified by <span className="font-bold">{verifierName}</span> on {new Date(selectedInstallation.verified_at).toLocaleString()}</p>
+                      <p className="text-[11px] font-semibold text-slate-700">Verified by <span className="font-bold text-slate-900">{verifierName}</span> on {new Date(selectedInstallation.verified_at).toLocaleString()}</p>
                     ) : (
-                      <p className="text-[10px] text-slate-400">Awaiting credentials/site verification audit.</p>
+                      <p className="text-[11px] font-medium text-slate-500">Awaiting credentials/site verification audit.</p>
                     )}
                     {selectedInstallation.verification_note && (
-                      <p className="text-[10px] italic text-slate-550 mt-1 bg-white border border-slate-100 rounded p-1.5">
+                      <p className="text-[11px] font-medium italic text-slate-700 mt-1 bg-white border border-slate-200 rounded p-1.5">
                         "{selectedInstallation.verification_note}"
                       </p>
                     )}
@@ -1923,16 +1923,16 @@ export default function ApprovalsPage() {
                     {selectedInstallation.status === "approved" || selectedInstallation.status === "completed" ? "✓" : selectedInstallation.status === "rejected" ? "✗" : "3"}
                   </span>
                   <div>
-                    <p className="font-bold text-slate-700">Stage 2: Country Head Approval</p>
+                    <p className="font-bold text-slate-800">Stage 2: Country Head Approval</p>
                     {selectedInstallation.approved_at ? (
-                      <p className="text-[10px] text-slate-555">
-                        {selectedInstallation.status === "rejected" ? "Rejected" : "Approved"} by <span className="font-bold">{approverName}</span> on {new Date(selectedInstallation.approved_at).toLocaleString()}
+                      <p className="text-[11px] font-semibold text-slate-700">
+                        {selectedInstallation.status === "rejected" ? "Rejected" : "Approved"} by <span className="font-bold text-slate-900">{approverName}</span> on {new Date(selectedInstallation.approved_at).toLocaleString()}
                       </p>
                     ) : (
-                      <p className="text-[10px] text-slate-400">Awaiting final approval decision.</p>
+                      <p className="text-[11px] font-medium text-slate-500">Awaiting final approval decision.</p>
                     )}
                     {selectedInstallation.approval_note && (
-                      <p className="text-[10px] italic text-slate-555 mt-1 bg-white border border-slate-100 rounded p-1.5">
+                      <p className="text-[11px] font-medium italic text-slate-700 mt-1 bg-white border border-slate-200 rounded p-1.5">
                         "{selectedInstallation.approval_note}"
                       </p>
                     )}

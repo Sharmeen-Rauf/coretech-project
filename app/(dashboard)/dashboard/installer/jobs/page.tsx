@@ -442,40 +442,97 @@ export default function AdminJobsPage() {
     }
   };
 
+  const totalCount = jobs.length;
+  const pendingRmCount = jobs.filter(j => j.status === "pending_verification" || j.status === "assigned" || j.status === "in_progress").length;
+  const pendingChCount = jobs.filter(j => j.status === "pending_approval" || j.status === "pending_installation_approval").length;
+  const approvedCount = jobs.filter(j => j.status === "approved" || j.status === "completed").length;
+
   const columns = [
-    { key: "job_title", label: "Job Title" },
-    { key: "address", label: "Installation Location" },
-    { key: "installer_name", label: "Assigned Installer" },
-    {
-      key: "incentive",
-      label: "Incentive",
-      render: (val: number) => <span className="font-semibold text-slate-700">Rs. {val ? val.toLocaleString() : "0"}</span>
+    { 
+      key: "serial_number", 
+      label: "Job / Serial No",
+      render: (val: string, row: any) => (
+        <div>
+          <span className="font-extrabold text-[#00B4D8] text-xs block">{val || "JOB-" + row.id.substring(0, 6)}</span>
+          <span className="text-[10px] text-slate-500 font-semibold">{row.job_title}</span>
+        </div>
+      )
     },
+    { key: "installer_name", label: "Installer Name" },
+    { key: "address", label: "Installation Location" },
     {
       key: "status",
-      label: "Job Status",
-      render: (val: string) => (
-        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-          val === "completed" ? "bg-emerald-50 text-emerald-600 border border-emerald-200" :
-          val === "in_progress" ? "bg-amber-50 text-amber-600 border border-amber-200" :
-          "bg-cyan-50 text-cyan-600 border border-cyan-200"
-        }`}>
-          {val}
-        </span>
-      ),
+      label: "Status",
+      render: (val: string) => {
+        let bgClass = "bg-amber-50 text-amber-700 border-amber-200";
+        let labelText = "Pending RM";
+        if (val === "pending_approval" || val === "pending_installation_approval") {
+          bgClass = "bg-sky-50 text-sky-700 border-sky-200";
+          labelText = "Pending CH";
+        } else if (val === "approved" || val === "completed") {
+          bgClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
+          labelText = "Active Approved";
+        } else if (val === "rejected") {
+          bgClass = "bg-rose-50 text-rose-700 border-rose-200";
+          labelText = "Rejected";
+        }
+        return (
+          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${bgClass}`}>
+            {labelText}
+          </span>
+        );
+      }
     },
     {
-      key: "payment_status",
-      label: "Payment Status",
-      render: (val: string) => (
-        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-          val === "paid" ? "bg-emerald-50 text-emerald-600 border border-emerald-200" : "bg-rose-50 text-rose-600 border border-rose-200"
-        }`}>
-          {val}
-        </span>
-      ),
+      key: "audit_history",
+      label: "Audit History Log",
+      render: (_: any, row: any) => {
+        if (row.status === "pending_verification" || row.status === "assigned" || row.status === "in_progress") {
+          return (
+            <span className="text-[10px] text-amber-700 font-semibold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping inline-block"></span>
+              Stage 1: Awaiting Retail Manager verification
+            </span>
+          );
+        } else if (row.status === "pending_approval" || row.status === "pending_installation_approval") {
+          return (
+            <span className="text-[10px] text-sky-700 font-semibold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-ping inline-block"></span>
+              Stage 2: Awaiting Country Head approval
+            </span>
+          );
+        } else if (row.status === "rejected") {
+          return (
+            <span className="text-[10px] text-rose-600 font-semibold flex items-center gap-1">
+              ✗ Installation Rejected
+            </span>
+          );
+        }
+        return (
+          <span className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1">
+            ✓ Stage 3: Fully Approved & Stock Deducted
+          </span>
+        );
+      }
     },
-    { key: "created_at", label: "Date Assigned" },
+    { 
+      key: "created_at", 
+      label: "Submission Date",
+      render: (val: string) => <span className="text-xs font-semibold text-slate-700">{val}</span>
+    },
+    {
+      key: "audit_logs",
+      label: "Audit Logs",
+      render: (_: any, row: any) => (
+        <button
+          onClick={() => setSelectedJob(row)}
+          className="px-2.5 py-1 text-[10px] font-bold text-slate-700 hover:text-[#00B4D8] bg-slate-100 hover:bg-[#00B4D8]/10 border border-slate-200 rounded-[5px] flex items-center gap-1 transition-all"
+        >
+          <FileText className="w-3 h-3 text-[#00B4D8]" />
+          Audit Trail
+        </button>
+      )
+    }
   ];
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -488,9 +545,9 @@ export default function AdminJobsPage() {
       {!isCreating ? (
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Job Assignment</h1>
+            <h1 className="text-2xl font-bold text-slate-800">Installations</h1>
             <p className="text-xs text-slate-500">
-              Dispatch solar panel and inverter installation tickets to field technicians.
+              Monitor site verification, installation audit history, and active approval status.
             </p>
           </div>
 
@@ -522,6 +579,51 @@ export default function AdminJobsPage() {
         </div>
       )}
 
+      {/* Top Summary KPI Cards matching Installer Register */}
+      {!isCreating && !isLoading && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in duration-300">
+          <div className="bg-white p-5 rounded-[10px] border border-[#00B4D8]/30 shadow-sm flex items-center gap-4">
+            <div className="p-3 bg-[#E0F7FA] text-[#00B4D8] rounded-full">
+              <Wrench className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">TOTAL SUBMITTED</span>
+              <span className="text-xl font-extrabold text-slate-800">{totalCount} Installation(s)</span>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-[10px] border border-amber-200 shadow-sm flex items-center gap-4">
+            <div className="p-3 bg-amber-50 text-amber-600 rounded-full">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">STAGE 1: PENDING RM</span>
+              <span className="text-xl font-extrabold text-slate-800">{pendingRmCount} Installation(s)</span>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-[10px] border border-sky-200 shadow-sm flex items-center gap-4">
+            <div className="p-3 bg-sky-50 text-sky-600 rounded-full">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">STAGE 2: PENDING CH</span>
+              <span className="text-xl font-extrabold text-slate-800">{pendingChCount} Installation(s)</span>
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-[10px] border border-emerald-200 shadow-sm flex items-center gap-4">
+            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-full">
+              <FileText className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">ACTIVE APPROVED</span>
+              <span className="text-xl font-extrabold text-slate-800">{approvedCount} Installation(s)</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main content conditional view */}
       {isLoading ? (
         <div className="min-h-[40vh] flex items-center justify-center">
@@ -530,11 +632,11 @@ export default function AdminJobsPage() {
       ) : !isCreating ? (
         /* Ledger Table List View */
         <DataTable allData={jobs}
-          title="Installer Jobs Ledger"
+          title="Installations Register"
           columns={columns}
           data={paginated}
           isLoading={false}
-          searchPlaceholder="Search Job Title or Location..."
+          searchPlaceholder="Search Serial Number, Installer, or Address..."
           onRowClick={(row) => setSelectedJob(row)}
           onDeleteClick={handleDeleteJob}
           onBulkDelete={handleBulkDeleteJobs}
