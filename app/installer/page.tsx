@@ -311,7 +311,7 @@ export default function WebInstallerPage() {
           const base64 = await fileToBase64(file);
           uploadedUrls.push(base64);
         } catch (b64Err) {
-          uploadedUrls.push("https://images.unsplash.com/photo-1508514177221-188b1cf16e9d?auto=format&fit=crop&w=600&q=80");
+          console.warn("Photo conversion failed:", b64Err);
         }
       }
     }
@@ -330,8 +330,8 @@ export default function WebInstallerPage() {
       const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
       return pUrl.publicUrl;
     } catch (err) {
-      console.warn("Storage upload failed for video, using stock fallback URL", err);
-      return "https://assets.mixkit.co/videos/preview/mixkit-solar-panels-on-a-roof-of-a-house-41566-large.mp4";
+      console.warn("Storage upload failed for video", err);
+      return "";
     } finally {
       setIsUploadingVideo(false);
     }
@@ -342,6 +342,11 @@ export default function WebInstallerPage() {
     e.preventDefault();
     if (!validatedProduct) {
       toast.error("Connected inventory validation failed. Please check the serial number.");
+      return;
+    }
+
+    if (photoFiles.length === 0 && photoPreviews.length === 0) {
+      toast.error("Please upload at least 1 real site photo proof of installation before submitting!");
       return;
     }
 

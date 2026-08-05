@@ -66,13 +66,13 @@ export default function AdminJobsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeMediaModal, setActiveMediaModal] = useState<{ type: "image" | "video"; url: string; title?: string } | null>(null);
 
+  const [userRole, setUserRole] = useState("");
+
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch jobs joined with installer name, falling back to basic columns or local fallback if needed
-      let jobsData: any[] = [];
-      try {
-        const { data: fullJobsData, error: jobsErr } = await supabase
+      const [jobsRes, installersRes, sessionRes] = await Promise.all([
+        supabase
           .from("installer_jobs")
           .select(`
             id,
@@ -86,51 +86,38 @@ export default function AdminJobsPage() {
             serial_number,
             remarks,
             incentive,
-            installer:profiles!installer_id(first_name, last_name)
+            installer:profiles!installer_id(first_name, last_name, phone)
           `)
-          .order("created_at", { ascending: false });
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("profiles")
+          .select("id, first_name, last_name, phone")
+          .eq("role", "installer"),
+        supabase.auth.getSession()
+      ]);
 
-        if (jobsErr) {
-          console.warn("installer_jobs schema missing custom columns. Falling back to basic select.", jobsErr);
-          const { data: basicJobsData, error: basicErr } = await supabase
-            .from("installer_jobs")
-            .select(`
-              id,
-              job_title,
-              address,
-              status,
-              payment_status,
-              created_at,
-              photos,
-              notes,
-              installer:profiles!installer_id(first_name, last_name)
-            `)
-            .order("created_at", { ascending: false });
+      const jobsData = jobsRes.data || [];
+      const dbInstallers = installersRes.data || [];
 
-          if (basicErr) throw basicErr;
-          jobsData = basicJobsData || [];
-        } else {
-          jobsData = fullJobsData || [];
-        }
-      } catch (dbErr) {
-        console.warn("Failed to fetch installer jobs from database. Using local fallback.", dbErr);
+      if (sessionRes.data.session) {
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", sessionRes.data.session.user.id)
+          .single();
+        if (prof?.role) setUserRole(prof.role);
       }
 
-      const mergedJobs = mergeLocalItems(jobsData, "coretech_local_installer_jobs");
-
-      const formatted: JobRow[] = (mergedJobs || []).map((row: any) => {
+      const formatted: JobRow[] = jobsData.map((row: any) => {
         let sn = row.serial_number || "";
         let rem = row.remarks || "";
         let inc = row.incentive ? parseFloat(row.incentive) : 0;
         let notesText = row.notes || "";
 
-        // Parse metadata fallback if notes contains [METADATA]
         if (notesText.startsWith("[METADATA]")) {
           try {
             const firstLine = notesText.split("\n")[0];
             notesText = notesText.substring(firstLine.length + 1);
-            
-            // Format: [METADATA] SN:xxx | INC:xxx | REM:xxx
             const metaStr = firstLine.replace("[METADATA] ", "");
             const parts = metaStr.split(" | ");
             parts.forEach((part: string) => {
@@ -139,19 +126,19 @@ export default function AdminJobsPage() {
               else if (key === "INC") inc = parseFloat(val) || 0;
               else if (key === "REM") rem = val;
             });
-          } catch (e) {
-            console.error("Failed to parse metadata fallback:", e);
-          }
+          } catch (e) {}
         }
+
+        const instName = row.installer 
+          ? `${row.installer.first_name} ${row.installer.last_name || ""}`.trim() 
+          : "Unassigned";
 
         return {
           id: row.id,
-          job_title: row.job_title,
-          address: row.address,
-          installer_name: row.installer 
-            ? `${row.installer.first_name} ${row.installer.last_name || ""}`.trim() 
-            : (row.local_installer_name || "Unassigned"),
-          status: row.status,
+          job_title: row.job_title || "Site Installation",
+          address: row.address || "-",
+          installer_name: instName,
+          status: row.status || "pending_verification",
           payment_status: row.payment_status || "unpaid",
           created_at: row.created_at 
             ? new Date(row.created_at).toLocaleString("en-GB", { 
@@ -170,26 +157,9 @@ export default function AdminJobsPage() {
           incentive: inc,
         };
       });
+
       setJobs(formatted);
-
-      // 2. Fetch active installers for dropdown selection
-      let dbInstallers: any[] = [];
-      try {
-        const { data: instData } = await supabase
-          .from("profiles")
-          .select("id, first_name, last_name")
-          .eq("role", "installer")
-          .eq("status", "active");
-        dbInstallers = instData || [];
-      } catch (instErr) {
-        console.warn("Failed to load active installers. Using mock.", instErr);
-        dbInstallers = [
-          { id: "mock_inst_1", first_name: "John", last_name: "Installer" },
-          { id: "mock_inst_2", first_name: "Ali", last_name: "Technician" }
-        ];
-      }
       setInstallers(dbInstallers);
-
     } catch (err: any) {
       toast.error(err.message || "Failed to load installer data");
     } finally {
