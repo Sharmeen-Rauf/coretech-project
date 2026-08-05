@@ -9,8 +9,31 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "CoreTECH Admin Dashboard",
-  description: "CoreTECH distribution and installation network system",
+  title: {
+    default: "CoreTECH Solar - Enterprise Management System",
+    template: "%s | CoreTECH Solar",
+  },
+  description: "CoreTECH Solar distribution, inventory management, and technician network platform.",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
+  },
+  openGraph: {
+    title: "CoreTECH Solar Platform",
+    description: "CoreTECH Solar distribution, inventory management, and technician network platform.",
+    url: "https://www.coretechsolar.com",
+    siteName: "CoreTECH Solar",
+    images: [
+      {
+        url: "https://www.coretechsolar.com/favicon.svg",
+        width: 512,
+        height: 512,
+        alt: "CoreTECH Solar Logo",
+      },
+    ],
+    type: "website",
+  },
 };
 
 export default function RootLayout({
