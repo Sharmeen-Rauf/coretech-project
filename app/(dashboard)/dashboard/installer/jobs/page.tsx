@@ -412,6 +412,99 @@ export default function AdminJobsPage() {
     }
   };
 
+  const [auditNote, setAuditNote] = useState("");
+
+  const handleVerifyJobStage1 = async (jobId: string) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+
+      const { error } = await supabase
+        .from("installer_jobs")
+        .update({
+          status: "pending_approval",
+          verified_by: currentUserId,
+          verified_at: new Date().toISOString(),
+          verification_note: auditNote.trim()
+        })
+        .eq("id", jobId);
+
+      if (error) throw error;
+      toast.success("Stage 1: Retail Manager verification completed!");
+      setSelectedJob(null);
+      setAuditNote("");
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to verify job");
+    }
+  };
+
+  const handleApproveJobStage2 = async (job: JobRow) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+
+      const { error } = await supabase
+        .from("installer_jobs")
+        .update({
+          status: "approved",
+          approved_by: currentUserId,
+          approved_at: new Date().toISOString(),
+          approval_note: auditNote.trim()
+        })
+        .eq("id", job.id);
+
+      if (error) throw error;
+
+      if (job.serial_number) {
+        await supabase
+          .from("stock")
+          .update({
+            status: "sold_out",
+            sold_out_at: new Date().toISOString(),
+            sold_out_by_installer_id: job.id,
+            installation_id: job.id
+          })
+          .ilike("serial_no", job.serial_number.trim());
+      }
+
+      toast.success("Stage 2: Installation fully approved & stock deducted!");
+      setSelectedJob(null);
+      setAuditNote("");
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to approve job");
+    }
+  };
+
+  const handleRejectJobStage = async (job: JobRow) => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+
+      const { error } = await supabase
+        .from("installer_jobs")
+        .update({
+          status: "rejected",
+          approved_by: currentUserId,
+          approved_at: new Date().toISOString(),
+          approval_note: auditNote.trim() || "Rejected during site audit."
+        })
+        .eq("id", job.id);
+
+      if (error) throw error;
+
+      await revertRejectedInstallationStockAction(job.id, job.serial_number);
+
+      toast.success("Installation rejected & serial number restored to inventory!");
+      setSelectedJob(null);
+      setAuditNote("");
+      fetchData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to reject job");
+    }
+  };
+
   const totalCount = jobs.length;
   const pendingRmCount = jobs.filter(j => j.status === "pending_verification" || j.status === "assigned" || j.status === "in_progress").length;
   const pendingChCount = jobs.filter(j => j.status === "pending_approval" || j.status === "pending_installation_approval").length;
@@ -505,9 +598,28 @@ export default function AdminJobsPage() {
     }
   ];
 
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
+
+  const filteredJobs = jobs.filter((item) => {
+    if (selectedStatusFilter === "all") return true;
+    if (selectedStatusFilter === "pending_rm") {
+      return item.status === "pending_verification" || item.status === "assigned" || item.status === "in_progress";
+    }
+    if (selectedStatusFilter === "pending_ch") {
+      return item.status === "pending_approval" || item.status === "pending_installation_approval";
+    }
+    if (selectedStatusFilter === "approved") {
+      return item.status === "approved" || item.status === "completed";
+    }
+    if (selectedStatusFilter === "rejected") {
+      return item.status === "rejected";
+    }
+    return true;
+  });
+
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 10;
-  const paginated = jobs.slice((currentPage - 1) * perPage, currentPage * perPage);
+  const paginated = filteredJobs.slice((currentPage - 1) * perPage, currentPage * perPage);
 
   return (
     <div className="space-y-6 select-none relative min-h-[80vh]">
@@ -600,23 +712,43 @@ export default function AdminJobsPage() {
           <Loader2 className="w-8 h-8 text-[#00B4D8] animate-spin" />
         </div>
       ) : !isCreating ? (
-        /* Ledger Table List View */
-        <DataTable allData={jobs}
-          title="Installations Register"
-          columns={columns}
-          data={paginated}
-          isLoading={false}
-          searchPlaceholder="Search Serial Number, Installer, or Address..."
-          onRowClick={(row) => setSelectedJob(row)}
-          onDeleteClick={handleDeleteJob}
-          onBulkDelete={handleBulkDeleteJobs}
-          pagination={{
-            current: currentPage,
-            total: jobs.length,
-            perPage: perPage,
-            onChange: (page) => setCurrentPage(page),
-          }}
-        />
+        /* Ledger Table List View with Status Filter */
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 bg-white p-3 rounded-[8px] border border-slate-200 shadow-sm w-fit">
+            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">STATUS:</label>
+            <select
+              value={selectedStatusFilter}
+              onChange={(e) => {
+                setSelectedStatusFilter(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="h-9 px-3 text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-[6px] focus:outline-none focus:border-[#00B4D8]"
+            >
+              <option value="all">All Installations ({jobs.length})</option>
+              <option value="pending_rm">Stage 1: Pending RM ({pendingRmCount})</option>
+              <option value="pending_ch">Stage 2: Pending CH ({pendingChCount})</option>
+              <option value="approved">Active Approved ({approvedCount})</option>
+              <option value="rejected">Rejected ({jobs.filter(j => j.status === 'rejected').length})</option>
+            </select>
+          </div>
+
+          <DataTable allData={filteredJobs}
+            title="Installations Register"
+            columns={columns}
+            data={paginated}
+            isLoading={false}
+            searchPlaceholder="Search Serial Number, Installer, or Address..."
+            onRowClick={(row) => setSelectedJob(row)}
+            onDeleteClick={handleDeleteJob}
+            onBulkDelete={handleBulkDeleteJobs}
+            pagination={{
+              current: currentPage,
+              total: filteredJobs.length,
+              perPage: perPage,
+              onChange: (page) => setCurrentPage(page),
+            }}
+          />
+        </div>
       ) : (
         /* Dedicated Full-Page Form View */
         <form onSubmit={handleAssignJob} className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -815,327 +947,316 @@ export default function AdminJobsPage() {
         </form>
       )}
 
-      {/* Slide-over Job Details Drawer Overlay */}
+      {/* Review Site Installation Work Modal Overlay */}
       {selectedJob && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          {/* Backdrop */}
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             onClick={() => setSelectedJob(null)}
-            className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm animate-in fade-in duration-200"
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200"
           ></div>
 
-          {/* Slide panel */}
-          <div className="relative w-full max-w-md bg-white h-screen border-l border-slate-150 shadow-2xl p-6 flex flex-col justify-between animate-in slide-in-from-right duration-300">
-            {/* Header info */}
-            <div>
-              <div className="flex justify-between items-center border-b border-slate-100 pb-4 mb-4">
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-800 tracking-tight leading-tight">
-                    {selectedJob.job_title}
-                  </h3>
-                  <p className="text-[10px] text-[#00B4D8] font-bold uppercase tracking-wider mt-1">
-                    Job Ticket Detail
-                  </p>
-                </div>
-                <button
-                  onClick={() => setSelectedJob(null)}
-                  className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+          <div className="relative bg-white w-full max-w-lg border border-slate-150 rounded-[12px] shadow-2xl p-5 flex flex-col max-h-[90vh] overflow-y-auto z-10 animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100 mb-4 bg-slate-50/60 -m-5 p-5 rounded-t-[12px]">
+              <div>
+                <h3 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
+                  Review Site Installation Work
+                </h3>
+                <p className="text-[10px] text-[#00B4D8] font-bold mt-0.5">{selectedJob.job_title}</p>
               </div>
-
-              {/* Drawer Content */}
-              <div className="space-y-5 overflow-y-auto max-h-[75vh] pr-1">
-                {/* Meta details list */}
-                <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-[8px] border border-slate-100 text-xs">
-                  <div>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Technician</p>
-                    <p className="text-slate-800 font-bold mt-0.5">{selectedJob.installer_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Serial Number</p>
-                    <p className="text-slate-800 font-bold mt-0.5">{selectedJob.serial_number || "None Loaded"}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Incentive</p>
-                    <p className="text-emerald-600 font-extrabold mt-0.5">Rs. {selectedJob.incentive.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Date Dispatched</p>
-                    <p className="text-slate-600 font-bold mt-0.5">{selectedJob.created_at}</p>
-                  </div>
-                </div>
-
-                {/* Status indicator list */}
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</p>
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
-                      selectedJob.status === "completed" ? "bg-emerald-50 text-emerald-600 border border-emerald-200" :
-                      selectedJob.status === "in_progress" ? "bg-amber-50 text-amber-600 border border-amber-200" :
-                      "bg-cyan-50 text-cyan-600 border border-cyan-200"
-                    }`}>
-                      {selectedJob.status}
-                    </span>
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Payout Status</p>
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
-                        selectedJob.payment_status === "paid" ? "bg-emerald-50 text-emerald-600 border border-emerald-200" : "bg-rose-50 text-rose-600 border border-rose-200"
-                      }`}>
-                        {selectedJob.payment_status}
-                      </span>
-                      {selectedJob.status === "completed" && selectedJob.payment_status === "unpaid" && (
-                        <button
-                          onClick={() => handleMarkPaymentPaid(selectedJob.id)}
-                          className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[9px] font-bold uppercase rounded-[4px] shadow flex items-center transition-colors"
-                        >
-                          Settle Paid
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Address block */}
-                <div className="space-y-1">
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Deployment Location</p>
-                  <p className="text-xs text-slate-700 font-medium flex items-start gap-1">
-                    <MapPin className="w-3.5 h-3.5 text-[#00B4D8] shrink-0 mt-0.5" />
-                    {selectedJob.address}
-                  </p>
-                </div>
-
-                {/* Remarks block */}
-                <div className="space-y-1">
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Remarks</p>
-                  <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-[6px] border border-slate-100 italic leading-relaxed">
-                    {selectedJob.remarks || "No dispatch remarks uploaded."}
-                  </p>
-                </div>
-
-                {/* Checklist steps */}
-                <div className="space-y-2">
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Job Checklist</p>
-                  <div className="space-y-1.5 pl-1">
-                    {(selectedJob.notes || "").split("\n").filter(x => x.trim()).map((step, idx) => (
-                      <div key={idx} className="flex items-start gap-2 text-xs text-slate-700">
-                        <span className="w-4 h-4 bg-cyan-50 text-[#00B4D8] font-bold text-[9px] rounded-full flex items-center justify-center shrink-0 mt-0.5">
-                          {idx + 1}
-                        </span>
-                        <span className="leading-normal">{step}</span>
-                      </div>
-                    ))}
-                    {(!selectedJob.notes || selectedJob.notes.trim() === "") && (
-                      <p className="text-xs text-slate-400 italic">No checklist steps loaded.</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Pictures grid */}
-                <div className="space-y-2 pb-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Job Documentation Photos</p>
-                    {selectedJob.installer_name && (
-                      <span className="text-[9px] font-bold text-[#00B4D8] bg-cyan-50 px-2 py-0.5 rounded-full border border-cyan-100">
-                        Technician: {selectedJob.installer_name}
-                      </span>
-                    )}
-                  </div>
-
-                  {(() => {
-                    // Extract all photos from selectedJob.photos (Array, stringified JSON, or comma-separated string)
-                    let rawPhotoList: string[] = [];
-
-                    if (Array.isArray(selectedJob.photos)) {
-                      rawPhotoList = selectedJob.photos;
-                    } else if (typeof selectedJob.photos === "string" && selectedJob.photos.trim()) {
-                      try {
-                        const parsed = JSON.parse(selectedJob.photos);
-                        if (Array.isArray(parsed)) rawPhotoList = parsed;
-                        else if (typeof parsed === "string") rawPhotoList = [parsed];
-                      } catch {
-                        rawPhotoList = selectedJob.photos.split(",").map((s: string) => s.trim());
-                      }
-                    }
-
-                    // Extract Video URLs from notes or remarks
-                    let videoList: string[] = [];
-                    const combinedText = `${selectedJob.notes || ""} ${selectedJob.remarks || ""}`;
-                    const videoMatch = combinedText.match(/VIDEO:([^\s|]+)/gi);
-                    if (videoMatch) {
-                      videoMatch.forEach((vStr) => {
-                        const cleanUrl = vStr.replace(/VIDEO:/i, "").trim();
-                        if (
-                          cleanUrl &&
-                          !cleanUrl.includes("mixkit") &&
-                          !cleanUrl.includes("zencdn") &&
-                          !cleanUrl.includes("gtv-videos-bucket")
-                        ) {
-                          videoList.push(cleanUrl);
-                        }
-                      });
-                    }
-
-                    // Also check for direct .mp4/.mov/.webm URLs or data:video in rawPhotoList (excluding sample URLs)
-                    const realVideos = [
-                      ...videoList,
-                      ...rawPhotoList.filter(
-                        (url) =>
-                          typeof url === "string" &&
-                          !url.includes("mixkit") &&
-                          !url.includes("zencdn") &&
-                          !url.includes("gtv-videos-bucket") &&
-                          (url.includes(".mp4") || url.includes(".mov") || url.includes(".webm") || url.startsWith("data:video/"))
-                      )
-                    ];
-
-                    // Filter out real images (exclude unsplash fallbacks and videos)
-                    const realPhotos = rawPhotoList.filter(
-                      (urlStr) =>
-                        urlStr &&
-                        typeof urlStr === "string" &&
-                        urlStr.trim() !== "" &&
-                        !urlStr.includes("unsplash.com") &&
-                        !urlStr.includes(".mp4") &&
-                        !urlStr.includes(".mov") &&
-                        !urlStr.includes(".webm") &&
-                        !urlStr.startsWith("data:video/")
-                    );
-
-                    const totalMediaCount = realPhotos.length + realVideos.length;
-
-                    if (totalMediaCount === 0) {
-                      return (
-                        <div className="text-center py-6 px-4 bg-slate-50 rounded-[8px] border border-slate-200 text-slate-500 space-y-1.5">
-                          <ImageIcon className="w-8 h-8 mx-auto text-slate-300" />
-                          <p className="text-xs font-bold text-slate-700">No Field Media Uploaded Yet</p>
-                          <p className="text-[10px] text-slate-400 leading-relaxed max-w-xs mx-auto">
-                            Installer <span className="font-bold text-slate-700">{selectedJob.installer_name}</span> has not uploaded live site photos or video recordings for this ticket yet.
-                          </p>
-                        </div>
-                      );
-                    }
-
-                    const getFullMediaUrl = (urlStr: string) => {
-                      if (!urlStr) return "";
-                      if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
-                        return urlStr;
-                      }
-                      return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
-                    };
-
-                    return (
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between text-[10px] bg-emerald-50 border border-emerald-100 p-2.5 rounded-[6px] text-emerald-800 font-semibold shadow-xs">
-                          <span>Verified Device Upload ({realPhotos.length} Photos, {realVideos.length} Videos)</span>
-                          <span>Technician: {selectedJob.installer_name}</span>
-                        </div>
-
-                        {/* Video Section if available */}
-                        {realVideos.length > 0 && (
-                          <div className="space-y-2">
-                            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Live Installation Video Recording</p>
-                            <div className="space-y-2">
-                              {realVideos.map((vUrl, vIdx) => {
-                                const fullVideoUrl = getFullMediaUrl(vUrl);
-                                
-                                // YouTube embed support
-                                if (fullVideoUrl.includes("youtube.com") || fullVideoUrl.includes("youtu.be")) {
-                                  let embedUrl = fullVideoUrl;
-                                  if (fullVideoUrl.includes("watch?v=")) {
-                                    embedUrl = fullVideoUrl.replace("watch?v=", "embed/");
-                                  } else if (fullVideoUrl.includes("youtu.be/")) {
-                                    embedUrl = fullVideoUrl.replace("youtu.be/", "youtube.com/embed/");
-                                  }
-                                  return (
-                                    <div key={vIdx} className="relative w-full h-52 bg-slate-900 rounded-[8px] overflow-hidden border border-slate-800 shadow">
-                                      <iframe
-                                        src={embedUrl}
-                                        className="w-full h-full border-0"
-                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                        allowFullScreen
-                                      />
-                                    </div>
-                                  );
-                                }
-
-                                return (
-                                  <div key={vIdx} className="bg-slate-950 rounded-[8px] overflow-hidden border border-slate-800 shadow space-y-1">
-                                    <video
-                                      src={fullVideoUrl}
-                                      controls
-                                      playsInline
-                                      preload="metadata"
-                                      className="w-full max-h-52 object-contain bg-black"
-                                    >
-                                      <source src={fullVideoUrl} type="video/mp4" />
-                                      <source src={fullVideoUrl} type="video/webm" />
-                                      <source src={fullVideoUrl} type="video/quicktime" />
-                                      Your browser does not support HTML5 video playback.
-                                    </video>
-                                    <div className="p-2 flex items-center justify-between text-[10px] text-slate-300 bg-slate-900 border-t border-slate-800">
-                                      <span className="font-semibold text-cyan-400">Site Video Recording #{vIdx + 1}</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => setActiveMediaModal({ type: "video", url: fullVideoUrl, title: selectedJob.job_title })}
-                                        className="px-2.5 py-1 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-[9px] font-bold rounded-[4px] shadow flex items-center gap-1 transition-all"
-                                      >
-                                        Fullscreen Stream ↗
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Image Photos Section */}
-                        {realPhotos.length > 0 && (
-                          <div className="space-y-2">
-                            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Field Site Documentation Photos</p>
-                            <div className="grid grid-cols-2 gap-2">
-                              {realPhotos.map((url, idx) => {
-                                const fullUrl = getFullMediaUrl(url);
-                                return (
-                                  <div
-                                    key={idx}
-                                    onClick={() => setActiveMediaModal({ type: "image", url: fullUrl, title: selectedJob.job_title })}
-                                    className="relative w-full h-28 rounded-[6px] border border-slate-200 overflow-hidden group shadow-sm bg-slate-100 cursor-pointer"
-                                  >
-                                    <img
-                                      src={fullUrl}
-                                      alt={`Uploaded by ${selectedJob.installer_name}`}
-                                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-250"
-                                    />
-                                    <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-2 text-center">
-                                      <span className="text-white text-[9px] font-bold bg-slate-900/80 px-2 py-0.5 rounded-full">Zoom Photo</span>
-                                      <span className="text-[8px] text-slate-200 font-medium">Uploaded by {selectedJob.installer_name}</span>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
-
-            {/* Settle / Footer info */}
-            <div className="border-t border-slate-100 pt-4 mt-4 text-center">
               <button
                 onClick={() => setSelectedJob(null)}
-                className="w-full h-10 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-[6px] transition-colors"
+                className="p-1 hover:bg-slate-200 text-slate-400 hover:text-slate-700 rounded-full transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="space-y-4 text-xs">
+              {/* Job Details Card */}
+              <div className="bg-slate-50 border border-slate-200 rounded-[8px] p-3.5 space-y-2">
+                <p className="text-slate-600 font-bold">
+                  SERIAL NO: <span className="text-[#00B4D8] font-extrabold">{selectedJob.serial_number || "JOB-" + selectedJob.id.substring(0, 6)}</span>
+                </p>
+                <p className="text-slate-600 font-semibold">
+                  <strong>Technician:</strong> {selectedJob.installer_name}
+                </p>
+                <p className="text-slate-600 font-semibold">
+                  <strong>Address Location:</strong> {selectedJob.address}
+                </p>
+                <p className="text-slate-600 font-bold">
+                  <strong>Incentive Payout:</strong> Rs. {selectedJob.incentive.toLocaleString()}
+                </p>
+                {selectedJob.remarks && (
+                  <p className="text-slate-700 bg-white border border-slate-200 p-2 rounded italic text-[11px]">
+                    "{selectedJob.remarks}"
+                  </p>
+                )}
+              </div>
+
+              {/* Photos & Videos Section */}
+              <div>
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                  <Video className="w-3.5 h-3.5 text-[#00B4D8]" />
+                  Installation Photos & Video Demonstration
+                </p>
+
+                {(() => {
+                  let rawPhotoList: string[] = [];
+                  if (Array.isArray(selectedJob.photos)) {
+                    rawPhotoList = selectedJob.photos;
+                  } else if (typeof selectedJob.photos === "string" && selectedJob.photos.trim()) {
+                    try {
+                      const parsed = JSON.parse(selectedJob.photos);
+                      if (Array.isArray(parsed)) rawPhotoList = parsed;
+                      else if (typeof parsed === "string") rawPhotoList = [parsed];
+                    } catch {
+                      rawPhotoList = selectedJob.photos.split(",").map((s: string) => s.trim());
+                    }
+                  }
+
+                  let videoList: string[] = [];
+                  const combinedText = `${selectedJob.notes || ""} ${selectedJob.remarks || ""}`;
+                  const videoMatch = combinedText.match(/VIDEO:([^\s|]+)/gi);
+                  if (videoMatch) {
+                    videoMatch.forEach((vStr) => {
+                      const cleanUrl = vStr.replace(/VIDEO:/i, "").trim();
+                      if (cleanUrl && !cleanUrl.includes("mixkit") && !cleanUrl.includes("zencdn") && !cleanUrl.includes("gtv-videos-bucket")) {
+                        videoList.push(cleanUrl);
+                      }
+                    });
+                  }
+
+                  const realVideos = [
+                    ...videoList,
+                    ...rawPhotoList.filter(
+                      (url) =>
+                        typeof url === "string" &&
+                        !url.includes("mixkit") &&
+                        !url.includes("zencdn") &&
+                        !url.includes("gtv-videos-bucket") &&
+                        (url.includes(".mp4") || url.includes(".mov") || url.includes(".webm") || url.startsWith("data:video/"))
+                    )
+                  ];
+
+                  const realPhotos = rawPhotoList.filter(
+                    (urlStr) =>
+                      urlStr &&
+                      typeof urlStr === "string" &&
+                      urlStr.trim() !== "" &&
+                      !urlStr.includes("unsplash.com") &&
+                      !urlStr.includes(".mp4") &&
+                      !urlStr.includes(".mov") &&
+                      !urlStr.includes(".webm") &&
+                      !urlStr.startsWith("data:video/")
+                  );
+
+                  if (realPhotos.length === 0 && realVideos.length === 0) {
+                    return (
+                      <div className="text-center py-5 px-4 bg-slate-50 rounded-[8px] border border-slate-200 text-slate-500 space-y-1">
+                        <ImageIcon className="w-6 h-6 mx-auto text-slate-300" />
+                        <p className="text-xs font-bold text-slate-700">No Field Media Uploaded Yet</p>
+                        <p className="text-[10px] text-slate-400 leading-relaxed max-w-xs mx-auto">
+                          Technician <span className="font-bold text-slate-700">{selectedJob.installer_name}</span> has not recorded or uploaded a live site video for this ticket yet.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  const getFullMediaUrl = (urlStr: string) => {
+                    if (!urlStr) return "";
+                    if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
+                      return urlStr;
+                    }
+                    return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
+                  };
+
+                  return (
+                    <div className="space-y-3">
+                      {/* Photos Grid */}
+                      {realPhotos.length > 0 && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {realPhotos.map((url, idx) => {
+                            const fullUrl = getFullMediaUrl(url);
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => setActiveMediaModal({ type: "image", url: fullUrl, title: selectedJob.job_title })}
+                                className="w-full h-16 bg-slate-50 border rounded-[6px] overflow-hidden relative group cursor-pointer shadow-xs"
+                              >
+                                <img src={fullUrl} alt="installation-proof" className="w-full h-full object-cover group-hover:scale-105 transition-all" />
+                                <div className="absolute inset-0 bg-slate-950/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <span className="text-[8px] font-bold text-white bg-slate-900/80 px-1.5 py-0.5 rounded-full">Zoom</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Video Player */}
+                      {realVideos.length > 0 && (
+                        <div className="space-y-2">
+                          {realVideos.map((vUrl, vIdx) => {
+                            const fullVideoUrl = getFullMediaUrl(vUrl);
+                            return (
+                              <div key={vIdx} className="bg-slate-950 rounded-[8px] overflow-hidden border border-slate-800 shadow space-y-1">
+                                <video
+                                  src={fullVideoUrl}
+                                  controls
+                                  playsInline
+                                  preload="metadata"
+                                  className="w-full max-h-48 object-contain bg-black"
+                                >
+                                  <source src={fullVideoUrl} type="video/mp4" />
+                                  <source src={fullVideoUrl} type="video/webm" />
+                                  Your browser does not support video.
+                                </video>
+                                <div className="p-2 flex items-center justify-between text-[10px] text-slate-300 bg-slate-900 border-t border-slate-800">
+                                  <span className="font-semibold text-cyan-400">Site Video Recording</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveMediaModal({ type: "video", url: fullVideoUrl, title: selectedJob.job_title })}
+                                    className="px-2.5 py-1 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-[9px] font-bold rounded-[4px] shadow flex items-center gap-1 transition-all"
+                                  >
+                                    Fullscreen Stream ↗
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Approval Progress Timeline */}
+              <div className="border border-slate-200 rounded-[8px] p-3 bg-slate-50 space-y-3 mt-4">
+                <p className="font-bold text-slate-800 text-[10px] uppercase tracking-wider">Approval Progress Timeline</p>
+                
+                {/* Submitted */}
+                <div className="flex gap-2.5 items-start">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-100 border border-emerald-300 text-emerald-700 text-[9px] font-bold">✓</span>
+                  <div>
+                    <p className="font-bold text-slate-800">Submitted Installation</p>
+                    <p className="text-[11px] font-semibold text-slate-700">Reported on {selectedJob.created_at}</p>
+                  </div>
+                </div>
+
+                {/* Stage 1: RM */}
+                <div className="flex gap-2.5 items-start border-t border-slate-200/60 pt-2.5">
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                    selectedJob.status === "pending_verification" || selectedJob.status === "assigned" || selectedJob.status === "in_progress"
+                      ? "bg-amber-100 text-amber-700 border border-amber-300 animate-pulse"
+                      : "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                  }`}>
+                    {selectedJob.status === "pending_verification" || selectedJob.status === "assigned" || selectedJob.status === "in_progress" ? "2" : "✓"}
+                  </span>
+                  <div>
+                    <p className="font-bold text-slate-800">Stage 1: Retail Manager Verification</p>
+                    {selectedJob.status === "pending_approval" || selectedJob.status === "approved" || selectedJob.status === "completed" ? (
+                      <p className="text-[11px] font-semibold text-slate-700">Verified by <span className="font-bold text-slate-900">Shoaib Khan (Retail Manager)</span></p>
+                    ) : (
+                      <p className="text-[11px] font-medium text-slate-500">Awaiting credentials/site verification audit.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Stage 2: CH */}
+                <div className="flex gap-2.5 items-start border-t border-slate-200/60 pt-2.5">
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+                    selectedJob.status === "pending_approval" || selectedJob.status === "pending_installation_approval"
+                      ? "bg-sky-100 text-sky-700 border border-sky-300 animate-pulse"
+                      : selectedJob.status === "rejected"
+                      ? "bg-rose-100 text-rose-700 border border-rose-300"
+                      : selectedJob.status === "approved" || selectedJob.status === "completed"
+                      ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                      : "bg-slate-100 text-slate-400 border border-slate-200"
+                  }`}>
+                    {selectedJob.status === "approved" || selectedJob.status === "completed" ? "✓" : selectedJob.status === "rejected" ? "✗" : "3"}
+                  </span>
+                  <div>
+                    <p className="font-bold text-slate-800">Stage 2: Country Head Approval</p>
+                    {selectedJob.status === "approved" || selectedJob.status === "completed" ? (
+                      <p className="text-[11px] font-semibold text-slate-700">Approved by <span className="font-bold text-slate-900">Ammar Khan (Country Head)</span></p>
+                    ) : selectedJob.status === "rejected" ? (
+                      <p className="text-[11px] font-semibold text-rose-600">Rejected during site audit.</p>
+                    ) : (
+                      <p className="text-[11px] font-medium text-slate-500">Awaiting final approval decision.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Audit Remarks Textarea */}
+              {(selectedJob.status !== "approved" && selectedJob.status !== "completed" && selectedJob.status !== "rejected") && (
+                <div className="space-y-1 mt-4">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">Audit Remarks / Notes</label>
+                  <textarea
+                    value={auditNote}
+                    onChange={(e) => setAuditNote(e.target.value)}
+                    placeholder="Enter audit review comments, verification remarks, or rejection reason here..."
+                    className="w-full border border-slate-200 rounded-[6px] p-2.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-[#00B4D8] resize-none h-16"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons based on status & role */}
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100 mt-6">
+              <button
+                onClick={() => setSelectedJob(null)}
+                className="h-9 px-4 text-xs font-semibold border border-slate-200 hover:bg-slate-50 rounded-[6px] text-slate-600 transition-colors"
               >
                 Close Panel
               </button>
+
+              {/* Pending Stage 1 (RM) */}
+              {(selectedJob.status === "pending_verification" || selectedJob.status === "assigned" || selectedJob.status === "in_progress") && (
+                <>
+                  <button
+                    onClick={() => handleRejectJobStage(selectedJob)}
+                    className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    Reject Installation
+                  </button>
+                  {(userRole === "retail_manager" || userRole === "admin" || userRole === "country_head") && (
+                    <button
+                      onClick={() => handleVerifyJobStage1(selectedJob.id)}
+                      className="h-9 px-5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      Verify Completion (Stage 1)
+                    </button>
+                  )}
+                </>
+              )}
+
+              {/* Pending Stage 2 (CH) */}
+              {(selectedJob.status === "pending_approval" || selectedJob.status === "pending_installation_approval") && (
+                <>
+                  <button
+                    onClick={() => handleRejectJobStage(selectedJob)}
+                    className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    Reject Installation
+                  </button>
+                  {(userRole === "country_head" || userRole === "admin") && (
+                    <button
+                      onClick={() => handleApproveJobStage2(selectedJob)}
+                      className="h-9 px-5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      Approve & Deduct Stock (Stage 2)
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
