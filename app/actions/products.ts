@@ -173,11 +173,12 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
       return { success: false, error: "Serial number is already sold out." };
     }
 
-    // 2. Check if the serial number is already registered or used in installer_jobs
+    // 2. Check if the serial number is already registered or used in active (non-rejected) installer_jobs
     let jobsQuery = supabase
       .from("installer_jobs")
-      .select("id, job_title")
-      .ilike("serial_number", cleanSNo);
+      .select("id, job_title, status")
+      .ilike("serial_number", cleanSNo)
+      .neq("status", "rejected");
 
     if (currentJobId && currentJobId !== "new") {
       jobsQuery = jobsQuery.neq("id", currentJobId);
@@ -623,6 +624,36 @@ export async function revertRejectedInstallationStockAction(jobId: string, seria
   } catch (err: any) {
     try { await client.end(); } catch {}
     return { success: false, error: err.message || "Failed to revert stock for rejected installation" };
+  }
+}
+
+export async function revertStockBySerialAction(serialNumber: string) {
+  const { Client } = require("pg");
+  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
+  const client = new Client({
+    connectionString,
+    ssl: { rejectUnauthorized: false }
+  });
+
+  try {
+    await client.connect();
+
+    const res = await client.query(`
+      UPDATE public.stock
+      SET status = 'active',
+          sold_out_at = NULL,
+          sold_out_by_installer_id = NULL,
+          installation_id = NULL,
+          installation_project_title = NULL,
+          deployment_site_address = NULL
+      WHERE LOWER(serial_no) = LOWER($1);
+    `, [serialNumber.trim()]);
+
+    await client.end();
+    return { success: true, count: res.rowCount };
+  } catch (err: any) {
+    try { await client.end(); } catch {}
+    return { success: false, error: err.message || "Failed to revert stock" };
   }
 }
 

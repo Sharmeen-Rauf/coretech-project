@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
-import { fetchSellOutAction } from "@/app/actions/products";
+import { fetchSellOutAction, revertStockBySerialAction } from "@/app/actions/products";
 import { fetchRecordsAction, deleteRecordAction } from "@/app/actions/users";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
 import { Eye, X, Calendar, Clipboard, MapPin, User, Trash2 } from "lucide-react";
@@ -101,13 +101,14 @@ export default function SellOutPage() {
   }, []);
 
   const handleDeleteSellOut = async (row: SellOutItem) => {
-    if (window.confirm(`Are you sure you want to delete sell out record for Serial #${row.serial_no}?`)) {
+    if (window.confirm(`Are you sure you want to delete sell out record for Serial #${row.serial_no}? This will restore the product back to active inventory!`)) {
       try {
-        const res = await deleteRecordAction("serial_numbers", row.id);
-        if (!res.success) {
+        if (row.serial_no && row.serial_no !== "-") {
+          await revertStockBySerialAction(row.serial_no);
+        } else if (row.id) {
           await deleteRecordAction("stock", row.id);
         }
-        toast.success("Sell out record deleted successfully!");
+        toast.success(`Sell out record deleted and Serial #${row.serial_no} restored to inventory!`);
         fetchSellOuts();
       } catch (err: any) {
         toast.error(err.message || "Failed to delete sell out record");
@@ -116,15 +117,17 @@ export default function SellOutPage() {
   };
 
   const handleBulkDeleteSellOuts = async (selectedIds: string[]) => {
-    if (window.confirm(`Are you sure you want to delete ${selectedIds.length} selected sell out records?`)) {
+    if (window.confirm(`Are you sure you want to delete ${selectedIds.length} selected sell out records? This will restore all these products back to active inventory!`)) {
       try {
         for (const id of selectedIds) {
-          const res = await deleteRecordAction("serial_numbers", id);
-          if (!res.success) {
+          const item = sellOuts.find(s => s.id === id);
+          if (item?.serial_no && item.serial_no !== "-") {
+            await revertStockBySerialAction(item.serial_no);
+          } else {
             await deleteRecordAction("stock", id);
           }
         }
-        toast.success(`Successfully deleted ${selectedIds.length} sell out records!`);
+        toast.success(`Successfully deleted ${selectedIds.length} sell out records and restored items to inventory!`);
         fetchSellOuts();
       } catch (err: any) {
         toast.error(err.message || "Failed bulk deletion");
