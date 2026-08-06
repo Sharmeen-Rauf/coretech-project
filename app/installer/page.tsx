@@ -129,6 +129,9 @@ export default function WebInstallerPage() {
 
       // Automatic Sync local jobs to database if database connection is active
       const syncedIds: string[] = [];
+      const BLOCKED_SYNC = ["unsplash.com", "mixkit.co", "picsum.photos", "placeholder.com", "zencdn", "gtv-videos-bucket", "lorem.space", "placehold.co"];
+      const isFakeSyncUrl = (url: string) => !url || typeof url !== "string" || !url.trim() || BLOCKED_SYNC.some(d => url.toLowerCase().includes(d));
+
       if (filteredLocal.length > 0) {
         // Try uploading each local job
         for (const localJob of filteredLocal) {
@@ -138,6 +141,18 @@ export default function WebInstallerPage() {
             const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
             if (!uuidRegex.test(uploadJob.id)) {
               delete uploadJob.id;
+            }
+
+            // Sanitize photos: remove ALL fake/placeholder URLs before sync
+            if (Array.isArray(uploadJob.photos)) {
+              uploadJob.photos = uploadJob.photos.filter((url: string) => !isFakeSyncUrl(url));
+            }
+            // Sanitize notes: remove fake video URLs
+            if (typeof uploadJob.notes === "string") {
+              uploadJob.notes = uploadJob.notes.replace(
+                /VIDEO:https?:\/\/[^\s|]*(?:mixkit|zencdn|gtv-videos-bucket|unsplash)[^\s|]*/gi,
+                "VIDEO:"
+              );
             }
 
             const { error: insertErr } = await supabase

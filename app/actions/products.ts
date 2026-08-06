@@ -221,6 +221,43 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
     await client.connect();
     await client.query("BEGIN");
 
+    // === SERVER-SIDE SANITIZATION: Strip ALL fake/placeholder URLs ===
+    // This runs on the server so no matter what the client sends, fake URLs NEVER reach the DB.
+    const BLOCKED_DOMAINS = ["unsplash.com", "mixkit.co", "picsum.photos", "placeholder.com", "zencdn", "gtv-videos-bucket", "lorem.space", "placehold.co"];
+
+    const isFakeUrl = (url: string) => {
+      if (!url || typeof url !== "string") return true;
+      const lower = url.trim().toLowerCase();
+      if (!lower) return true;
+      return BLOCKED_DOMAINS.some(domain => lower.includes(domain));
+    };
+
+    // Sanitize photos array
+    if (Array.isArray(payload.photos)) {
+      payload.photos = payload.photos.filter((url: string) => !isFakeUrl(url));
+    } else if (typeof payload.photos === "string") {
+      try {
+        const parsed = JSON.parse(payload.photos);
+        if (Array.isArray(parsed)) {
+          payload.photos = parsed.filter((url: string) => !isFakeUrl(url));
+        } else {
+          payload.photos = [];
+        }
+      } catch {
+        payload.photos = [];
+      }
+    } else {
+      payload.photos = [];
+    }
+
+    // Sanitize notes: remove fake video URLs from VIDEO: metadata
+    if (typeof payload.notes === "string") {
+      payload.notes = payload.notes.replace(
+        /VIDEO:https?:\/\/[^\s|]*(?:mixkit|zencdn|gtv-videos-bucket|unsplash)[^\s|]*/gi,
+        "VIDEO:"
+      );
+    }
+
     // 1. Double check if the serial number is already sold_out in active database
     const stockCheck = await client.query(
       "SELECT id, status FROM public.stock WHERE LOWER(serial_no) = LOWER($1) LIMIT 1",
