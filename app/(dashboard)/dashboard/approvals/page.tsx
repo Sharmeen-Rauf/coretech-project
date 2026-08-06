@@ -18,7 +18,8 @@ import {
   Wrench,
   CheckCircle,
   Play,
-  Calendar
+  Calendar,
+  Camera
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
@@ -1752,129 +1753,198 @@ export default function ApprovalsPage() {
                 {selectedInstallation.remarks && <p className="text-slate-650 bg-white border border-slate-150 p-2 rounded italic">"{selectedInstallation.remarks}"</p>}
               </div>
 
-              {/* Photos */}
-              {selectedInstallation.photos && selectedInstallation.photos.filter((url: string) => !url.startsWith("blob:")).length > 0 && (
-                <div>
-                  <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Site Images Proof</p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {selectedInstallation.photos.filter((url: string) => !url.startsWith("blob:")).map((url: string, idx: number) => {
-                      const getFullImageUrl = (urlStr: string) => {
-                        if (!urlStr) return "";
-                        if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
-                          return urlStr;
-                        }
-                        return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
-                      };
-                      const imgUrl = getFullImageUrl(url);
-                      return (
-                        <div
-                          key={idx}
-                          onClick={() => setActiveMediaModal({ type: "image", url: imgUrl, title: selectedInstallation.job_title })}
-                          className="w-full h-16 bg-slate-50 border rounded-[6px] overflow-hidden relative group cursor-pointer shadow-xs"
-                        >
-                          <img src={imgUrl} alt="installation-proof" className="w-full h-full object-cover group-hover:scale-105 transition-all" />
-                          <div className="absolute inset-0 bg-slate-950/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <span className="text-[8px] font-bold text-white bg-slate-900/80 px-1.5 py-0.5 rounded-full">Zoom</span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Video Proof */}
-              <div>
-                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                  <Video className="w-3.5 h-3.5 text-[#00B4D8]" />
-                  Installation Video Demonstration
-                </p>
-                {/* Parse video url from notes metadata */}
-                {(() => {
-                  const notesStr = `${selectedInstallation.notes || ""} ${selectedInstallation.remarks || ""}`;
-                  const match = notesStr.match(/VIDEO:([^\s|]+)/i);
-                  const rawVideoUrl = match ? match[1].trim() : null;
-                  
-                  // Filter out sample test videos to ensure ONLY real technician video recordings appear
-                  const isSampleVideo = rawVideoUrl && (
-                    rawVideoUrl.includes("mixkit") ||
-                    rawVideoUrl.includes("zencdn") ||
-                    rawVideoUrl.includes("gtv-videos-bucket")
-                  );
-
-                  const videoUrl = isSampleVideo ? null : rawVideoUrl;
-
-                  if (!videoUrl) {
-                    return (
-                      <div className="text-center py-4 px-3 bg-slate-50 rounded-[6px] border border-slate-200 text-slate-500 space-y-1">
-                        <Video className="w-6 h-6 mx-auto text-slate-300" />
-                        <p className="text-xs font-bold text-slate-700">No Real Site Video Uploaded Yet</p>
-                        <p className="text-[10px] text-slate-400 leading-relaxed max-w-xs mx-auto">
-                          Technician has not recorded or uploaded a live site video for this installation ticket yet.
-                        </p>
-                      </div>
-                    );
+              {/* Photos & Videos - Robust Parser */}
+              {(() => {
+                // === ROBUST PHOTO PARSING ===
+                let rawPhotoList: string[] = [];
+                const rawPhotos = selectedInstallation.photos;
+                if (Array.isArray(rawPhotos)) {
+                  rawPhotoList = rawPhotos;
+                } else if (typeof rawPhotos === "string" && rawPhotos.trim()) {
+                  try {
+                    const parsed = JSON.parse(rawPhotos);
+                    if (Array.isArray(parsed)) rawPhotoList = parsed;
+                    else if (typeof parsed === "string") rawPhotoList = [parsed];
+                  } catch {
+                    rawPhotoList = rawPhotos.split(",").map((s: string) => s.trim());
                   }
+                }
 
-                  const getFullVideoUrl = (urlStr: string) => {
-                    if (!urlStr) return "";
-                    if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
-                      return urlStr;
+                // Filter out ALL fake/placeholder URLs
+                const realPhotos = rawPhotoList.filter(
+                  (url) =>
+                    url &&
+                    typeof url === "string" &&
+                    url.trim() !== "" &&
+                    !url.includes("unsplash.com") &&
+                    !url.includes("placeholder") &&
+                    !url.includes("picsum.photos") &&
+                    !url.startsWith("blob:") &&
+                    !url.includes(".mp4") &&
+                    !url.includes(".mov") &&
+                    !url.includes(".webm") &&
+                    !url.startsWith("data:video/")
+                );
+
+                // === ROBUST VIDEO PARSING ===
+                let videoList: string[] = [];
+                const combinedText = `${selectedInstallation.notes || ""} ${selectedInstallation.remarks || ""}`;
+                const videoMatches = combinedText.match(/VIDEO:([^\s|]+)/gi);
+                if (videoMatches) {
+                  videoMatches.forEach((vStr: string) => {
+                    const cleanUrl = vStr.replace(/VIDEO:/i, "").trim();
+                    if (
+                      cleanUrl &&
+                      cleanUrl.length > 5 &&
+                      !cleanUrl.includes("mixkit") &&
+                      !cleanUrl.includes("zencdn") &&
+                      !cleanUrl.includes("gtv-videos-bucket") &&
+                      !cleanUrl.includes("unsplash")
+                    ) {
+                      videoList.push(cleanUrl);
                     }
-                    return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
-                  };
+                  });
+                }
 
-                  const fullUrl = getFullVideoUrl(videoUrl);
+                // Also check photos array for video files
+                const videoFromPhotos = rawPhotoList.filter(
+                  (url) =>
+                    typeof url === "string" &&
+                    !url.includes("mixkit") &&
+                    !url.includes("zencdn") &&
+                    !url.includes("gtv-videos-bucket") &&
+                    (url.includes(".mp4") || url.includes(".mov") || url.includes(".webm") || url.startsWith("data:video/"))
+                );
+                videoList = [...videoList, ...videoFromPhotos];
 
-                  // 1. YouTube link support
-                  if (fullUrl.includes("youtube.com") || fullUrl.includes("youtu.be")) {
-                    let embedUrl = fullUrl;
-                    if (fullUrl.includes("watch?v=")) {
-                      embedUrl = fullUrl.replace("watch?v=", "embed/");
-                    } else if (fullUrl.includes("youtu.be/")) {
-                      embedUrl = fullUrl.replace("youtu.be/", "youtube.com/embed/");
-                    }
-                    return (
-                      <div className="relative w-full h-48 bg-slate-900 rounded-[8px] overflow-hidden border border-slate-800 shadow">
-                        <iframe
-                          src={embedUrl}
-                          className="w-full h-full border-0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                        />
-                      </div>
-                    );
+                const getFullUrl = (urlStr: string) => {
+                  if (!urlStr) return "";
+                  if (urlStr.startsWith("http://") || urlStr.startsWith("https://") || urlStr.startsWith("data:")) {
+                    return urlStr;
                   }
+                  return `https://cypbnnohtipwavcwukhl.supabase.co/storage/v1/object/public/job-photos/${urlStr}`;
+                };
 
-                  // 2. Direct Video / MP4 / WEBM / Storage URL
+                const hasPhotos = realPhotos.length > 0;
+                const hasVideos = videoList.length > 0;
+
+                if (!hasPhotos && !hasVideos) {
                   return (
-                    <div className="relative w-full rounded-[8px] overflow-hidden border border-slate-800 bg-slate-950 shadow space-y-1">
-                      <video
-                        src={fullUrl}
-                        controls
-                        playsInline
-                        preload="auto"
-                        className="w-full max-h-48 object-contain bg-black"
-                      >
-                        <source src={fullUrl} type="video/mp4" />
-                        <source src={fullUrl} type="video/webm" />
-                        <source src={fullUrl} type="video/quicktime" />
-                        Your browser does not support HTML5 video playback.
-                      </video>
-                      <div className="p-2 flex items-center justify-between text-[10px] bg-slate-900 text-slate-300 border-t border-slate-800">
-                        <span className="font-semibold text-cyan-400">Technician Site Recording</span>
-                        <button
-                          type="button"
-                          onClick={() => setActiveMediaModal({ type: "video", url: fullUrl, title: selectedInstallation.job_title })}
-                          className="px-2.5 py-1 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-[9px] font-bold rounded-[4px] shadow flex items-center gap-1 transition-all"
-                        >
-                          Fullscreen Stream ↗
-                        </button>
-                      </div>
+                    <div className="text-center py-5 px-4 bg-slate-50 rounded-[8px] border border-slate-200 text-slate-500 space-y-1">
+                      <Camera className="w-6 h-6 mx-auto text-slate-300" />
+                      <p className="text-xs font-bold text-slate-700">No Site Media Uploaded Yet</p>
+                      <p className="text-[10px] text-slate-400 leading-relaxed max-w-xs mx-auto">
+                        Technician has not uploaded any real site photos or video recordings for this installation ticket yet.
+                      </p>
                     </div>
                   );
-                })()}
-              </div>
+                }
+
+                return (
+                  <div className="space-y-3">
+                    {/* Photos Grid */}
+                    {hasPhotos && (
+                      <div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                          <Camera className="w-3.5 h-3.5 text-[#00B4D8]" />
+                          Site Images Proof ({realPhotos.length} uploaded)
+                        </p>
+                        <div className="grid grid-cols-3 gap-2">
+                          {realPhotos.map((url, idx) => {
+                            const imgUrl = getFullUrl(url);
+                            return (
+                              <div
+                                key={idx}
+                                onClick={() => setActiveMediaModal({ type: "image", url: imgUrl, title: selectedInstallation.job_title })}
+                                className="w-full h-16 bg-slate-50 border rounded-[6px] overflow-hidden relative group cursor-pointer shadow-xs"
+                              >
+                                <img src={imgUrl} alt="installation-proof" className="w-full h-full object-cover group-hover:scale-105 transition-all" />
+                                <div className="absolute inset-0 bg-slate-950/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <span className="text-[8px] font-bold text-white bg-slate-900/80 px-1.5 py-0.5 rounded-full">Zoom</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Video Player */}
+                    {hasVideos ? (
+                      <div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                          <Video className="w-3.5 h-3.5 text-[#00B4D8]" />
+                          Installation Video Demonstration
+                        </p>
+                        {videoList.map((vUrl, vIdx) => {
+                          const fullUrl = getFullUrl(vUrl);
+                          // YouTube embed support
+                          if (fullUrl.includes("youtube.com") || fullUrl.includes("youtu.be")) {
+                            let embedUrl = fullUrl;
+                            if (fullUrl.includes("watch?v=")) {
+                              embedUrl = fullUrl.replace("watch?v=", "embed/");
+                            } else if (fullUrl.includes("youtu.be/")) {
+                              embedUrl = fullUrl.replace("youtu.be/", "youtube.com/embed/");
+                            }
+                            return (
+                              <div key={vIdx} className="relative w-full h-48 bg-slate-900 rounded-[8px] overflow-hidden border border-slate-800 shadow">
+                                <iframe
+                                  src={embedUrl}
+                                  className="w-full h-full border-0"
+                                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                  allowFullScreen
+                                />
+                              </div>
+                            );
+                          }
+                          // Direct video player
+                          return (
+                            <div key={vIdx} className="relative w-full rounded-[8px] overflow-hidden border border-slate-800 bg-slate-950 shadow space-y-1">
+                              <video
+                                src={fullUrl}
+                                controls
+                                playsInline
+                                preload="metadata"
+                                crossOrigin="anonymous"
+                                className="w-full max-h-48 object-contain bg-black"
+                              >
+                                <source src={fullUrl} type="video/mp4" />
+                                <source src={fullUrl} type="video/webm" />
+                                <source src={fullUrl} type="video/quicktime" />
+                                Your browser does not support HTML5 video playback.
+                              </video>
+                              <div className="p-2 flex items-center justify-between text-[10px] bg-slate-900 text-slate-300 border-t border-slate-800">
+                                <span className="font-semibold text-cyan-400">Technician Site Recording</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveMediaModal({ type: "video", url: fullUrl, title: selectedInstallation.job_title })}
+                                  className="px-2.5 py-1 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-[9px] font-bold rounded-[4px] shadow flex items-center gap-1 transition-all"
+                                >
+                                  Fullscreen Stream ↗
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                          <Video className="w-3.5 h-3.5 text-[#00B4D8]" />
+                          Installation Video Demonstration
+                        </p>
+                        <div className="text-center py-4 px-3 bg-slate-50 rounded-[6px] border border-slate-200 text-slate-500 space-y-1">
+                          <Video className="w-6 h-6 mx-auto text-slate-300" />
+                          <p className="text-xs font-bold text-slate-700">No Real Site Video Uploaded Yet</p>
+                          <p className="text-[10px] text-slate-400 leading-relaxed max-w-xs mx-auto">
+                            Technician has not recorded or uploaded a live site video for this installation ticket yet.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Audit Timeline */}
               <div className="border border-slate-200 rounded-[8px] p-3 bg-slate-50 space-y-3 mt-4">
