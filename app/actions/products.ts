@@ -267,14 +267,27 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
     if (stockCheck.rows.length === 0) {
       throw new Error("Serial number not found in active inventory.");
     }
-    // If stock is sold_out for another job (not this job being re-submitted), throw error
-    if (stockCheck.rows[0].status === "sold_out" && stockCheck.rows[0].installation_id !== siteFormJobId) {
+
+    // 2. Check if an existing rejected job exists for this serial number (Tarika 2 auto-link)
+    let targetJobId = siteFormJobId;
+    if (!targetJobId || targetJobId === "new") {
+      const existingRejected = await client.query(
+        "SELECT id FROM public.installer_jobs WHERE LOWER(serial_number) = LOWER($1) AND status = 'rejected' LIMIT 1",
+        [payload.serial_number]
+      );
+      if (existingRejected.rows.length > 0) {
+        targetJobId = existingRejected.rows[0].id;
+      }
+    }
+
+    // If stock is sold_out for another job (not this job being submitted/re-submitted), throw error
+    if (stockCheck.rows[0].status === "sold_out" && stockCheck.rows[0].installation_id !== targetJobId) {
       throw new Error("Serial number is already sold out.");
     }
 
-    // 2. Insert or update the installation job record
+    // 3. Insert or update the installation job record
     let jobResult;
-    if (siteFormJobId && siteFormJobId !== "new") {
+    if (targetJobId && targetJobId !== "new") {
       jobResult = await client.query(
         `UPDATE public.installer_jobs 
          SET status = 'pending_verification',
@@ -292,7 +305,7 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
           payload.remarks,
           payload.photos,
           payload.notes,
-          siteFormJobId
+          targetJobId
         ]
       );
     } else {
