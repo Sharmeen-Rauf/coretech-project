@@ -218,14 +218,21 @@ export default function WebInstallerPage() {
       const cleanSNo = sNo.trim().toLowerCase();
 
 
-      // 1. Query Server Action
+      // 1. Query Server Action (authoritative live database check)
       const res = await verifySerialNumberAction(sNo, siteFormJobId);
-      if (res.success && res.product) {
-        setValidatedProduct(res.product);
-        return;
+      if (res) {
+        if (res.success && res.product) {
+          setValidatedProduct(res.product);
+          setVerificationError("");
+          return;
+        } else if (res.error) {
+          setValidatedProduct(null);
+          setVerificationError(res.error);
+          return;
+        }
       }
 
-      // 2. Query local fallback stock case-insensitively
+      // 2. Offline Fallback (only if server action is unreachable)
       const localStock = getLocalItems("coretech_local_stock") || [];
       const localMatch = localStock.find((s: any) => String(s.serial_no || s.serial_number || "").trim().toLowerCase() === cleanSNo);
 
@@ -233,7 +240,6 @@ export default function WebInstallerPage() {
         const localProds = getLocalItems("coretech_local_products") || [];
         const prod = localProds.find((p: any) => p.id === localMatch.product_id);
 
-        // Also check duplicate for local job assignments (ignore rejected jobs so rejected serials can be reused)
         const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
         const localDuplicate = localJobs.find((j: any) =>
           j.id !== siteFormJobId &&
@@ -257,7 +263,7 @@ export default function WebInstallerPage() {
       }
 
       setValidatedProduct(null);
-      setVerificationError(res.error || "Serial number not found in active inventory.");
+      setVerificationError("Serial number not found in active inventory.");
     } catch (err) {
       console.warn("Serial verification error:", err);
       setValidatedProduct(null);
