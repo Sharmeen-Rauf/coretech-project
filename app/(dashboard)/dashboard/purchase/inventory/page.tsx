@@ -36,39 +36,26 @@ export default function InventoryPage() {
   const fetchInventory = async () => {
     setIsLoading(true);
     try {
-      let dbData: any[] = [];
-      try {
-        const res = await fetchStockAction();
-        if (res.success && res.data) {
-          dbData = res.data.filter((item: any) => item.status !== "sold_out");
-        }
-      } catch (dbErr) {
-        console.warn("Failed to fetch stock from database, using local fallback.", dbErr);
+      const [stockRes, prodRes, regRes] = await Promise.all([
+        fetchStockAction().catch(() => ({ success: false, data: [] })),
+        fetchProductsAction().catch(() => ({ success: false, data: [] })),
+        fetchRecordsAction("regions").catch(() => ({ success: false, data: [] })),
+      ]);
+
+      if (stockRes.success && stockRes.data) {
+        dbData = stockRes.data.filter((item: any) => item.status !== "sold_out");
       }
 
-      // Fetch products list
       let productsList: any[] = [];
-      try {
-        const prodRes = await fetchProductsAction();
-        if (prodRes.success && prodRes.data) {
-          productsList = prodRes.data;
-        }
-      } catch (e) {
-        console.warn(e);
+      if (prodRes.success && prodRes.data) {
+        productsList = prodRes.data;
       }
-
       const localProducts = getLocalItems("coretech_local_products") || [];
       const allProducts = [...productsList, ...localProducts];
 
-      // Fetch regions list to resolve warehouse name/area
       let regionsList: any[] = [];
-      try {
-        const regRes = await fetchRecordsAction("regions");
-        if (regRes.success && regRes.data) {
-          regionsList = regRes.data;
-        }
-      } catch (e) {
-        console.warn("Failed to fetch regions:", e);
+      if (regRes.success && regRes.data) {
+        regionsList = regRes.data;
       }
       const localRegions = getLocalItems("coretech_local_regions") || [];
       const allRegions = [...regionsList, ...localRegions];

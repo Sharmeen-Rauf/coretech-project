@@ -36,20 +36,18 @@ export default function SellOutPage() {
   const fetchSellOuts = async () => {
     setIsLoading(true);
     try {
-      const res = await fetchSellOutAction();
+      const [res, regRes] = await Promise.all([
+        fetchSellOutAction().catch(() => ({ success: false, data: [] })),
+        fetchRecordsAction("regions").catch(() => ({ success: false, data: [] })),
+      ]);
+
       if (!res.success) {
-        throw new Error(res.error);
+        throw new Error(res.error || "Failed to fetch sell outs");
       }
 
-      // Fetch regions list to resolve warehouse names
       let regionsList: any[] = [];
-      try {
-        const regRes = await fetchRecordsAction("regions");
-        if (regRes.success && regRes.data) {
-          regionsList = regRes.data;
-        }
-      } catch (e) {
-        console.warn("Failed to fetch regions:", e);
+      if (regRes.success && regRes.data) {
+        regionsList = regRes.data;
       }
       const localRegions = getLocalItems("coretech_local_regions") || [];
       const allRegions = [...regionsList, ...localRegions];
