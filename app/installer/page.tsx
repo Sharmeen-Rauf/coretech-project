@@ -233,10 +233,11 @@ export default function WebInstallerPage() {
         const localProds = getLocalItems("coretech_local_products") || [];
         const prod = localProds.find((p: any) => p.id === localMatch.product_id);
 
-        // Also check duplicate for local job assignments (since they might have completed jobs locally)
+        // Also check duplicate for local job assignments (ignore rejected jobs so rejected serials can be reused)
         const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
         const localDuplicate = localJobs.find((j: any) =>
           j.id !== siteFormJobId &&
+          j.status !== "rejected" &&
           String(j.serial_number || "").trim().toLowerCase() === cleanSNo
         );
 
