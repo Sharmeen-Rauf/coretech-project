@@ -258,16 +258,17 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       );
     }
 
-    // 1. Double check if the serial number is already sold_out in active database
+    // 1. Double check if the serial number exists in stock inventory
     const stockCheck = await client.query(
-      "SELECT id, status FROM public.stock WHERE LOWER(serial_no) = LOWER($1) LIMIT 1",
+      "SELECT id, status, installation_id FROM public.stock WHERE LOWER(serial_no) = LOWER($1) LIMIT 1",
       [payload.serial_number]
     );
 
     if (stockCheck.rows.length === 0) {
       throw new Error("Serial number not found in active inventory.");
     }
-    if (stockCheck.rows[0].status === "sold_out") {
+    // If stock is sold_out for another job (not this job being re-submitted), throw error
+    if (stockCheck.rows[0].status === "sold_out" && stockCheck.rows[0].installation_id !== siteFormJobId) {
       throw new Error("Serial number is already sold out.");
     }
 
@@ -281,6 +282,8 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
              remarks = $2,
              photos = $3,
              notes = $4,
+             approval_note = NULL,
+             verification_note = NULL,
              updated_at = NOW()
          WHERE id = $5
          RETURNING id`,

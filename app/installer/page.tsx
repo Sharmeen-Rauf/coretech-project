@@ -683,13 +683,28 @@ export default function WebInstallerPage() {
                 </div>
               </div>
 
-              {(job.status === "rejected") && (job.approval_note || job.verification_note) && (
-                <div className="mt-2 p-2 bg-rose-50 border border-rose-100 rounded-[6px] text-[10px] text-rose-600 leading-tight">
-                  <span className="font-bold">Rejection Reason:</span> {job.approval_note || job.verification_note}
+              {job.status === "rejected" && (
+                <div className="mt-2.5 p-2 bg-rose-50 border border-rose-200 rounded-[8px] space-y-1.5">
+                  {(job.approval_note || job.verification_note) && (
+                    <p className="text-[10px] text-rose-600 font-medium leading-tight">
+                      <span className="font-bold">Rejection Reason:</span> {job.approval_note || job.verification_note}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openSubmitForJob(job);
+                    }}
+                    className="w-full h-7 bg-rose-600 hover:bg-rose-700 text-white rounded-[6px] text-[10px] font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all"
+                  >
+                    <Wrench className="w-3 h-3" />
+                    <span>Edit & Re-submit Installation</span>
+                  </button>
                 </div>
               )}
 
-              <div className="mt-4 flex items-center justify-between text-[9px] text-slate-450 font-bold border-t border-slate-50 pt-2.5">
+              <div className="mt-3 flex items-center justify-between text-[9px] text-slate-450 font-bold border-t border-slate-50 pt-2">
                 <span className="capitalize text-slate-500">
                   Incentive: <span className="text-emerald-600 font-bold">Rs. {Number(job.incentive || 0).toLocaleString()}</span>
                 </span>
@@ -713,9 +728,17 @@ export default function WebInstallerPage() {
             <div className="flex justify-between items-start border-b border-slate-100 pb-3 mb-4">
               <div>
                 <h3 className="text-xs font-bold text-slate-800">
-                  {siteFormJobId === "new" ? "New Installation Record" : "Upload Installation Proof"}
+                  {siteFormJobId === "new"
+                    ? "New Installation Record"
+                    : jobs.find((j) => j.id === siteFormJobId)?.status === "rejected"
+                    ? "Edit & Re-submit Rejected Installation"
+                    : "Upload Installation Proof"}
                 </h3>
-                <p className="text-[8px] text-slate-400 mt-0.5 uppercase tracking-wider font-bold">SITE FORM</p>
+                <p className="text-[8px] text-slate-400 mt-0.5 uppercase tracking-wider font-bold">
+                  {siteFormJobId !== "new" && jobs.find((j) => j.id === siteFormJobId)?.status === "rejected"
+                    ? "RE-SUBMISSION FORM"
+                    : "SITE FORM"}
+                </p>
               </div>
               <button
                 onClick={() => setIsSiteFormOpen(false)}
@@ -724,6 +747,19 @@ export default function WebInstallerPage() {
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {/* Re-submission Alert Banner */}
+            {siteFormJobId !== "new" && jobs.find((j) => j.id === siteFormJobId)?.status === "rejected" && (
+              <div className="mb-3 p-2.5 bg-amber-50 border border-amber-200 rounded-[8px] text-[10px] text-amber-800 space-y-1">
+                <p className="font-bold flex items-center gap-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  Editing Rejected Installation Ticket
+                </p>
+                <p className="text-slate-600 leading-relaxed">
+                  Update any photos, video, serial number, or remarks and click <strong>"Re-submit Installation"</strong> below to send this ticket back for Stage 1 RM verification.
+                </p>
+              </div>
+            )}
 
             <form onSubmit={handleSiteFormSubmit} className="space-y-4 text-left">
 
