@@ -128,8 +128,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  // Redirect logged-in users away from /login
+  // Helper check for MFA status
+  const hasMfa = amr.some((r: any) => r === 'mfa' || r.method === 'mfa') || 
+                 request.cookies.get('mfa_verified')?.value === 'true';
+
+  // Redirect logged-in users away from /login unless MFA verification is pending
   if (isLoginRoute) {
+    if ((role === 'admin' || role === 'country_head') && !hasMfa) {
+      return response;
+    }
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
@@ -142,12 +149,10 @@ export async function middleware(request: NextRequest) {
       return redirectResponse;
     }
 
-    // B. High-Privilege TOTP MFA Enforcement for admin and country_head
+    // B. High-Privilege MFA Enforcement for admin and country_head
     if (role === 'admin' || role === 'country_head') {
-      const hasMfa = amr.some((r: any) => r === 'mfa' || r.method === 'mfa') || 
-                     request.cookies.get('mfa_verified')?.value === 'true';
       if (!hasMfa) {
-        return NextResponse.redirect(new URL('/login', request.url));
+        return NextResponse.redirect(new URL('/login?mfa_required=true', request.url));
       }
     }
 

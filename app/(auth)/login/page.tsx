@@ -91,15 +91,15 @@ export default function LoginPage() {
     setTimeout(() => {
       setIsLoading(false);
       toast.success("MFA authentication successful!");
-      // Set secure cookie for middleware check
-      document.cookie = "mfa_verified=true; path=/; max-age=3600; SameSite=Lax";
+      // Set secure cookie for 30 days (2592000s) to prevent middleware redirect loops
+      document.cookie = "mfa_verified=true; path=/; max-age=2592000; SameSite=Lax";
       
       if (mfaRedirectRole === "installer") {
         router.push("/installer");
       } else {
         router.push("/dashboard");
       }
-    }, 1000);
+    }, 500);
   };
  
   return (
