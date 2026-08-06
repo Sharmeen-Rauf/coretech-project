@@ -1038,27 +1038,52 @@ export default function AdminJobsPage() {
 
                   let videoList: string[] = [];
                   const combinedText = `${selectedJob.notes || ""} ${selectedJob.remarks || ""}`;
-                  const videoMatch = combinedText.match(/VIDEO:([^\s|]+)/gi);
-                  if (videoMatch) {
-                    videoMatch.forEach((vStr) => {
-                      const cleanUrl = vStr.replace(/VIDEO:/i, "").trim();
-                      if (cleanUrl && !cleanUrl.includes("mixkit") && !cleanUrl.includes("zencdn") && !cleanUrl.includes("gtv-videos-bucket")) {
-                        videoList.push(cleanUrl);
+                  
+                  // 1. Parse VIDEO: tag
+                  const videoTagMatch = combinedText.match(/VIDEO:\s*([^\s|\r\n]+)/i);
+                  if (videoTagMatch && videoTagMatch[1]) {
+                    const cleanUrl = videoTagMatch[1].trim();
+                    if (
+                      cleanUrl &&
+                      cleanUrl.length > 5 &&
+                      !cleanUrl.includes("mixkit") &&
+                      !cleanUrl.includes("zencdn") &&
+                      !cleanUrl.includes("gtv-videos-bucket") &&
+                      !cleanUrl.includes("unsplash")
+                    ) {
+                      videoList.push(cleanUrl);
+                    }
+                  }
+
+                  // 2. Parse direct video URLs or base64 data URLs
+                  const videoRegex = /(?:https?:\/\/[^\s|\r\n]+\.(?:mp4|mov|webm)|data:video\/[a-zA-Z0-9]+;base64,[^\s|\r\n]+)/gi;
+                  const matchesInNotes = combinedText.match(videoRegex);
+                  if (matchesInNotes) {
+                    matchesInNotes.forEach((url: string) => {
+                      if (
+                        !videoList.includes(url) &&
+                        !url.includes("mixkit") &&
+                        !url.includes("zencdn") &&
+                        !url.includes("gtv-videos-bucket")
+                      ) {
+                        videoList.push(url);
                       }
                     });
                   }
 
-                  const realVideos = [
-                    ...videoList,
-                    ...rawPhotoList.filter(
-                      (url) =>
-                        typeof url === "string" &&
-                        !url.includes("mixkit") &&
-                        !url.includes("zencdn") &&
-                        !url.includes("gtv-videos-bucket") &&
-                        (url.includes(".mp4") || url.includes(".mov") || url.includes(".webm") || url.startsWith("data:video/"))
-                    )
-                  ];
+                  const videoFromPhotos = rawPhotoList.filter(
+                    (url) =>
+                      typeof url === "string" &&
+                      !url.includes("mixkit") &&
+                      !url.includes("zencdn") &&
+                      !url.includes("gtv-videos-bucket") &&
+                      (url.includes(".mp4") || url.includes(".mov") || url.includes(".webm") || url.startsWith("data:video/"))
+                  );
+                  videoFromPhotos.forEach(v => {
+                    if (!videoList.includes(v)) videoList.push(v);
+                  });
+
+                  const realVideos = videoList;
 
                   let realPhotos = rawPhotoList.filter(
                     (urlStr) =>

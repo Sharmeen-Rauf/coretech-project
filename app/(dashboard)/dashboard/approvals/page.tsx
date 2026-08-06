@@ -1814,24 +1814,39 @@ export default function ApprovalsPage() {
                 // === ROBUST VIDEO PARSING ===
                 let videoList: string[] = [];
                 const combinedText = `${selectedInstallation.notes || ""} ${selectedInstallation.remarks || ""}`;
-                const videoMatches = combinedText.match(/VIDEO:([^\s|]+)/gi);
-                if (videoMatches) {
-                  videoMatches.forEach((vStr: string) => {
-                    const cleanUrl = vStr.replace(/VIDEO:/i, "").trim();
+                
+                // 1. Parse VIDEO: tag
+                const videoTagMatch = combinedText.match(/VIDEO:\s*([^\s|\r\n]+)/i);
+                if (videoTagMatch && videoTagMatch[1]) {
+                  const cleanUrl = videoTagMatch[1].trim();
+                  if (
+                    cleanUrl &&
+                    cleanUrl.length > 5 &&
+                    !cleanUrl.includes("mixkit") &&
+                    !cleanUrl.includes("zencdn") &&
+                    !cleanUrl.includes("gtv-videos-bucket") &&
+                    !cleanUrl.includes("unsplash")
+                  ) {
+                    videoList.push(cleanUrl);
+                  }
+                }
+
+                // 2. Parse direct video URLs or base64 data URLs from text or photos array
+                const videoRegex = /(?:https?:\/\/[^\s|\r\n]+\.(?:mp4|mov|webm)|data:video\/[a-zA-Z0-9]+;base64,[^\s|\r\n]+)/gi;
+                const matchesInNotes = combinedText.match(videoRegex);
+                if (matchesInNotes) {
+                  matchesInNotes.forEach((url: string) => {
                     if (
-                      cleanUrl &&
-                      cleanUrl.length > 5 &&
-                      !cleanUrl.includes("mixkit") &&
-                      !cleanUrl.includes("zencdn") &&
-                      !cleanUrl.includes("gtv-videos-bucket") &&
-                      !cleanUrl.includes("unsplash")
+                      !videoList.includes(url) &&
+                      !url.includes("mixkit") &&
+                      !url.includes("zencdn") &&
+                      !url.includes("gtv-videos-bucket")
                     ) {
-                      videoList.push(cleanUrl);
+                      videoList.push(url);
                     }
                   });
                 }
 
-                // Also check photos array for video files
                 const videoFromPhotos = rawPhotoList.filter(
                   (url) =>
                     typeof url === "string" &&
@@ -1840,7 +1855,9 @@ export default function ApprovalsPage() {
                     !url.includes("gtv-videos-bucket") &&
                     (url.includes(".mp4") || url.includes(".mov") || url.includes(".webm") || url.startsWith("data:video/"))
                 );
-                videoList = [...videoList, ...videoFromPhotos];
+                videoFromPhotos.forEach(v => {
+                  if (!videoList.includes(v)) videoList.push(v);
+                });
 
                 const getFullUrl = (urlStr: string) => {
                   if (!urlStr) return "";
