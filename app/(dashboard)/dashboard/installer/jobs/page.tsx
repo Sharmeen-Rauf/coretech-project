@@ -1004,15 +1004,35 @@ export default function AdminJobsPage() {
 
                 {(() => {
                   let rawPhotoList: string[] = [];
-                  if (Array.isArray(selectedJob.photos)) {
-                    rawPhotoList = selectedJob.photos;
-                  } else if (typeof selectedJob.photos === "string" && selectedJob.photos.trim()) {
-                    try {
-                      const parsed = JSON.parse(selectedJob.photos);
-                      if (Array.isArray(parsed)) rawPhotoList = parsed;
-                      else if (typeof parsed === "string") rawPhotoList = [parsed];
-                    } catch {
-                      rawPhotoList = selectedJob.photos.split(",").map((s: string) => s.trim());
+                  const rawPhotos = selectedJob.photos;
+                  if (Array.isArray(rawPhotos)) {
+                    rawPhotoList = rawPhotos.filter(p => typeof p === "string" && p.trim().length > 0);
+                  } else if (typeof rawPhotos === "string" && rawPhotos.trim()) {
+                    const trimmed = rawPhotos.trim();
+                    if (trimmed.startsWith("data:image") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                      if (trimmed.startsWith("[")) {
+                        try {
+                          const parsed = JSON.parse(trimmed);
+                          if (Array.isArray(parsed)) rawPhotoList = parsed;
+                          else rawPhotoList = [trimmed];
+                        } catch {
+                          rawPhotoList = [trimmed];
+                        }
+                      } else {
+                        rawPhotoList = [trimmed];
+                      }
+                    } else {
+                      try {
+                        const parsed = JSON.parse(trimmed);
+                        if (Array.isArray(parsed)) rawPhotoList = parsed;
+                        else if (typeof parsed === "string") rawPhotoList = [parsed];
+                      } catch {
+                        if (!trimmed.includes("data:image")) {
+                          rawPhotoList = trimmed.split(",").map((s: string) => s.trim()).filter(Boolean);
+                        } else {
+                          rawPhotoList = [trimmed];
+                        }
+                      }
                     }
                   }
 

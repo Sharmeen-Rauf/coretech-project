@@ -1759,14 +1759,33 @@ export default function ApprovalsPage() {
                 let rawPhotoList: string[] = [];
                 const rawPhotos = selectedInstallation.photos;
                 if (Array.isArray(rawPhotos)) {
-                  rawPhotoList = rawPhotos;
+                  rawPhotoList = rawPhotos.filter(p => typeof p === "string" && p.trim().length > 0);
                 } else if (typeof rawPhotos === "string" && rawPhotos.trim()) {
-                  try {
-                    const parsed = JSON.parse(rawPhotos);
-                    if (Array.isArray(parsed)) rawPhotoList = parsed;
-                    else if (typeof parsed === "string") rawPhotoList = [parsed];
-                  } catch {
-                    rawPhotoList = rawPhotos.split(",").map((s: string) => s.trim());
+                  const trimmed = rawPhotos.trim();
+                  if (trimmed.startsWith("data:image") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                    if (trimmed.startsWith("[")) {
+                      try {
+                        const parsed = JSON.parse(trimmed);
+                        if (Array.isArray(parsed)) rawPhotoList = parsed;
+                        else rawPhotoList = [trimmed];
+                      } catch {
+                        rawPhotoList = [trimmed];
+                      }
+                    } else {
+                      rawPhotoList = [trimmed];
+                    }
+                  } else {
+                    try {
+                      const parsed = JSON.parse(trimmed);
+                      if (Array.isArray(parsed)) rawPhotoList = parsed;
+                      else if (typeof parsed === "string") rawPhotoList = [parsed];
+                    } catch {
+                      if (!trimmed.includes("data:image")) {
+                        rawPhotoList = trimmed.split(",").map((s: string) => s.trim()).filter(Boolean);
+                      } else {
+                        rawPhotoList = [trimmed];
+                      }
+                    }
                   }
                 }
 
