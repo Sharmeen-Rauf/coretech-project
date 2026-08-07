@@ -417,11 +417,6 @@ export default function ApprovalsPage() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      await reloadSchemaAction();
-    } catch (e) {
-      console.warn("Failed to reload schema cache:", e);
-    }
-    try {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         setCurrentUserId(session.user.id);

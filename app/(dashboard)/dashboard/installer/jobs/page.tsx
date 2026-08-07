@@ -71,7 +71,10 @@ export default function AdminJobsPage() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [jobsRes, installersRes, sessionRes] = await Promise.all([
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id;
+
+      const [jobsRes, installersRes, profileRes] = await Promise.all([
         supabase
           .from("installer_jobs")
           .select(`
@@ -93,19 +96,15 @@ export default function AdminJobsPage() {
           .from("profiles")
           .select("id, first_name, last_name, phone")
           .eq("role", "installer"),
-        supabase.auth.getSession()
+        currentUserId
+          ? supabase.from("profiles").select("role").eq("id", currentUserId).maybeSingle()
+          : Promise.resolve({ data: null })
       ]);
 
       const jobsData = jobsRes.data || [];
       const dbInstallers = installersRes.data || [];
-
-      if (sessionRes.data.session) {
-        const { data: prof } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", sessionRes.data.session.user.id)
-          .single();
-        if (prof?.role) setUserRole(prof.role);
+      if (profileRes.data?.role) {
+        setUserRole(profileRes.data.role);
       }
 
       const formatted: JobRow[] = jobsData.map((row: any) => {

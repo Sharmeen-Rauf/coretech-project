@@ -76,11 +76,6 @@ export default function WebInstallerPage() {
   const fetchInstallerData = async () => {
     setIsLoading(true);
     try {
-      try {
-        await reloadSchemaAction();
-      } catch (e) {
-        console.warn("Failed to reload schema cache:", e);
-      }
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         router.push("/login");
