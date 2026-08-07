@@ -429,16 +429,18 @@ export default function ApprovalsPage() {
           setUserRole(profile.role);
         }
       }
+
+      await Promise.all([
+        fetchOrders(), 
+        fetchGatePasses(), 
+        fetchInstallers(), 
+        fetchInstallations()
+      ]);
     } catch (err) {
-      console.warn("Failed to fetch user role inside approvals page:", err);
+      console.warn("Failed to load approvals data:", err);
+    } finally {
+      setIsLoading(false);
     }
-    await Promise.all([
-      fetchOrders(), 
-      fetchGatePasses(), 
-      fetchInstallers(), 
-      fetchInstallations()
-    ]);
-    setIsLoading(false);
   };
 
   useEffect(() => {
@@ -1072,16 +1074,14 @@ export default function ApprovalsPage() {
     if (startDate && !isInDateRange(i.created_at)) return false;
     if (endDate && !isInDateRange(i.created_at)) return false;
     if (isRM) return i.status === "pending_verification" || i.status === "pending";
-    if (isCH) return i.status === "pending_verification" || i.status === "pending" || i.status === "pending_approval" || i.status === "verified";
-    return false;
+    return i.status === "pending_verification" || i.status === "pending" || i.status === "pending_approval" || i.status === "verified";
   });
 
   const displayInstallations = installations.filter((j) => {
     if (startDate && !isInDateRange(j.created_at)) return false;
     if (endDate && !isInDateRange(j.created_at)) return false;
     if (isRM) return j.status === "pending_verification";
-    if (isCH) return j.status === "pending_verification" || j.status === "pending_approval" || j.status === "pending_installation_approval";
-    return false;
+    return j.status === "pending_verification" || j.status === "pending_approval" || j.status === "pending_installation_approval" || j.status === "pending";
   });
 
   const pendingInstallersCount = displayInstallers.length;
