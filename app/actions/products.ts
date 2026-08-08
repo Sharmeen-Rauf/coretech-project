@@ -179,7 +179,37 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
     }
 
     if (stockData.status === "sold_out") {
-      return { success: false, error: "Serial number is already sold out." };
+      // Check if this stock item belongs to currentJobId or a rejected job
+      let isAvailableForReUse = false;
+
+      if (currentJobId && currentJobId !== "new" && stockData.installation_id === currentJobId) {
+        isAvailableForReUse = true;
+      } else if (stockData.installation_id) {
+        const { data: linkedJob } = await supabase
+          .from("installer_jobs")
+          .select("id, status")
+          .eq("id", stockData.installation_id)
+          .maybeSingle();
+
+        if (linkedJob && linkedJob.status === "rejected") {
+          isAvailableForReUse = true;
+        }
+      } else {
+        // Check if there is any job using this serial number that was rejected
+        const { data: snJob } = await supabase
+          .from("installer_jobs")
+          .select("id, status")
+          .ilike("serial_number", cleanSNo)
+          .maybeSingle();
+
+        if (snJob && snJob.status === "rejected") {
+          isAvailableForReUse = true;
+        }
+      }
+
+      if (!isAvailableForReUse) {
+        return { success: false, error: "Serial number is already sold out." };
+      }
     }
 
     // 2. Check if the serial number is already registered or used in active (non-rejected) installer_jobs

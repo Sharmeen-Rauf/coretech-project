@@ -201,7 +201,7 @@ export default function WebInstallerPage() {
   };
 
   // Connected Inventory live cross-check
-  const verifySerialNumber = async (sNo: string) => {
+  const verifySerialNumber = async (sNo: string, jobIdOverride?: string) => {
     if (!sNo.trim()) {
       setValidatedProduct(null);
       setVerificationError("");
@@ -211,10 +211,10 @@ export default function WebInstallerPage() {
     setVerificationError("");
     try {
       const cleanSNo = sNo.trim().toLowerCase();
-
+      const targetJobId = jobIdOverride !== undefined ? jobIdOverride : siteFormJobId;
 
       // 1. Query Server Action (authoritative live database check)
-      const res = await verifySerialNumberAction(sNo, siteFormJobId);
+      const res = await verifySerialNumberAction(sNo, targetJobId);
       if (res) {
         if (res.success && res.product) {
           setValidatedProduct(res.product);
@@ -405,6 +405,10 @@ export default function WebInstallerPage() {
       try {
         const res = await submitInstallationAction(payload, siteFormJobId);
         if (!res.success) throw new Error(res.error);
+        // Clear any stale local storage copy for this job ID
+        const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
+        const cleanedLocal = localJobs.filter((j: any) => j.id !== payload.id && j.id !== siteFormJobId);
+        localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(cleanedLocal));
         toast.success("Site installation submitted! Waiting for verification & approval.");
       } catch (dbErr: any) {
         console.warn("DB submission failed. Saving locally.", dbErr);
@@ -452,7 +456,7 @@ export default function WebInstallerPage() {
 
     // Parse metadata
     if (job.serial_number) {
-      verifySerialNumber(job.serial_number);
+      verifySerialNumber(job.serial_number, job.id);
     }
 
     setIsSiteFormOpen(true);
