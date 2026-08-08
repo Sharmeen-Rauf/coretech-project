@@ -457,6 +457,10 @@ export default function WebInstallerPage() {
   };
 
   const openSubmitForJob = (job: any) => {
+    if (!job || String(job.status || "").trim().toLowerCase() === "rejected" || String(job.status || "").trim().toLowerCase() === "declined") {
+      return;
+    }
+
     setSiteFormJobId(job.id);
     setNewJobTitle(job.job_title);
     setNewJobAddress(job.address);
@@ -620,22 +624,25 @@ export default function WebInstallerPage() {
           </div>
         ) : (
           jobs.map((job) => {
-            const st = String(job.status || "").toLowerCase();
+            const st = String(job.status || "").trim().toLowerCase();
             const isApproved = st === "approved" || st === "completed";
             const isPending = st === "pending_verification" || st === "pending_approval" || st === "pending_installation_approval" || st === "pending";
-            const isRejected = st === "rejected";
+            const isRejected = st === "rejected" || st === "declined";
 
             return (
               <div
                 key={job.id}
-                onClick={() => {
-                  if (!isRejected) {
-                    openSubmitForJob(job);
+                onClick={(e) => {
+                  if (isRejected) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
                   }
+                  openSubmitForJob(job);
                 }}
                 className={`bg-white border rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden transition-all ${
                   isRejected 
-                    ? "border-rose-200 bg-rose-50/20 cursor-default" 
+                    ? "border-rose-200 bg-rose-50/30 cursor-not-allowed pointer-events-none select-none" 
                     : "border-slate-200 hover:border-[#00B4D8] cursor-pointer hover:shadow-md"
                 }`}
               >
