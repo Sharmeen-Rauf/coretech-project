@@ -376,7 +376,11 @@ export default function WebInstallerPage() {
       return;
     }
 
-    if (photoFiles.length === 0 && photoPreviews.length === 0) {
+    const existingPhotoUrls = photoPreviews.filter(
+      (p) => typeof p === "string" && (p.startsWith("http") || p.startsWith("data:"))
+    );
+
+    if (photoFiles.length === 0 && existingPhotoUrls.length === 0) {
       toast.error("Please upload at least 1 real site photo proof of installation before submitting!");
       return;
     }
@@ -389,7 +393,7 @@ export default function WebInstallerPage() {
         uploadJobPhotos(),
       ]);
 
-      const allPhotos = photosUrls;
+      const allPhotos = [...existingPhotoUrls, ...photosUrls];
       const serializedNotes = `[METADATA] SN:${serialNo.trim()} | VIDEO:${videoUrl} | REM:${completionRemarks.trim()}\nCONNECTED PRODUCT: ${validatedProduct.product_name} (${validatedProduct.model})`;
 
       const payload = {
@@ -458,6 +462,21 @@ export default function WebInstallerPage() {
     setNewJobAddress(job.address);
     setSerialNo(job.serial_number || "");
     setCompletionRemarks(job.remarks || "");
+
+    // Pre-populate existing photo URLs if available
+    let existingPhotos: string[] = [];
+    if (Array.isArray(job.photos)) {
+      existingPhotos = job.photos;
+    } else if (typeof job.photos === "string" && job.photos.trim()) {
+      try {
+        const parsed = JSON.parse(job.photos);
+        if (Array.isArray(parsed)) existingPhotos = parsed;
+      } catch {
+        existingPhotos = [job.photos];
+      }
+    }
+    setPhotoFiles([]);
+    setPhotoPreviews(existingPhotos);
 
     // Parse metadata
     if (job.serial_number) {

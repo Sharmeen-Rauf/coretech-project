@@ -408,7 +408,7 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
            installation_id = $2,
            installation_project_title = $3,
            deployment_site_address = $4
-       WHERE LOWER(serial_no) = LOWER($5) AND status = 'active'
+       WHERE LOWER(serial_no) = LOWER($5)
        RETURNING id`,
       [
         payload.installer_id,
