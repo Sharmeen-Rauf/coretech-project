@@ -173,17 +173,22 @@ export default function WebInstallerPage() {
         }
       }
 
-      // Merge remaining local jobs
+      // Merge remaining local jobs and override stale DB statuses if re-submitted locally
       const remainingLocal = (getLocalItems("coretech_local_installer_jobs") || []).filter((j: any) => j.installer_id === session.user.id);
-      const merged = [...jobsList];
+      const jobsMap = new Map<string, any>();
+      jobsList.forEach((dbJob) => jobsMap.set(dbJob.id, dbJob));
+      
       remainingLocal.forEach((local) => {
-        const exists = jobsList.some((db) => db.id === local.id);
-        if (!exists) {
-          merged.push(local);
+        const dbJob = jobsMap.get(local.id);
+        if (!dbJob) {
+          jobsMap.set(local.id, local);
+        } else if (String(local.status || "").toLowerCase() === "pending_verification" && String(dbJob.status || "").toLowerCase() === "rejected") {
+          // Local re-submission update overrides stale DB status
+          jobsMap.set(local.id, { ...dbJob, ...local, status: "pending_verification" });
         }
       });
 
-      setJobs(merged);
+      setJobs(Array.from(jobsMap.values()));
     } catch (err: any) {
       toast.error("Failed to load installer dashboard");
     } finally {
@@ -463,9 +468,18 @@ export default function WebInstallerPage() {
   };
 
   // Stats calculation
-  const completedCount = jobs.filter((j) => j.status === "approved" || j.status === "completed").length;
-  const pendingApprovalCount = jobs.filter((j) => j.status === "pending_verification" || j.status === "pending_approval" || j.status === "pending_installation_approval").length;
-  const assignedCount = jobs.filter((j) => j.status === "assigned" || j.status === "in_progress").length;
+  const completedCount = jobs.filter((j) => {
+    const s = String(j.status || "").toLowerCase();
+    return s === "approved" || s === "completed";
+  }).length;
+  const pendingApprovalCount = jobs.filter((j) => {
+    const s = String(j.status || "").toLowerCase();
+    return s === "pending_verification" || s === "pending_approval" || s === "pending_installation_approval" || s === "pending";
+  }).length;
+  const assignedCount = jobs.filter((j) => {
+    const s = String(j.status || "").toLowerCase();
+    return s === "assigned" || s === "in_progress";
+  }).length;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center select-none font-sans p-4 relative space-y-3">
@@ -592,47 +606,71 @@ export default function WebInstallerPage() {
               onClick={() => openSubmitForJob(job)}
               className="bg-white border border-slate-200 hover:border-[#00B4D8] rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden cursor-pointer hover:shadow-md transition-all"
             >
-              <div className="flex justify-between items-start gap-2">
-                <div className="space-y-1">
-                  <h4 className="text-xs font-bold text-slate-800 leading-tight">
-                    {job.job_title}
-                  </h4>
-                  <p className="text-[9px] font-medium text-slate-400">{job.address}</p>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${job.status === "approved" || job.status === "completed" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                      job.status === "pending_verification" ? "bg-amber-50 text-amber-500 border-amber-100" :
-                        job.status === "pending_approval" || job.status === "pending_installation_approval" ? "bg-sky-50 text-sky-600 border-sky-100" :
-                          job.status === "rejected" ? "bg-rose-50 text-rose-500 border-rose-100" :
-                            "bg-blue-50 text-blue-500 border-blue-100"
-                    }`}>
-                    {job.status === "pending_verification" ? "Pending Verification" :
-                      job.status === "pending_approval" || job.status === "pending_installation_approval" ? "Pending Approval" :
-                        job.status === "approved" || job.status === "completed" ? "Approved" :
-                          job.status === "rejected" ? "Rejected" :
-                            job.status}
-                  </span>
-                </div>
-              </div>
+              {(() => {
+                const st = String(job.status || "").toLowerCase();
+                const isApproved = st === "approved" || st === "completed";
+                const isPending = st === "pending_verification" || st === "pending_approval" || st === "pending_installation_approval" || st === "pending";
+                const isRejected = st === "rejected";
 
-              {String(job.status || "").toLowerCase() === "rejected" && (
-                <div className="mt-2.5 p-2 bg-rose-50 border border-rose-200 rounded-[8px] space-y-1.5">
-                  <p className="text-[10px] text-rose-600 font-medium leading-tight">
-                    <span className="font-bold">Rejection Reason:</span> {job.approval_note || job.verification_note || job.remarks || "Rejected during audit review"}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openSubmitForJob(job);
-                    }}
-                    className="w-full h-8 bg-rose-600 hover:bg-rose-700 text-white rounded-[6px] text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all hover:scale-[1.01]"
-                  >
-                    <Wrench className="w-3.5 h-3.5" />
-                    <span>Edit & Re-submit Installation</span>
-                  </button>
-                </div>
-              )}
+                return (
+                  <>
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="space-y-1">
+                        <h4 className="text-xs font-bold text-slate-800 leading-tight">
+                          {job.job_title}
+                        </h4>
+                        <p className="text-[9px] font-medium text-slate-400">{job.address}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                          isApproved ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                          isPending ? "bg-amber-50 text-amber-600 border-amber-200" :
+                          isRejected ? "bg-rose-50 text-rose-500 border-rose-100" :
+                          "bg-blue-50 text-blue-500 border-blue-100"
+                        }`}>
+                          {isApproved ? "Approved" :
+                           isPending ? "Pending Verification" :
+                           isRejected ? "Rejected" :
+                           job.status}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Pending Verification Banner after Re-submission */}
+                    {isPending && (
+                      <div className="mt-2.5 p-2.5 bg-amber-50/80 border border-amber-200 rounded-[8px] space-y-1 text-left">
+                        <p className="text-[10px] text-amber-700 font-bold flex items-center gap-1.5">
+                          <CheckCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                          <span>Re-submitted — Waiting for Audit Verification & Approval</span>
+                        </p>
+                        <p className="text-[9px] text-slate-500 font-medium">
+                          Your updated installation details have been sent to Retail Manager & Country Head.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Rejected Card Re-submit Section */}
+                    {isRejected && (
+                      <div className="mt-2.5 p-2 bg-rose-50 border border-rose-200 rounded-[8px] space-y-1.5 text-left">
+                        <p className="text-[10px] text-rose-600 font-medium leading-tight">
+                          <span className="font-bold">Rejection Reason:</span> {job.approval_note || job.verification_note || job.remarks || "Rejected during audit review"}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openSubmitForJob(job);
+                          }}
+                          className="w-full h-8 bg-rose-600 hover:bg-rose-700 text-white rounded-[6px] text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all hover:scale-[1.01]"
+                        >
+                          <Wrench className="w-3.5 h-3.5" />
+                          <span>Edit & Re-submit Installation</span>
+                        </button>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               <div className="mt-3 flex items-center justify-between text-[9px] text-slate-450 font-bold border-t border-slate-50 pt-2">
                 <span className="capitalize text-slate-500">

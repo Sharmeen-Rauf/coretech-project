@@ -347,6 +347,30 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
           targetJobId
         ]
       );
+
+      // Fallback: If UPDATE matched 0 rows (e.g. offline job ID), INSERT as new row
+      if (jobResult.rows.length === 0) {
+        jobResult = await client.query(
+          `INSERT INTO public.installer_jobs (
+            id, installer_id, job_title, address, status, serial_number, remarks, photos, notes, incentive, payment_status, created_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           RETURNING id`,
+          [
+            targetJobId,
+            payload.installer_id,
+            payload.job_title,
+            payload.address,
+            "pending_verification",
+            payload.serial_number,
+            payload.remarks,
+            payload.photos,
+            payload.notes,
+            payload.incentive || 5000,
+            payload.payment_status || "unpaid",
+            payload.created_at || new Date().toISOString()
+          ]
+        );
+      }
     } else {
       jobResult = await client.query(
         `INSERT INTO public.installer_jobs (
