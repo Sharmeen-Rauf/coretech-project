@@ -445,6 +445,22 @@ export default function ApprovalsPage() {
 
   useEffect(() => {
     loadData();
+
+    // Targeted Supabase Realtime subscription for live installation updates
+    const channel = supabase
+      .channel("approvals_live_updates")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "installer_jobs" },
+        () => {
+          fetchInstallations();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleOpenReviewModal = (order: OrderApprovalRow) => {

@@ -126,11 +126,20 @@ export async function fetchStockAction() {
     const { data, error } = await supabase
       .from("stock")
       .select(`
-        *,
+        id,
+        serial_no,
+        model_no,
+        status,
+        warehouse_name,
+        quantity,
+        import_date,
+        created_at,
+        product_id,
         products (
           name,
           brand,
-          model
+          model,
+          price
         )
       `)
       .order("created_at", { ascending: false });

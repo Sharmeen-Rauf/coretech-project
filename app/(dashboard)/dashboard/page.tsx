@@ -51,80 +51,43 @@ async function DashboardStats() {
   let activeInstallersCount = 0;
 
   try {
-    // 1. Fetch total customers / network accounts count
-    const { count: profCount } = await supabase
-      .from("profiles")
-      .select("*", { count: "exact", head: true });
+    // Execute all 8 statistical database queries concurrently via Promise.all for maximum speed
+    const [
+      profRes,
+      stockQtyRes,
+      st1Res,
+      st2Res,
+      soRes,
+      instRes,
+      stockPricesRes,
+      actInstRes
+    ] = await Promise.all([
+      supabase.from("profiles").select("id", { count: "exact", head: true }),
+      supabase.from("stock").select("quantity"),
+      supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST1"),
+      supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST2"),
+      supabase.from("stock").select("id", { count: "exact", head: true }).eq("status", "sold_out"),
+      supabase.from("installer_jobs").select("id", { count: "exact", head: true }),
+      supabase.from("stock").select("quantity, products(price)"),
+      supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "installer")
+    ]);
 
-    if (profCount !== null && profCount > 0) {
-      customersVal = profCount;
+    if (profRes.count !== null && profRes.count > 0) customersVal = profRes.count;
+    if (stockQtyRes.data && stockQtyRes.data.length > 0) {
+      ordersVal = stockQtyRes.data.reduce((sum, s) => sum + (s.quantity || 1), 0);
     }
-
-    // 2. Fetch total stock units in system
-    const { data: stockQtyData } = await supabase
-      .from("stock")
-      .select("quantity");
-
-    if (stockQtyData && stockQtyData.length > 0) {
-      ordersVal = stockQtyData.reduce((sum, s) => sum + (s.quantity || 1), 0);
-    } else {
-      ordersVal = stockQtyData?.length || 0;
-    }
-
-    // 3. Fetch ST-1 count from sales
-    const { count: st1Count } = await supabase
-      .from("sales")
-      .select("*", { count: "exact", head: true })
-      .eq("type", "ST1");
-    if (st1Count !== null && st1Count > 0) st1Val = st1Count;
-
-    // 4. Fetch ST-2 count from sales
-    const { count: st2Count } = await supabase
-      .from("sales")
-      .select("*", { count: "exact", head: true })
-      .eq("type", "ST2");
-    if (st2Count !== null && st2Count > 0) st2Val = st2Count;
-
-    // 5. Fetch SO count from stock (units with status = sold_out)
-    const { count: soCount } = await supabase
-      .from("stock")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "sold_out");
-    if (soCount !== null && soCount > 0) soVal = soCount;
-
-    // 6. Fetch Installation count from installer_jobs
-    const { count: instCount } = await supabase
-      .from("installer_jobs")
-      .select("*", { count: "exact", head: true });
-    if (instCount !== null && instCount > 0) installationsVal = instCount;
-
-    // 7. Calculate real total stock & sales revenue (quantity * price)
-    const { data: stockWithPrices } = await supabase
-      .from("stock")
-      .select(`
-        quantity,
-        products (
-          price
-        )
-      `);
-
-    if (stockWithPrices && stockWithPrices.length > 0) {
-      revenueVal = stockWithPrices.reduce((sum, item: any) => {
+    if (st1Res.count !== null && st1Res.count > 0) st1Val = st1Res.count;
+    if (st2Res.count !== null && st2Res.count > 0) st2Val = st2Res.count;
+    if (soRes.count !== null && soRes.count > 0) soVal = soRes.count;
+    if (instRes.count !== null && instRes.count > 0) installationsVal = instRes.count;
+    if (stockPricesRes.data && stockPricesRes.data.length > 0) {
+      revenueVal = stockPricesRes.data.reduce((sum, item: any) => {
         const p = item.products?.price ? parseFloat(item.products.price) : 0;
         const q = item.quantity || 1;
         return sum + (p * q);
       }, 0);
     }
-
-    // 8. Fetch total active / approved installers count
-    const { count: actInstCount } = await supabase
-      .from("profiles")
-      .select("*", { count: "exact", head: true })
-      .eq("role", "installer");
-
-    if (actInstCount !== null && actInstCount > 0) {
-      activeInstallersCount = actInstCount;
-    }
+    if (actInstRes.count !== null && actInstRes.count > 0) activeInstallersCount = actInstRes.count;
   } catch (err) {
     console.error("Dashboard stats database error:", err);
   }
