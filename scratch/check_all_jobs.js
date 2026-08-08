@@ -1,25 +1,17 @@
 const { Client } = require("pg");
+const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
 
-(async () => {
-  const c = new Client({
-    connectionString: "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres",
-    ssl: { rejectUnauthorized: false }
-  });
-  await c.connect();
+async function main() {
+  const client = new Client({ connectionString, ssl: { rejectUnauthorized: false } });
+  await client.connect();
 
-  const r = await c.query("SELECT id, job_title, serial_number, photos, notes, status, created_at FROM public.installer_jobs ORDER BY created_at DESC");
-  
-  console.log("TOTAL JOBS IN DATABASE:", r.rows.length);
-  r.rows.forEach((row, i) => {
-    console.log(`\n--- JOB ${i + 1} ---`);
-    console.log("ID:", row.id);
-    console.log("Title:", row.job_title);
-    console.log("Serial:", row.serial_number);
-    console.log("Status:", row.status);
-    console.log("Created:", row.created_at);
-    console.log("Photos:", JSON.stringify(row.photos));
-    console.log("Notes:", row.notes ? row.notes.substring(0, 120) : "null");
-  });
+  const res = await client.query(
+    "SELECT id, job_title, serial_number, status, installer_id, approval_note, created_at FROM public.installer_jobs WHERE LOWER(serial_number) = LOWER('CTNX-8kW-2605190039')"
+  );
 
-  await c.end();
-})();
+  console.log("ALL JOBS FOR CTNX-8kW-2605190039:\n", JSON.stringify(res.rows, null, 2));
+
+  await client.end();
+}
+
+main().catch(console.error);

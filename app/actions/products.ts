@@ -315,8 +315,7 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
              photos = $3,
              notes = $4,
              approval_note = NULL,
-             verification_note = NULL,
-             updated_at = NOW()
+             verification_note = NULL
          WHERE id = $5
          RETURNING id`,
         [
