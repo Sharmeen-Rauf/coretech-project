@@ -619,86 +619,82 @@ export default function WebInstallerPage() {
             <p className="text-[10px] text-slate-500">Contact admin or use the Site Form to report a new installation.</p>
           </div>
         ) : (
-          jobs.map((job) => (
-            <div
-              key={job.id}
-              onClick={() => openSubmitForJob(job)}
-              className="bg-white border border-slate-200 hover:border-[#00B4D8] rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden cursor-pointer hover:shadow-md transition-all"
-            >
-              {(() => {
-                const st = String(job.status || "").toLowerCase();
-                const isApproved = st === "approved" || st === "completed";
-                const isPending = st === "pending_verification" || st === "pending_approval" || st === "pending_installation_approval" || st === "pending";
-                const isRejected = st === "rejected";
+          jobs.map((job) => {
+            const st = String(job.status || "").toLowerCase();
+            const isApproved = st === "approved" || st === "completed";
+            const isPending = st === "pending_verification" || st === "pending_approval" || st === "pending_installation_approval" || st === "pending";
+            const isRejected = st === "rejected";
 
-                return (
-                  <>
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="space-y-1">
-                        <h4 className="text-xs font-bold text-slate-800 leading-tight">
-                          {job.job_title}
-                        </h4>
-                        <p className="text-[9px] font-medium text-slate-400">{job.address}</p>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                          isApproved ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                          isPending ? "bg-amber-50 text-amber-600 border-amber-200" :
-                          isRejected ? "bg-rose-50 text-rose-500 border-rose-100" :
-                          "bg-blue-50 text-blue-500 border-blue-100"
-                        }`}>
-                          {isApproved ? "Approved" :
-                           isPending ? "Pending Verification" :
-                           isRejected ? "Rejected" :
-                           job.status}
-                        </span>
-                      </div>
-                    </div>
+            return (
+              <div
+                key={job.id}
+                onClick={() => {
+                  if (!isRejected) {
+                    openSubmitForJob(job);
+                  }
+                }}
+                className={`bg-white border rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden transition-all ${
+                  isRejected 
+                    ? "border-rose-200 bg-rose-50/20 cursor-default" 
+                    : "border-slate-200 hover:border-[#00B4D8] cursor-pointer hover:shadow-md"
+                }`}
+              >
+                <div className="flex justify-between items-start gap-2">
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-bold text-slate-800 leading-tight">
+                      {job.job_title}
+                    </h4>
+                    <p className="text-[9px] font-medium text-slate-400">{job.address}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
+                      isApproved ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                      isPending ? "bg-amber-50 text-amber-600 border-amber-200" :
+                      isRejected ? "bg-rose-50 text-rose-600 border-rose-200" :
+                      "bg-blue-50 text-blue-500 border-blue-100"
+                    }`}>
+                      {isApproved ? "Approved" :
+                       isPending ? "Pending Verification" :
+                       isRejected ? "Rejected" :
+                       job.status}
+                    </span>
+                  </div>
+                </div>
 
-                    {/* Pending Verification Banner after Re-submission */}
-                    {isPending && (
-                      <div className="mt-2.5 p-2.5 bg-amber-50/80 border border-amber-200 rounded-[8px] space-y-1 text-left">
-                        <p className="text-[10px] text-amber-700 font-bold flex items-center gap-1.5">
-                          <CheckCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                          <span>Re-submitted — Waiting for Audit Verification & Approval</span>
-                        </p>
-                        <p className="text-[9px] text-slate-500 font-medium">
-                          Your updated installation details have been sent to Retail Manager & Country Head.
-                        </p>
-                      </div>
-                    )}
+                {/* Pending Verification Banner */}
+                {isPending && (
+                  <div className="mt-2.5 p-2.5 bg-amber-50/80 border border-amber-200 rounded-[8px] space-y-1 text-left">
+                    <p className="text-[10px] text-amber-700 font-bold flex items-center gap-1.5">
+                      <CheckCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Submitted — Waiting for Verification & Audit Review</span>
+                    </p>
+                    <p className="text-[9px] text-slate-500 font-medium">
+                      Your installation details have been sent to Retail Manager & Country Head.
+                    </p>
+                  </div>
+                )}
 
-                    {/* Rejected Card Re-submit Section */}
-                    {isRejected && (
-                      <div className="mt-2.5 p-2 bg-rose-50 border border-rose-200 rounded-[8px] space-y-1.5 text-left">
-                        <p className="text-[10px] text-rose-600 font-medium leading-tight">
-                          <span className="font-bold">Rejection Reason:</span> {job.approval_note || job.verification_note || job.remarks || "Rejected during audit review"}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openSubmitForJob(job);
-                          }}
-                          className="w-full h-8 bg-rose-600 hover:bg-rose-700 text-white rounded-[6px] text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all hover:scale-[1.01]"
-                        >
-                          <Wrench className="w-3.5 h-3.5" />
-                          <span>Edit & Re-submit Installation</span>
-                        </button>
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
+                {/* Rejected Card Guidance Section (Simple & Non-clickable) */}
+                {isRejected && (
+                  <div className="mt-2.5 p-2.5 bg-rose-50 border border-rose-200 rounded-[8px] space-y-1 text-left">
+                    <p className="text-[10px] text-rose-700 font-bold leading-tight">
+                      <span className="font-extrabold uppercase">Rejection Reason:</span> {job.approval_note || job.verification_note || job.remarks || "Rejected during audit review"}
+                    </p>
+                    <p className="text-[9px] text-slate-600 font-medium pt-0.5 border-t border-rose-200/60">
+                      ℹ️ Product serial number has been restored to Active Inventory. To re-apply for this product, click <span className="font-bold text-[#0077B6]">+ Open Site Form</span> above.
+                    </p>
+                  </div>
+                )}
 
-              <div className="mt-3 flex items-center justify-between text-[9px] text-slate-450 font-bold border-t border-slate-50 pt-2">
-                <span className="capitalize text-slate-500">
-                  Incentive: <span className="text-emerald-600 font-bold">Rs. {Number(job.incentive || 0).toLocaleString()}</span>
-                </span>
-                <span>{job.created_at ? new Date(job.created_at).toLocaleDateString() : ""}</span>
+                <div className="mt-3 flex items-center justify-between text-[9px] text-slate-450 font-bold border-t border-slate-50 pt-2">
+                  <span className="capitalize text-slate-500">
+                    Incentive: <span className="text-emerald-600 font-bold">Rs. {Number(job.incentive || 0).toLocaleString()}</span>
+                  </span>
+                  <span>{job.created_at ? new Date(job.created_at).toLocaleDateString() : ""}</span>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
