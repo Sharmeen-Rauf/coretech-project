@@ -471,7 +471,7 @@ export default function WebInstallerPage() {
     <div className="min-h-screen bg-slate-50 flex flex-col items-center select-none font-sans p-4 relative space-y-3">
 
       {/* Top Rejection Alert Banner if any job is rejected */}
-      {jobs.some((j) => j.status === "rejected") && (
+      {jobs.some((j) => String(j.status || "").toLowerCase() === "rejected") && (
         <div className="w-full max-w-md bg-rose-50 border border-rose-200 rounded-[12px] p-3.5 shadow-sm space-y-2 text-left animate-in slide-in-from-top-2 duration-200">
           <div className="flex items-center gap-2 text-rose-700 font-bold text-xs">
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -480,10 +480,10 @@ export default function WebInstallerPage() {
           <p className="text-[11px] text-slate-600 leading-relaxed">
             Your installation ticket was rejected during audit review. Click below to update photos, video, serial number, or remarks and re-submit for verification.
           </p>
-          {jobs.find((j) => j.status === "rejected") && (
+          {jobs.find((j) => String(j.status || "").toLowerCase() === "rejected") && (
             <button
               type="button"
-              onClick={() => openSubmitForJob(jobs.find((j) => j.status === "rejected"))}
+              onClick={() => openSubmitForJob(jobs.find((j) => String(j.status || "").toLowerCase() === "rejected"))}
               className="w-full h-8 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-[6px] flex items-center justify-center gap-1.5 shadow transition-all"
             >
               <Wrench className="w-3.5 h-3.5" />
@@ -615,22 +615,20 @@ export default function WebInstallerPage() {
                 </div>
               </div>
 
-              {job.status === "rejected" && (
+              {String(job.status || "").toLowerCase() === "rejected" && (
                 <div className="mt-2.5 p-2 bg-rose-50 border border-rose-200 rounded-[8px] space-y-1.5">
-                  {(job.approval_note || job.verification_note) && (
-                    <p className="text-[10px] text-rose-600 font-medium leading-tight">
-                      <span className="font-bold">Rejection Reason:</span> {job.approval_note || job.verification_note}
-                    </p>
-                  )}
+                  <p className="text-[10px] text-rose-600 font-medium leading-tight">
+                    <span className="font-bold">Rejection Reason:</span> {job.approval_note || job.verification_note || job.remarks || "Rejected during audit review"}
+                  </p>
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       openSubmitForJob(job);
                     }}
-                    className="w-full h-7 bg-rose-600 hover:bg-rose-700 text-white rounded-[6px] text-[10px] font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all"
+                    className="w-full h-8 bg-rose-600 hover:bg-rose-700 text-white rounded-[6px] text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all hover:scale-[1.01]"
                   >
-                    <Wrench className="w-3 h-3" />
+                    <Wrench className="w-3.5 h-3.5" />
                     <span>Edit & Re-submit Installation</span>
                   </button>
                 </div>

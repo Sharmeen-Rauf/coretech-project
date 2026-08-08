@@ -340,7 +340,7 @@ export default function InstallerListPage() {
 
   const parseInstallerMetadata = (metadataStr: string) => {
     if (!metadataStr) return {};
-    
+
     const extractJson = (str: string): any => {
       if (!str || typeof str !== "string") return {};
       let s = str.trim();
@@ -369,11 +369,11 @@ export default function InstallerListPage() {
     if (!installer) return "-";
     // 1. Direct property check on profile row
     if (installer[fieldKey] && String(installer[fieldKey]).trim() !== "") return installer[fieldKey];
-    
+
     // 2. Parsed JSON metadata check
     const meta = parseInstallerMetadata(installer.designation);
     if (meta && meta[fieldKey] && String(meta[fieldKey]).trim() !== "") return meta[fieldKey];
-    
+
     return "-";
   };
 
@@ -391,8 +391,8 @@ export default function InstallerListPage() {
         </div>
       ),
     },
-    { 
-      key: "designation", 
+    {
+      key: "designation",
       label: "Designation",
       render: (val: string, row: any) => {
         let cleanText = "Installer";
@@ -403,7 +403,7 @@ export default function InstallerListPage() {
             try {
               const outer = JSON.parse(cleanVal);
               const innerVal = outer.designation || "";
-              
+
               if (innerVal.startsWith("[INSTALLER_METADATA]")) {
                 const innerParsed = JSON.parse(innerVal.replace("[INSTALLER_METADATA]", ""));
                 cleanText = `Installer (${innerParsed.marital_status || "Active"})`;
@@ -417,7 +417,7 @@ export default function InstallerListPage() {
             try {
               const parsed = JSON.parse(val.replace("[DISTRIBUTOR_METADATA]", ""));
               cleanText = parsed.designation || "Installer";
-            } catch(e) {}
+            } catch (e) { }
           } else {
             cleanText = val;
           }
@@ -426,22 +426,21 @@ export default function InstallerListPage() {
       }
     },
     { key: "contact", label: "Contact Phone" },
-    { 
-      key: "status", 
+    {
+      key: "status",
       label: "Status",
       render: (status: string, row: any) => (
         <div className="flex items-center gap-3">
-          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
-            status === "approved" || status === "active" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-            status === "pending_verification" || status === "pending" ? "bg-amber-50 text-amber-500 border-amber-100" :
-            status === "pending_approval" || status === "verified" ? "bg-sky-50 text-sky-600 border-sky-100" :
-            status === "rejected" ? "bg-rose-50 text-rose-500 border-rose-100" :
-            "bg-slate-50 text-slate-500 border-slate-200"
-          }`}>
+          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${status === "approved" || status === "active" ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+              status === "pending_verification" || status === "pending" ? "bg-amber-50 text-amber-500 border-amber-100" :
+                status === "pending_approval" || status === "verified" ? "bg-sky-50 text-sky-600 border-sky-100" :
+                  status === "rejected" ? "bg-rose-50 text-rose-500 border-rose-100" :
+                    "bg-slate-50 text-slate-500 border-slate-200"
+            }`}>
             {status === "pending_verification" || status === "pending" ? "Pending RM" :
-             status === "pending_approval" || status === "verified" ? "Pending CH" :
-             status === "approved" || status === "active" ? "ACTIVE" :
-             status}
+              status === "pending_approval" || status === "verified" ? "Pending CH" :
+                status === "approved" || status === "active" ? "ACTIVE" :
+                  status}
           </span>
         </div>
       )
@@ -452,7 +451,7 @@ export default function InstallerListPage() {
       render: (_: string, row: any) => {
         const verifier = row.verified_by ? (userLookup[row.verified_by] || "Retail Manager") : null;
         const approver = row.approved_by ? (userLookup[row.approved_by] || "Country Head") : null;
-        
+
         if (row.status === "pending" || row.status === "pending_verification") {
           return (
             <span className="text-[10px] text-amber-600 font-semibold flex items-center gap-1">
@@ -635,9 +634,8 @@ export default function InstallerListPage() {
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div
           onClick={() => setStatusFilter("")}
-          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-[#00B4D8] transition-all ${
-            !statusFilter ? "border-[#00B4D8] bg-[#F0FAFE]/40 ring-2 ring-[#00B4D8]/20" : "border-slate-200"
-          }`}
+          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-[#00B4D8] transition-all ${!statusFilter ? "border-[#00B4D8] bg-[#F0FAFE]/40 ring-2 ring-[#00B4D8]/20" : "border-slate-200"
+            }`}
         >
           <div className="p-2.5 bg-[#F0FAFE] text-[#00B4D8] rounded-[8px]">
             <UserCheck className="w-4 h-4" />
@@ -650,9 +648,8 @@ export default function InstallerListPage() {
 
         <div
           onClick={() => setStatusFilter("pending_verification")}
-          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-amber-400 transition-all ${
-            statusFilter === "pending_verification" ? "border-amber-400 bg-amber-50/40 ring-2 ring-amber-400/20" : "border-slate-200"
-          }`}
+          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-amber-400 transition-all ${statusFilter === "pending_verification" ? "border-amber-400 bg-amber-50/40 ring-2 ring-amber-400/20" : "border-slate-200"
+            }`}
         >
           <div className="p-2.5 bg-amber-50 text-amber-600 rounded-[8px]">
             <Clock className="w-4 h-4" />
@@ -665,9 +662,8 @@ export default function InstallerListPage() {
 
         <div
           onClick={() => setStatusFilter("pending_approval")}
-          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-sky-400 transition-all ${
-            statusFilter === "pending_approval" || statusFilter === "verified" ? "border-sky-400 bg-sky-50/40 ring-2 ring-sky-400/20" : "border-slate-200"
-          }`}
+          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-sky-400 transition-all ${statusFilter === "pending_approval" || statusFilter === "verified" ? "border-sky-400 bg-sky-50/40 ring-2 ring-sky-400/20" : "border-slate-200"
+            }`}
         >
           <div className="p-2.5 bg-sky-50 text-sky-600 rounded-[8px]">
             <UserCheck className="w-4 h-4" />
@@ -680,9 +676,8 @@ export default function InstallerListPage() {
 
         <div
           onClick={() => setStatusFilter("active")}
-          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-emerald-400 transition-all ${
-            statusFilter === "active" || statusFilter === "approved" ? "border-emerald-400 bg-emerald-50/40 ring-2 ring-emerald-400/20" : "border-slate-200"
-          }`}
+          className={`bg-white border rounded-[12px] p-4 shadow-sm flex items-center gap-3.5 cursor-pointer hover:border-emerald-400 transition-all ${statusFilter === "active" || statusFilter === "approved" ? "border-emerald-400 bg-emerald-50/40 ring-2 ring-emerald-400/20" : "border-slate-200"
+            }`}
         >
           <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-[8px]">
             <Check className="w-4 h-4" />
@@ -826,11 +821,10 @@ export default function InstallerListPage() {
                 </div>
 
                 <div className="flex gap-2.5 items-start border-t border-slate-200/60 pt-2.5">
-                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
-                    selectedInstaller.status === "pending_verification" || selectedInstaller.status === "pending"
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${selectedInstaller.status === "pending_verification" || selectedInstaller.status === "pending"
                       ? "bg-amber-100 text-amber-700 border border-amber-300 animate-pulse"
                       : "bg-emerald-100 text-emerald-700 border border-emerald-300"
-                  }`}>
+                    }`}>
                     {selectedInstaller.status === "pending_verification" || selectedInstaller.status === "pending" ? "2" : "✓"}
                   </span>
                   <div>
@@ -849,15 +843,14 @@ export default function InstallerListPage() {
                 </div>
 
                 <div className="flex gap-2.5 items-start border-t border-slate-200/60 pt-2.5">
-                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
-                    selectedInstaller.status === "pending_approval" || selectedInstaller.status === "verified"
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${selectedInstaller.status === "pending_approval" || selectedInstaller.status === "verified"
                       ? "bg-sky-100 text-sky-700 border border-sky-300 animate-pulse"
                       : selectedInstaller.status === "rejected"
-                      ? "bg-rose-100 text-rose-700 border border-rose-300"
-                      : selectedInstaller.status === "approved" || selectedInstaller.status === "active"
-                      ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
-                      : "bg-slate-100 text-slate-400 border border-slate-200"
-                  }`}>
+                        ? "bg-rose-100 text-rose-700 border border-rose-300"
+                        : selectedInstaller.status === "approved" || selectedInstaller.status === "active"
+                          ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                          : "bg-slate-100 text-slate-400 border border-slate-200"
+                    }`}>
                     {selectedInstaller.status === "approved" || selectedInstaller.status === "active" ? "✓" : selectedInstaller.status === "rejected" ? "✗" : "3"}
                   </span>
                   <div>
