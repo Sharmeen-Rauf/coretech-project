@@ -457,9 +457,7 @@ export default function WebInstallerPage() {
   };
 
   const openSubmitForJob = (job: any) => {
-    if (!job || String(job.status || "").trim().toLowerCase() === "rejected" || String(job.status || "").trim().toLowerCase() === "declined") {
-      return;
-    }
+    if (!job) return;
 
     setSiteFormJobId(job.id);
     setNewJobTitle(job.job_title);
@@ -632,19 +630,8 @@ export default function WebInstallerPage() {
             return (
               <div
                 key={job.id}
-                onClick={(e) => {
-                  if (isRejected) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    return;
-                  }
-                  openSubmitForJob(job);
-                }}
-                className={`bg-white border rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden transition-all ${
-                  isRejected 
-                    ? "border-rose-200 bg-rose-50/30 cursor-not-allowed pointer-events-none select-none" 
-                    : "border-slate-200 hover:border-[#00B4D8] cursor-pointer hover:shadow-md"
-                }`}
+                onClick={() => openSubmitForJob(job)}
+                className="bg-white border border-slate-200 hover:border-[#00B4D8] rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden cursor-pointer hover:shadow-md transition-all"
               >
                 <div className="flex justify-between items-start gap-2">
                   <div className="space-y-1">
@@ -681,15 +668,23 @@ export default function WebInstallerPage() {
                   </div>
                 )}
 
-                {/* Rejected Card Guidance Section (Simple & Non-clickable) */}
+                {/* Rejected Card Re-apply Section */}
                 {isRejected && (
-                  <div className="mt-2.5 p-2.5 bg-rose-50 border border-rose-200 rounded-[8px] space-y-1 text-left">
+                  <div className="mt-2.5 p-2.5 bg-rose-50 border border-rose-200 rounded-[8px] space-y-2 text-left">
                     <p className="text-[10px] text-rose-700 font-bold leading-tight">
                       <span className="font-extrabold uppercase">Rejection Reason:</span> {job.approval_note || job.verification_note || job.remarks || "Rejected during audit review"}
                     </p>
-                    <p className="text-[9px] text-slate-600 font-medium pt-0.5 border-t border-rose-200/60">
-                      ℹ️ Product serial number has been restored to Active Inventory. To re-apply for this product, click <span className="font-bold text-[#0077B6]">+ Open Site Form</span> above.
-                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openSubmitForJob(job);
+                      }}
+                      className="w-full h-8 bg-rose-600 hover:bg-rose-700 text-white rounded-[6px] text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all hover:scale-[1.01]"
+                    >
+                      <Wrench className="w-3.5 h-3.5" />
+                      <span>Re-apply / Edit Installation</span>
+                    </button>
                   </div>
                 )}
 

@@ -178,46 +178,11 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
       return { success: false, error: "Serial number not found in active inventory." };
     }
 
-    if (stockData.status === "sold_out") {
-      // Check if this stock item belongs to currentJobId or a rejected job
-      let isAvailableForReUse = false;
-
-      if (currentJobId && currentJobId !== "new" && stockData.installation_id === currentJobId) {
-        isAvailableForReUse = true;
-      } else if (stockData.installation_id) {
-        const { data: linkedJob } = await supabase
-          .from("installer_jobs")
-          .select("id, status")
-          .eq("id", stockData.installation_id)
-          .maybeSingle();
-
-        if (linkedJob && linkedJob.status === "rejected") {
-          isAvailableForReUse = true;
-        }
-      } else {
-        // Check if there is any job using this serial number that was rejected
-        const { data: snJob } = await supabase
-          .from("installer_jobs")
-          .select("id, status")
-          .ilike("serial_number", cleanSNo)
-          .maybeSingle();
-
-        if (snJob && snJob.status === "rejected") {
-          isAvailableForReUse = true;
-        }
-      }
-
-      if (!isAvailableForReUse) {
-        return { success: false, error: "Serial number is already sold out." };
-      }
-    }
-
     // 2. Check if the serial number is already registered or used in active (non-rejected) installer_jobs
     let jobsQuery = supabase
       .from("installer_jobs")
       .select("id, job_title, status")
-      .ilike("serial_number", cleanSNo)
-      .neq("status", "rejected");
+      .ilike("serial_number", cleanSNo);
 
     if (currentJobId && currentJobId !== "new") {
       jobsQuery = jobsQuery.neq("id", currentJobId);
@@ -227,10 +192,16 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
 
     if (jobError) throw jobError;
 
-    if (jobData && jobData.length > 0) {
+    // Filter for active (non-rejected) jobs
+    const activeJobs = (jobData || []).filter((j) => {
+      const s = String(j.status || "").trim().toLowerCase();
+      return s !== "rejected" && s !== "declined";
+    });
+
+    if (activeJobs.length > 0) {
       return { 
         success: false, 
-        error: `Serial number is already registered for another installation: "${jobData[0].job_title}".` 
+        error: `Serial number is already registered for an active installation: "${activeJobs[0].job_title}".` 
       };
     }
 
@@ -311,7 +282,7 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
     let targetJobId = siteFormJobId;
     if (!targetJobId || targetJobId === "new") {
       const existingRejected = await client.query(
-        "SELECT id FROM public.installer_jobs WHERE LOWER(serial_number) = LOWER($1) AND status = 'rejected' LIMIT 1",
+        "SELECT id FROM public.installer_jobs WHERE LOWER(serial_number) = LOWER($1) AND (LOWER(status) = 'rejected' OR LOWER(status) = 'declined') LIMIT 1",
         [payload.serial_number]
       );
       if (existingRejected.rows.length > 0) {
@@ -319,9 +290,18 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       }
     }
 
-    // If stock is sold_out for another job (not this job being submitted/re-submitted), throw error
-    if (stockCheck.rows[0].status === "sold_out" && stockCheck.rows[0].installation_id !== targetJobId) {
-      throw new Error("Serial number is already sold out.");
+    // Check if another ACTIVE (non-rejected) job exists for this serial number
+    const activeJobCheck = await client.query(
+      `SELECT id, job_title FROM public.installer_jobs 
+       WHERE LOWER(serial_number) = LOWER($1) 
+         AND LOWER(status) NOT IN ('rejected', 'declined') 
+         AND id != $2 
+       LIMIT 1`,
+      [payload.serial_number, targetJobId || "none"]
+    );
+
+    if (activeJobCheck.rows.length > 0) {
+      throw new Error(`Serial number is already registered for an active installation: "${activeJobCheck.rows[0].job_title}".`);
     }
 
     // 3. Insert or update the installation job record
