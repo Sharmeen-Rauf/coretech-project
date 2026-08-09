@@ -1102,7 +1102,6 @@ export default function ApprovalsPage() {
     const s = String(j.status || "").trim().toLowerCase();
     if (startDate && !isInDateRange(j.created_at)) return false;
     if (endDate && !isInDateRange(j.created_at)) return false;
-    if (isRM) return s === "pending_verification" || s === "pending";
     return s === "pending_verification" || s === "pending_approval" || s === "pending_installation_approval" || s === "pending";
   });
 
