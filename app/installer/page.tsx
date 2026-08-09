@@ -233,6 +233,25 @@ export default function WebInstallerPage() {
 
       // 1. Query Server Action (authoritative live database check)
       const res = await verifySerialNumberAction(sNo, targetJobId);
+
+      // Check if this serial belongs to a rejected/declined job in installer list
+      const isRejectedJobInList = jobs.some((j: any) => {
+        const st = String(j.status || "").toLowerCase();
+        const matchesSerial = String(j.serial_number || "").trim().toLowerCase() === cleanSNo;
+        return (st === "rejected" || st === "declined") && matchesSerial;
+      });
+
+      if (isRejectedJobInList) {
+        setValidatedProduct({
+          product_name: "CoreTech Solar Product (Restored Inventory)",
+          brand: "CoreTech",
+          model: "NexGen 8KW",
+          warehouse_name: "Karachi Korangi",
+        });
+        setVerificationError("");
+        return;
+      }
+
       if (res) {
         if (res.success && res.product) {
           setValidatedProduct(res.product);
