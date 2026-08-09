@@ -1854,7 +1854,7 @@ export default function ApprovalsPage() {
                 }
 
                 // === ROBUST VIDEO PARSING ===
-                let videoList: string[] = [];
+                const videoList: string[] = [];
                 const combinedText = `${selectedInstallation.notes || ""} ${selectedInstallation.remarks || ""}`;
                 
                 // 1. Parse VIDEO: tag

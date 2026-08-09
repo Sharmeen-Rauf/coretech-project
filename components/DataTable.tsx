@@ -132,9 +132,9 @@ export default function DataTable({
     }
 
     let exportHeaders = columns.map(c => c.label);
-    let keys = columns.map(c => c.key);
+    const keys = columns.map(c => c.key);
     let customExport = false;
-    let customRows: string[][] = [];
+    const customRows: string[][] = [];
 
     // Check if the dataset is Installer Register
     const isInstallerList = title === "Installers Register" || title === "Installer Register" || dataToExport.some(r => r.role === "installer" || (typeof r.designation === "string" && r.designation.includes("INSTALLER_METADATA")));
@@ -161,7 +161,7 @@ export default function DataTable({
       ];
       
       dataToExport.forEach(row => {
-        let meta: any = {};
+        const meta: any = {};
         const des = row.designation || "";
         if (typeof des === "string") {
           if (des.includes("INSTALLER_METADATA")) {

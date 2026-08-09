@@ -1037,7 +1037,7 @@ export default function AdminJobsPage() {
                     }
                   }
 
-                  let videoList: string[] = [];
+                  const videoList: string[] = [];
                   const combinedText = `${selectedJob.notes || ""} ${selectedJob.remarks || ""}`;
                   
                   // 1. Parse VIDEO: tag

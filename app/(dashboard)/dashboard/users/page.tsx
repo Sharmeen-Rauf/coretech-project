@@ -76,7 +76,7 @@ export default function UsersPage() {
       if (profilesRes.error) throw profilesRes.error;
       const profiles = profilesRes.data || [];
 
-      let allowedMap = new Map<string, string>();
+      const allowedMap = new Map<string, string>();
       if (allowedRes.data) {
         allowedRes.data.forEach((u: any) => {
           if (u.id && u.email) allowedMap.set(u.id, u.email.trim());

@@ -129,7 +129,7 @@ export default function CreateOrderPage() {
         const mergedLocal = mergeLocalItems(rawProfiles, "coretech_local_users");
         const extraLocal = getLocalItems("profiles") || [];
         
-        let allProfilesMap = new Map<string, any>();
+        const allProfilesMap = new Map<string, any>();
         [...mergedLocal, ...extraLocal].forEach((p: any) => {
           if (p && p.id) {
             let rsmId = p.rsm_id;
