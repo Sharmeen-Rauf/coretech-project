@@ -414,10 +414,17 @@ export default function WebInstallerPage() {
       try {
         const res = await submitInstallationAction(payload, siteFormJobId);
         if (!res.success) throw new Error(res.error);
-        // Clear any stale local storage copy for this job ID
+        
+        // Save/Update local storage copy with pending_verification so UI updates instantly
         const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
-        const cleanedLocal = localJobs.filter((j: any) => j.id !== payload.id && j.id !== siteFormJobId);
-        localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(cleanedLocal));
+        const index = localJobs.findIndex((j: any) => j.id === payload.id || j.id === siteFormJobId);
+        const updatedJob = { ...payload, status: "pending_verification", approval_note: null, verification_note: null };
+        if (index > -1) {
+          localJobs[index] = updatedJob;
+        } else {
+          localJobs.push(updatedJob);
+        }
+        localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
         toast.success("Site installation submitted! Waiting for verification & approval.");
       } catch (dbErr: any) {
         console.warn("DB submission failed. Saving locally.", dbErr);
