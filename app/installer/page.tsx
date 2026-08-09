@@ -584,8 +584,9 @@ export default function WebInstallerPage() {
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#0077B6] to-[#00B4D8] flex items-center justify-center text-white font-extrabold text-sm shadow">
               CT
             </div>
-            <span className="text-base font-bold text-slate-800 tracking-tight">
+            <span className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-1.5">
               Core<span className="text-[#00B4D8]">TECH</span>
+              <span className="text-[8px] bg-slate-100 text-slate-500 px-1 py-0.5 rounded border border-slate-200 font-bold">v2.2.0</span>
             </span>
           </div>
           <div className="flex items-center gap-2">
