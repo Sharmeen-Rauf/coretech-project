@@ -433,12 +433,12 @@ export default function WebInstallerPage() {
 
       const serializedNotes = `[METADATA] SN:${serialNo.trim()} | VIDEO:${videoUrl} | REM:${completionRemarks.trim()}\nCONNECTED PRODUCT: ${activeProduct.product_name} (${activeProduct.model})`;
 
-      const newId = crypto.randomUUID();
+      const isNew = siteFormJobId === "new";
       const payload = {
-        id: newId,
+        id: isNew ? crypto.randomUUID() : siteFormJobId,
         installer_id: installerId,
-        job_title: newJobTitle.trim() || (jobs.find(j => j.id === siteFormJobId)?.job_title || "Site Job"),
-        address: newJobAddress.trim() || (jobs.find(j => j.id === siteFormJobId)?.address || "Site Address"),
+        job_title: isNew ? newJobTitle.trim() : (jobs.find(j => j.id === siteFormJobId)?.job_title || "Site Job"),
+        address: isNew ? newJobAddress.trim() : (jobs.find(j => j.id === siteFormJobId)?.address || "Site Address"),
         status: "pending_verification", // wait for two-stage audit
         serial_number: serialNo.trim(),
         remarks: completionRemarks.trim(),
@@ -450,8 +450,7 @@ export default function WebInstallerPage() {
       };
 
       try {
-        // Always pass "new" so server always INSERTs a fresh row (preserving rejected history)
-        const res = await submitInstallationAction(payload, "new");
+        const res = await submitInstallationAction(payload, siteFormJobId);
         if (!res.success) throw new Error(res.error);
         
         // Save/Update local storage copy with pending_verification so UI updates instantly
@@ -505,8 +504,8 @@ export default function WebInstallerPage() {
   const openSubmitForJob = (job: any) => {
     if (!job) return;
     const st = String(job.status || "").trim().toLowerCase();
-    if (st === "rejected" || st === "declined" || st === "completed" || st === "approved") {
-      return; // DO NOTHING ON REJECTED OR COMPLETED JOBS!
+    if (st === "completed" || st === "approved") {
+      return; // DO NOTHING ON COMPLETED OR APPROVED JOBS
     }
 
     setSiteFormJobId(job.id);
@@ -680,9 +679,8 @@ export default function WebInstallerPage() {
             return (
               <div
                 key={job.id}
-                style={{ pointerEvents: 'none', userSelect: 'none', cursor: 'default' }}
-                className={`bg-white border rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden pointer-events-none select-none cursor-default outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 active:outline-none transition-all ${
-                  isRejected ? "border-rose-300 bg-rose-50/40" : "border-slate-200"
+                className={`bg-white border rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden transition-all ${
+                  isRejected ? "border-rose-300 bg-rose-50/20" : "border-slate-200"
                 }`}
               >
                 <div className="flex justify-between items-start gap-2">
@@ -720,12 +718,20 @@ export default function WebInstallerPage() {
                   </div>
                 )}
 
-                {/* Rejected Card Simple Static Banner */}
+                {/* Rejected Card Simple Static Banner with Re-submit Button */}
                 {isRejected && (
-                  <div className="mt-2.5 p-2.5 bg-rose-50 border border-rose-200 rounded-[8px] space-y-1 text-left">
+                  <div className="mt-2.5 p-2.5 bg-rose-50 border border-rose-200 rounded-[8px] space-y-2 text-left">
                     <p className="text-[10px] text-rose-700 font-bold leading-tight">
                       <span className="font-extrabold uppercase">Rejection Reason:</span> {job.approval_note || job.verification_note || job.remarks || "Rejected during audit review."}
                     </p>
+                    <button
+                      type="button"
+                      onClick={() => openSubmitForJob(job)}
+                      className="w-full h-8 bg-rose-600 hover:bg-rose-700 text-white rounded-[6px] text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all hover:scale-[1.01]"
+                    >
+                      <Wrench className="w-3.5 h-3.5" />
+                      <span>Re-submit / Edit Installation</span>
+                    </button>
                   </div>
                 )}
 

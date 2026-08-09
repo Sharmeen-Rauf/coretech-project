@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata: Metadata = {
   title: "CoreTECH Solar - Official Technician & Installer Portal",
   description: "Register and join CoreTECH Solar as a certified installation technician.",

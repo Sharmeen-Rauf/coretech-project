@@ -284,40 +284,72 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       [payload.serial_number]
     );
 
-    // 2. Check if another ACTIVE (non-rejected) job exists for this serial number
-    const activeJobCheck = await client.query(
-      `SELECT id, job_title FROM public.installer_jobs 
-       WHERE LOWER(serial_number) = LOWER($1) 
-         AND LOWER(status) NOT IN ('rejected', 'declined') 
-       LIMIT 1`,
-      [payload.serial_number]
-    );
+    // 2. Check if another ACTIVE (non-rejected) job exists for this serial number (excluding current job if editing)
+    let activeJobQuery = `
+      SELECT id, job_title FROM public.installer_jobs 
+      WHERE LOWER(serial_number) = LOWER($1) 
+        AND LOWER(status) NOT IN ('rejected', 'declined')
+    `;
+    const queryParams = [payload.serial_number];
+    if (siteFormJobId && siteFormJobId !== "new") {
+      activeJobQuery += ` AND id != $2`;
+      queryParams.push(siteFormJobId);
+    }
+    activeJobQuery += ` LIMIT 1`;
+
+    const activeJobCheck = await client.query(activeJobQuery, queryParams);
 
     if (activeJobCheck.rows.length > 0) {
       throw new Error(`Serial number is already registered for an active installation: "${activeJobCheck.rows[0].job_title}".`);
     }
 
-    // 3. Always INSERT a brand-new job row (never mutate existing rejected rows)
-    // This preserves rejection history and creates a fresh record that flows through RM/CH pipeline
-    const newJobId = payload.id || require("crypto").randomUUID();
-    const jobResult = await client.query(
-      `INSERT INTO public.installer_jobs (
-        id, installer_id, job_title, address, status, serial_number, remarks, photos, notes, incentive, payment_status, created_at
-       ) VALUES ($1, $2, $3, $4, 'pending_verification', $5, $6, $7, $8, $9, $10, NOW())
-       RETURNING id`,
-      [
-        newJobId,
-        payload.installer_id,
-        payload.job_title,
-        payload.address,
-        payload.serial_number,
-        payload.remarks || "",
-        Array.isArray(payload.photos) ? JSON.stringify(payload.photos) : (payload.photos || "[]"),
-        payload.notes || "",
-        payload.incentive || 5000,
-        payload.payment_status || "unpaid"
-      ]
-    );
+    // 3. Insert or update the installation job record
+    let jobResult;
+    if (siteFormJobId && siteFormJobId !== "new") {
+      jobResult = await client.query(
+        `UPDATE public.installer_jobs 
+         SET status = 'pending_verification',
+             job_title = $1,
+             address = $2,
+             serial_number = $3,
+             remarks = $4,
+             photos = $5,
+             notes = $6,
+             approval_note = NULL,
+             verification_note = NULL
+         WHERE id = $7
+         RETURNING id`,
+        [
+          payload.job_title,
+          payload.address,
+          payload.serial_number,
+          payload.remarks || "",
+          Array.isArray(payload.photos) ? JSON.stringify(payload.photos) : (payload.photos || "[]"),
+          payload.notes || "",
+          siteFormJobId
+        ]
+      );
+    } else {
+      const newJobId = payload.id || require("crypto").randomUUID();
+      jobResult = await client.query(
+        `INSERT INTO public.installer_jobs (
+          id, installer_id, job_title, address, status, serial_number, remarks, photos, notes, incentive, payment_status, created_at
+         ) VALUES ($1, $2, $3, $4, 'pending_verification', $5, $6, $7, $8, $9, $10, NOW())
+         RETURNING id`,
+        [
+          newJobId,
+          payload.installer_id,
+          payload.job_title,
+          payload.address,
+          payload.serial_number,
+          payload.remarks || "",
+          Array.isArray(payload.photos) ? JSON.stringify(payload.photos) : (payload.photos || "[]"),
+          payload.notes || "",
+          payload.incentive || 5000,
+          payload.payment_status || "unpaid"
+        ]
+      );
+    }
 
     const jobId = jobResult.rows[0]?.id;
     if (!jobId) {
