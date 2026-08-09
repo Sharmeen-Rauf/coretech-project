@@ -231,10 +231,7 @@ export default function WebInstallerPage() {
       const cleanSNo = sNo.trim().toLowerCase();
       const targetJobId = jobIdOverride !== undefined ? jobIdOverride : siteFormJobId;
 
-      // 1. Query Server Action (authoritative live database check)
-      const res = await verifySerialNumberAction(sNo, targetJobId);
-
-      // Check if this serial belongs to a rejected/declined job in installer list
+      // 1. FIRST check if this serial belongs to any rejected/declined job in installer's active list
       const isRejectedJobInList = jobs.some((j: any) => {
         const st = String(j.status || "").toLowerCase();
         const matchesSerial = String(j.serial_number || "").trim().toLowerCase() === cleanSNo;
@@ -251,6 +248,9 @@ export default function WebInstallerPage() {
         setVerificationError("");
         return;
       }
+
+      // 2. Query Server Action (authoritative live database check)
+      const res = await verifySerialNumberAction(sNo, targetJobId);
 
       if (res) {
         if (res.success && res.product) {

@@ -1,4 +1,5 @@
 "use server";
+// DEPLOYMENT v2.1.0 — Re-apply always creates NEW row, never mutates rejected history
 
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
