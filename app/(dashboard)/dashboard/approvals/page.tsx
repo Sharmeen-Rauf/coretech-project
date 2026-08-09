@@ -888,6 +888,32 @@ export default function ApprovalsPage() {
     }
   };
 
+  const handleResetToPendingInstallation = async (jobId: string) => {
+    if (!window.confirm("Are you sure you want to reset this installation back to Pending Approval status?")) return;
+    try {
+      const updateData = {
+        status: "pending_verification",
+        approval_note: null,
+        verification_note: null,
+      };
+      const res = await updateRecordAction("installer_jobs", jobId, updateData);
+      if (!res.success) throw new Error(res.error);
+
+      const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
+      const index = localJobs.findIndex((j: any) => j.id === jobId);
+      if (index > -1) {
+        Object.assign(localJobs[index], updateData);
+        localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
+      }
+
+      toast.success("Installation status reset back to Pending Verification!");
+      setSelectedInstallation(null);
+      fetchInstallations();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to reset installation status");
+    }
+  };
+
   // Columns specifications
   const orderColumns = [
     { key: "order_code", label: "Order ID" },
