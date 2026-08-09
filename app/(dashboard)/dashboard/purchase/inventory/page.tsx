@@ -34,6 +34,7 @@ export default function InventoryPage() {
   const perPage = 10;
 
   const fetchInventory = async () => {
+    let dbData: any[] = [];
     setIsLoading(true);
     try {
       const [stockRes, prodRes, regRes] = await Promise.all([

@@ -484,7 +484,7 @@ export async function bulkImportStockAction(
       const prodParams: any[] = [];
       let pIdx = 1;
 
-      for (const prod of missingProdsMap.values()) {
+      for (const prod of Array.from(missingProdsMap.values())) {
         prodValues.push(`(gen_random_uuid(), $${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}, $${pIdx + 7}, NOW())`);
         prodParams.push(prod.name, prod.code, prod.brand, prod.category, prod.model, prod.price, prod.cost, prod.alert_quantity);
         pIdx += 8;

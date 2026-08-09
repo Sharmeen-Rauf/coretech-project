@@ -16,7 +16,9 @@ import {
   Image as ImageIcon,
   FileText,
   AlertCircle,
-  TrendingUp
+  TrendingUp,
+  Video,
+  Check
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
@@ -31,7 +33,7 @@ interface JobRow {
   status: string;
   payment_status: string;
   created_at: string;
-  photos: string[];
+  photos: any;
   notes: string;
   serial_number: string;
   remarks: string;

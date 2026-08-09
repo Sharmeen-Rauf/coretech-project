@@ -1,35 +1,17 @@
-const https = require('https');
+const dns = require("dns");
 
-function resolve(name) {
-  return new Promise((resolve, reject) => {
-    const url = `https://cloudflare-dns.com/dns-query?name=${name}&type=A`;
-    const options = {
-      headers: {
-        'Accept': 'application/dns-json'
-      }
-    };
-    https.get(url, options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          resolve(json);
-        } catch (e) {
-          reject(e);
-        }
-      });
-    }).on('error', reject);
-  });
-}
-
-async function main() {
-  try {
-    const res = await resolve('db.cypbnnohtipwavcwukhl.supabase.co');
-    console.log(JSON.stringify(res, null, 2));
-  } catch (err) {
-    console.error(err);
+dns.resolveAny("coretechsolar.com", (err, addresses) => {
+  if (err) {
+    console.error("DNS Resolution Error:", err);
+  } else {
+    console.log("DNS records for coretechsolar.com:\n", JSON.stringify(addresses, null, 2));
   }
-}
+});
 
-main();
+dns.resolveAny("www.coretechsolar.com", (err, addresses) => {
+  if (err) {
+    console.error("DNS Resolution Error for www:", err);
+  } else {
+    console.log("DNS records for www.coretechsolar.com:\n", JSON.stringify(addresses, null, 2));
+  }
+});

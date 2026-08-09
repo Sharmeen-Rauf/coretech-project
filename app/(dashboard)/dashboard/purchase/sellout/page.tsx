@@ -39,7 +39,7 @@ export default function SellOutPage() {
       const [res, regRes] = await Promise.all([
         fetchSellOutAction().catch(() => ({ success: false, data: [] })),
         fetchRecordsAction("regions").catch(() => ({ success: false, data: [] })),
-      ]);
+      ]) as [any, any];
 
       if (!res.success) {
         throw new Error(res.error || "Failed to fetch sell outs");
@@ -199,6 +199,8 @@ export default function SellOutPage() {
     { key: "sold_out_date", label: "Sold Out Date" },
   ];
 
+  const DynamicDataTable = DataTable as any;
+
   return (
     <div className="space-y-6 select-none">
       <div className="flex items-center justify-between border-b pb-4 border-slate-100">
@@ -210,14 +212,14 @@ export default function SellOutPage() {
         </div>
       </div>
 
-      <DataTable 
+      <DynamicDataTable 
         allData={filtered}
         title="Sell Out Products Ledger"
         columns={columns}
         data={paginated}
         isLoading={isLoading}
         searchPlaceholder="Search product, serial number, installer or project..."
-        onSearch={(q) => {
+        onSearch={(q: string) => {
           setSearchQuery(q);
           setCurrentPage(1);
         }}
@@ -225,7 +227,7 @@ export default function SellOutPage() {
           current: currentPage,
           total: filtered.length,
           perPage: perPage,
-          onChange: (page) => setCurrentPage(page),
+          onChange: (page: number) => setCurrentPage(page),
         }}
         onDeleteClick={(row: SellOutItem) => handleDeleteSellOut(row)}
         onBulkDelete={handleBulkDeleteSellOuts}

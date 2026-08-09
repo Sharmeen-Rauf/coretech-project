@@ -35,6 +35,7 @@ interface Profile {
   role: string;
   rsm_id?: string;
   warehouse?: string;
+  region?: string;
 }
 
 interface Stock {

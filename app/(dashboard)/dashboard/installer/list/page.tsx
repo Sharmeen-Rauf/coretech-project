@@ -7,7 +7,7 @@ import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
 import { deleteUserAction, updateRecordAction } from "@/app/actions/users";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
-import { Clock, Check, X, Eye, UserCheck, Calendar } from "lucide-react";
+import { Clock, Check, X, Eye, UserCheck, Calendar, CheckCircle } from "lucide-react";
 
 interface InstallerProfile {
   id: string;
@@ -139,7 +139,7 @@ export default function InstallerListPage() {
 
         if (profilesRes.data) {
           const lookup: Record<string, string> = {};
-          profilesRes.data.forEach((u) => {
+          profilesRes.data.forEach((u: any) => {
             lookup[u.id] = `${u.first_name} ${u.last_name || ""}`.trim();
           });
           setUserLookup(lookup);

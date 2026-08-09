@@ -16,6 +16,7 @@ import {
   AlertCircle 
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
+import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { fetchRecordsAction } from "@/app/actions/users";
 

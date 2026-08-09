@@ -40,7 +40,7 @@ export async function GET() {
       FROM information_schema.columns 
       WHERE table_name = 'installer_jobs';
     `);
-    log.push(`Columns in installer_jobs: ${columnsRes.rows.map(r => `${r.column_name}(${r.data_type})`).join(", ")}`);
+    log.push(`Columns in installer_jobs: ${columnsRes.rows.map((r: any) => `${r.column_name}(${r.data_type})`).join(", ")}`);
     
     // Reload schema
     log.push("Sending NOTIFY pgrst, 'reload schema'...");
