@@ -646,6 +646,7 @@ export default function WebInstallerPage() {
             return (
               <div
                 key={job.id}
+                style={{ pointerEvents: 'none', userSelect: 'none', cursor: 'default' }}
                 className={`bg-white border rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden pointer-events-none select-none cursor-default outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 active:outline-none transition-all ${
                   isRejected ? "border-rose-300 bg-rose-50/40" : "border-slate-200"
                 }`}
