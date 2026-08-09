@@ -470,6 +470,10 @@ export default function WebInstallerPage() {
 
   const openSubmitForJob = (job: any) => {
     if (!job) return;
+    const st = String(job.status || "").trim().toLowerCase();
+    if (st === "rejected" || st === "declined" || st === "completed" || st === "approved") {
+      return; // DO NOTHING ON REJECTED OR COMPLETED JOBS!
+    }
 
     setSiteFormJobId(job.id);
     setNewJobTitle(job.job_title);
@@ -642,7 +646,7 @@ export default function WebInstallerPage() {
             return (
               <div
                 key={job.id}
-                className={`bg-white border rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden pointer-events-none select-none cursor-default transition-all ${
+                className={`bg-white border rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden pointer-events-none select-none cursor-default outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 active:outline-none transition-all ${
                   isRejected ? "border-rose-300 bg-rose-50/40" : "border-slate-200"
                 }`}
               >
