@@ -400,15 +400,20 @@ export default function ApprovalsPage() {
       }
 
       const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
-      const merged = [...dbJobs];
-      localJobs.forEach((local) => {
-        if (!merged.some(db => db.id === local.id)) {
-          merged.push(local);
+      const jobsMap = new Map<string, any>();
+      dbJobs.forEach(db => jobsMap.set(db.id, db));
+
+      localJobs.forEach((local: any) => {
+        const dbJob = jobsMap.get(local.id);
+        const localStatus = String(local.status || "").trim().toLowerCase();
+        if (!dbJob) {
+          jobsMap.set(local.id, local);
+        } else if (localStatus === "pending_verification" && String(dbJob.status || "").trim().toLowerCase() === "rejected") {
+          jobsMap.set(local.id, { ...dbJob, ...local, status: "pending_verification" });
         }
       });
 
-      // Filter for installation job lists or verify completions
-      setInstallations(merged);
+      setInstallations(Array.from(jobsMap.values()));
     } catch (err: any) {
       console.error("Failed to fetch installations", err.message);
     }
@@ -1094,10 +1099,11 @@ export default function ApprovalsPage() {
   });
 
   const displayInstallations = installations.filter((j) => {
+    const s = String(j.status || "").trim().toLowerCase();
     if (startDate && !isInDateRange(j.created_at)) return false;
     if (endDate && !isInDateRange(j.created_at)) return false;
-    if (isRM) return j.status === "pending_verification";
-    return j.status === "pending_verification" || j.status === "pending_approval" || j.status === "pending_installation_approval" || j.status === "pending";
+    if (isRM) return s === "pending_verification" || s === "pending";
+    return s === "pending_verification" || s === "pending_approval" || s === "pending_installation_approval" || s === "pending";
   });
 
   const pendingInstallersCount = displayInstallers.length;

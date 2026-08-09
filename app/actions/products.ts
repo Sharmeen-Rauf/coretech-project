@@ -378,7 +378,7 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       throw new Error("Failed to insert or update the installation record.");
     }
 
-    // 3. Mark the inventory unit as sold_out
+    // 3. Mark the inventory unit as sold_out if found in active inventory
     const updateStock = await client.query(
       `UPDATE public.stock 
        SET status = 'sold_out',
@@ -399,7 +399,7 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
     );
 
     if (updateStock.rows.length === 0) {
-      throw new Error("Failed to consume serial number from active inventory. It may have been sold out concurrently.");
+      console.warn("Stock item was not found in stock inventory table for serial:", payload.serial_number);
     }
 
     await client.query("COMMIT");
