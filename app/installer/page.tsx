@@ -642,8 +642,8 @@ export default function WebInstallerPage() {
             return (
               <div
                 key={job.id}
-                className={`bg-white border rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden transition-all ${
-                  isRejected ? "border-rose-200 bg-rose-50/30" : "border-slate-200"
+                className={`bg-white border rounded-[12px] p-4 flex flex-col justify-between shadow-sm relative overflow-hidden pointer-events-none select-none cursor-default transition-all ${
+                  isRejected ? "border-rose-300 bg-rose-50/40" : "border-slate-200"
                 }`}
               >
                 <div className="flex justify-between items-start gap-2">
