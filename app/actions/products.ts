@@ -324,7 +324,7 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
           payload.address,
           payload.serial_number,
           payload.remarks || "",
-          Array.isArray(payload.photos) ? JSON.stringify(payload.photos) : (payload.photos || "[]"),
+          Array.isArray(payload.photos) ? payload.photos : [],
           payload.notes || "",
           siteFormJobId
         ]
@@ -343,7 +343,7 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
           payload.address,
           payload.serial_number,
           payload.remarks || "",
-          Array.isArray(payload.photos) ? JSON.stringify(payload.photos) : (payload.photos || "[]"),
+          Array.isArray(payload.photos) ? payload.photos : [],
           payload.notes || "",
           payload.incentive || 5000,
           payload.payment_status || "unpaid"
