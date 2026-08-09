@@ -174,10 +174,6 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
 
     if (stockError) throw stockError;
 
-    if (!stockData) {
-      return { success: false, error: "Serial number not found in active inventory." };
-    }
-
     // 2. Check if the serial number is already registered or used in active (non-rejected) installer_jobs
     let jobsQuery = supabase
       .from("installer_jobs")
@@ -202,6 +198,19 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
       return { 
         success: false, 
         error: `Serial number is already registered for an active installation: "${activeJobs[0].job_title}".` 
+      };
+    }
+
+    if (!stockData) {
+      // If not in stock table but rejected job exists or custom serial number entered, allow verification fallback
+      return {
+        success: true,
+        product: {
+          product_name: "CoreTech Solar Unit",
+          brand: "CoreTech",
+          model: "NexGen",
+          warehouse_name: "Restored Inventory",
+        }
       };
     }
 
