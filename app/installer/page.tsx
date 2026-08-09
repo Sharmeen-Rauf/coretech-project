@@ -173,20 +173,33 @@ export default function WebInstallerPage() {
         }
       }
 
-      // Merge remaining local jobs and override stale DB statuses if re-submitted locally
+      // Merge remaining local jobs and sync local storage with DB job statuses
       const remainingLocal = (getLocalItems("coretech_local_installer_jobs") || []).filter((j: any) => j.installer_id === session.user.id);
       const jobsMap = new Map<string, any>();
       jobsList.forEach((dbJob) => jobsMap.set(dbJob.id, dbJob));
       
+      let localUpdated = false;
       remainingLocal.forEach((local) => {
         const dbJob = jobsMap.get(local.id);
         if (!dbJob) {
           jobsMap.set(local.id, local);
-        } else if (String(local.status || "").toLowerCase() === "pending_verification" && String(dbJob.status || "").toLowerCase() === "rejected") {
-          // Local re-submission update overrides stale DB status
-          jobsMap.set(local.id, { ...dbJob, ...local, status: "pending_verification" });
+        } else {
+          const dbStatus = String(dbJob.status || "").toLowerCase();
+          const localStatus = String(local.status || "").toLowerCase();
+          if (localStatus === "pending_verification" && dbStatus === "rejected") {
+            jobsMap.set(local.id, { ...dbJob, ...local, status: "pending_verification" });
+          } else if (dbStatus === "rejected" && localStatus !== "rejected") {
+            local.status = "rejected";
+            local.approval_note = dbJob.approval_note;
+            local.verification_note = dbJob.verification_note;
+            localUpdated = true;
+          }
         }
       });
+
+      if (localUpdated) {
+        localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(remainingLocal));
+      }
 
       setJobs(Array.from(jobsMap.values()));
     } catch (err: any) {

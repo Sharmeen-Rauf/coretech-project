@@ -277,15 +277,11 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       );
     }
 
-    // 1. Double check if the serial number exists in stock inventory
+    // 1. Optional check for stock item in active inventory
     const stockCheck = await client.query(
       "SELECT id, status, installation_id FROM public.stock WHERE LOWER(serial_no) = LOWER($1) LIMIT 1",
       [payload.serial_number]
     );
-
-    if (stockCheck.rows.length === 0) {
-      throw new Error("Serial number not found in active inventory.");
-    }
 
     // 2. Check if an existing rejected job exists for this serial number (Tarika 2 auto-link)
     let targetJobId = siteFormJobId;
