@@ -310,15 +310,19 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       jobResult = await client.query(
         `UPDATE public.installer_jobs 
          SET status = 'pending_verification',
-             serial_number = $1,
-             remarks = $2,
-             photos = $3,
-             notes = $4,
+             job_title = COALESCE(NULLIF($1, ''), job_title),
+             address = COALESCE(NULLIF($2, ''), address),
+             serial_number = $3,
+             remarks = $4,
+             photos = $5,
+             notes = $6,
              approval_note = NULL,
              verification_note = NULL
-         WHERE id = $5
+         WHERE id = $7
          RETURNING id`,
         [
+          payload.job_title,
+          payload.address,
           payload.serial_number,
           payload.remarks,
           payload.photos,
