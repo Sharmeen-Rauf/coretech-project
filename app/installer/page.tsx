@@ -130,6 +130,12 @@ export default function WebInstallerPage() {
       if (filteredLocal.length > 0) {
         // Try uploading each local job
         for (const localJob of filteredLocal) {
+          // If the job already exists in the database, consider it synced and clean it up
+          if (jobsList.some((dbJob) => dbJob.id === localJob.id)) {
+            syncedIds.push(localJob.id);
+            continue;
+          }
+
           try {
             const uploadJob = { ...localJob };
             // Sanitize ID: If it's not a valid UUID, delete it so PostgreSQL generates a valid UUID
@@ -159,6 +165,9 @@ export default function WebInstallerPage() {
               if (!jobsList.some(j => j.id === localJob.id)) {
                 jobsList.push(localJob);
               }
+            } else if (insertErr.code === "23505") {
+              // Unique constraint violation (already in DB)
+              syncedIds.push(localJob.id);
             }
           } catch (e) {
             console.warn("Failed to sync local job to database:", e);
@@ -169,7 +178,6 @@ export default function WebInstallerPage() {
         if (syncedIds.length > 0) {
           const updatedLocal = localJobs.filter((j: any) => !syncedIds.includes(j.id));
           localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(updatedLocal));
-          toast.success(`Successfully synced ${syncedIds.length} offline jobs to database!`);
         }
       }
 
