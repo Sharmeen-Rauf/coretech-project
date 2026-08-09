@@ -433,23 +433,25 @@ export default function WebInstallerPage() {
 
       const serializedNotes = `[METADATA] SN:${serialNo.trim()} | VIDEO:${videoUrl} | REM:${completionRemarks.trim()}\nCONNECTED PRODUCT: ${activeProduct.product_name} (${activeProduct.model})`;
 
+      const newId = crypto.randomUUID();
       const payload = {
-        id: siteFormJobId && siteFormJobId !== "new" ? siteFormJobId : crypto.randomUUID(),
+        id: newId,
         installer_id: installerId,
-        job_title: siteFormJobId === "new" ? newJobTitle.trim() : (jobs.find(j => j.id === siteFormJobId)?.job_title || "Site Job"),
-        address: siteFormJobId === "new" ? newJobAddress.trim() : (jobs.find(j => j.id === siteFormJobId)?.address || "Site Address"),
+        job_title: newJobTitle.trim() || (jobs.find(j => j.id === siteFormJobId)?.job_title || "Site Job"),
+        address: newJobAddress.trim() || (jobs.find(j => j.id === siteFormJobId)?.address || "Site Address"),
         status: "pending_verification", // wait for two-stage audit
         serial_number: serialNo.trim(),
         remarks: completionRemarks.trim(),
         photos: allPhotos,
         notes: serializedNotes,
-        incentive: siteFormJobId === "new" ? 5000 : (jobs.find(j => j.id === siteFormJobId)?.incentive || 0),
+        incentive: 5000,
         payment_status: "unpaid",
         created_at: new Date().toISOString()
       };
 
       try {
-        const res = await submitInstallationAction(payload, siteFormJobId);
+        // Always pass "new" so server always INSERTs a fresh row (preserving rejected history)
+        const res = await submitInstallationAction(payload, "new");
         if (!res.success) throw new Error(res.error);
         
         // Save/Update local storage copy with pending_verification so UI updates instantly
