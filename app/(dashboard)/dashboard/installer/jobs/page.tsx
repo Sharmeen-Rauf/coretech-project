@@ -91,12 +91,12 @@ export default function AdminJobsPage() {
             serial_number,
             remarks,
             incentive,
-            installer:profiles!installer_id(first_name, last_name, phone)
+            installer:profiles!installer_id(first_name, last_name, contact)
           `)
           .order("created_at", { ascending: false }),
         supabase
           .from("profiles")
-          .select("id, first_name, last_name, phone")
+          .select("id, first_name, last_name, contact")
           .eq("role", "installer"),
         currentUserId
           ? supabase.from("profiles").select("role").eq("id", currentUserId).maybeSingle()
