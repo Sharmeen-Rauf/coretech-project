@@ -40,15 +40,15 @@ export default function LoginPage() {
         return;
       }
  
-      // Fetch user role from profiles table
+      // Fetch user role & status from profiles table
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("role")
+        .select("role, status")
         .eq("id", data.user.id)
         .single();
 
       if (profileError) {
-        console.error("Login: failed to fetch profile role:", profileError);
+        console.error("Login: failed to fetch profile details:", profileError);
       }
 
       const userRole = profile?.role || "";
@@ -60,6 +60,7 @@ export default function LoginPage() {
       
       toast.success("Sign in successful!");
       document.cookie = `user_role=${userRole}; path=/; max-age=2592000; SameSite=Lax`;
+      document.cookie = `user_status=${profile?.status || "active"}; path=/; max-age=2592000; SameSite=Lax`;
       if (userRole === "installer") {
         router.push("/installer");
       } else {

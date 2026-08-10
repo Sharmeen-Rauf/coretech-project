@@ -7,8 +7,8 @@ const { Client } = require("pg");
   });
   await c.connect();
 
-  const r = await c.query("SELECT * FROM public.profiles WHERE designation LIKE '%installer3@gmail.com%' OR first_name ILIKE '%installer3%'");
-  console.log("INSTALLER3 PROFILE:");
+  const r = await c.query("SELECT id, email, raw_user_meta_data, raw_app_meta_data FROM auth.users WHERE id = '1d811896-6cc7-43b4-b34c-349a0dfb7868'");
+  console.log("AUTH USER METADATA:");
   console.log(JSON.stringify(r.rows, null, 2));
 
   await c.end();

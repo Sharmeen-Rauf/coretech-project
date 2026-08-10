@@ -72,7 +72,10 @@ export async function middleware(request: NextRequest) {
   // 1. Unauthenticated users (Fast check)
   if (!authCookie || !accessToken) {
     if (isDashboardRoute || isInstallerRoute) {
-      return NextResponse.redirect(new URL('/login', request.url));
+      const redirectResponse = NextResponse.redirect(new URL('/login', request.url));
+      redirectResponse.cookies.set('user_role', '', { path: '/', maxAge: 0 });
+      redirectResponse.cookies.set('user_status', '', { path: '/', maxAge: 0 });
+      return redirectResponse;
     }
     return response;
   }
@@ -80,14 +83,18 @@ export async function middleware(request: NextRequest) {
   // 2. Authenticated users (Local JWT Claim Decoding - 1ms)
   let { userId, role, status, amr } = getSessionDetailsFromToken(accessToken);
 
-  // Check cookie role first to avoid slow DB checks and prevent redirect loops
+  // Check cookie role/status first to avoid slow DB checks and prevent redirect loops
   const cookieRole = request.cookies.get('user_role')?.value;
+  const cookieStatus = request.cookies.get('user_status')?.value;
   if (cookieRole) {
     role = cookieRole;
   }
+  if (cookieStatus) {
+    status = cookieStatus;
+  }
 
-  // DB Fallback lookup if role is missing from JWT (e.g. Supabase Custom Access Token hook disabled)
-  if (!role && userId) {
+  // DB Fallback lookup if role or status is missing (e.g. cookies cleared or token doesn't have claims)
+  if ((!role || !status) && userId) {
     try {
       const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
         auth: {
@@ -102,8 +109,8 @@ export async function middleware(request: NextRequest) {
         .single();
       
       if (profile) {
-        role = profile.role || '';
-        status = profile.status || '';
+        role = profile.role || role || '';
+        status = profile.status || status || '';
       }
     } catch (dbErr) {
       console.warn("Middleware DB fallback lookup failed:", dbErr);
@@ -117,20 +124,33 @@ export async function middleware(request: NextRequest) {
     } else {
       role = 'admin';
     }
+  }
+  if (!status) {
     status = 'active';
   }
+
+  // Helper function to redirect with cookies synchronized
+  const redirectWithCookies = (urlStr: string) => {
+    const r = NextResponse.redirect(new URL(urlStr, request.url));
+    r.cookies.set('user_role', role, { path: '/', maxAge: 2592000, sameSite: 'lax' });
+    r.cookies.set('user_status', status, { path: '/', maxAge: 2592000, sameSite: 'lax' });
+    return r;
+  };
 
   // Installer role protection
   if (role === 'installer') {
     if (isDashboardRoute || isLoginRoute) {
-      return NextResponse.redirect(new URL('/installer', request.url));
+      return redirectWithCookies('/installer');
     }
+    // Set cookies on installer page response
+    response.cookies.set('user_role', 'installer', { path: '/', maxAge: 2592000, sameSite: 'lax' });
+    response.cookies.set('user_status', status, { path: '/', maxAge: 2592000, sameSite: 'lax' });
     return response;
   }
 
   // Non-installer trying to access /installer route
   if (isInstallerRoute) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    return redirectWithCookies('/dashboard');
   }
 
   // Helper check for MFA status (Always true to disable MFA restriction)
@@ -138,7 +158,7 @@ export async function middleware(request: NextRequest) {
 
   // Redirect logged-in users away from /login
   if (isLoginRoute) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+    return redirectWithCookies('/dashboard');
   }
 
   // Strict validation for specific roles inside /dashboard
@@ -147,6 +167,8 @@ export async function middleware(request: NextRequest) {
     if (status !== 'active') {
       const redirectResponse = NextResponse.redirect(new URL('/unauthorized', request.url));
       redirectResponse.cookies.set('mfa_verified', '', { path: '/', maxAge: 0 });
+      redirectResponse.cookies.set('user_role', '', { path: '/', maxAge: 0 });
+      redirectResponse.cookies.set('user_status', '', { path: '/', maxAge: 0 });
       return redirectResponse;
     }
 
@@ -171,7 +193,7 @@ export async function middleware(request: NextRequest) {
       const isAllowed = isExactDashboard || allowedDistributorPrefixes.some(prefix => pathname.startsWith(prefix));
 
       if (!isAllowed) {
-        return NextResponse.redirect(new URL('/dashboard', request.url));
+        return redirectWithCookies('/dashboard');
       }
     } else if (role === 'sub_dealer') {
       const allowedSubDealerPrefixes = [
@@ -190,7 +212,7 @@ export async function middleware(request: NextRequest) {
       const isAllowed = isExactDashboard || allowedSubDealerPrefixes.some(prefix => pathname.startsWith(prefix));
 
       if (!isAllowed) {
-        return NextResponse.redirect(new URL('/dashboard', request.url));
+        return redirectWithCookies('/dashboard');
       }
     } else if (role === 'marketing_manager') {
       const allowedMarketingPrefixes = [
@@ -201,7 +223,7 @@ export async function middleware(request: NextRequest) {
       const isAllowed = isExactDashboard || allowedMarketingPrefixes.some(prefix => pathname.startsWith(prefix));
 
       if (!isAllowed) {
-        return NextResponse.redirect(new URL('/dashboard', request.url));
+        return redirectWithCookies('/dashboard');
       }
     } else if (role === 'rsm') {
       const allowedRsmPrefixes = [
@@ -215,7 +237,7 @@ export async function middleware(request: NextRequest) {
       const isAllowed = isExactDashboard || allowedRsmPrefixes.some(prefix => pathname.startsWith(prefix));
 
       if (!isAllowed) {
-        return NextResponse.redirect(new URL('/dashboard', request.url));
+        return redirectWithCookies('/dashboard');
       }
     } else if (role === 'retail_manager') {
       const allowedRetailManagerPrefixes = [
@@ -229,11 +251,14 @@ export async function middleware(request: NextRequest) {
       const isAllowed = isExactDashboard || allowedRetailManagerPrefixes.some(prefix => pathname.startsWith(prefix));
 
       if (!isAllowed) {
-        return NextResponse.redirect(new URL('/dashboard', request.url));
+        return redirectWithCookies('/dashboard');
       }
     }
   }
 
+  // Set cookies on response for valid non-installer pages
+  response.cookies.set('user_role', role, { path: '/', maxAge: 2592000, sameSite: 'lax' });
+  response.cookies.set('user_status', status, { path: '/', maxAge: 2592000, sameSite: 'lax' });
   return response;
 }
 

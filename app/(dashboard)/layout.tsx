@@ -28,12 +28,13 @@ export default function DashboardLayout({
 
         const { data: profile } = await supabase
           .from("profiles")
-          .select("role")
+          .select("role, status")
           .eq("id", session.user.id)
           .single();
 
         if (profile) {
           document.cookie = `user_role=${profile.role}; path=/; max-age=2592000; SameSite=Lax`;
+          document.cookie = `user_status=${profile.status || "active"}; path=/; max-age=2592000; SameSite=Lax`;
         }
 
         if (profile?.role === "installer") {
