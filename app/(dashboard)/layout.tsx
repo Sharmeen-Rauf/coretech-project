@@ -1,20 +1,67 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClientComponentClient } from "@/lib/supabase";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
-import { Suspense } from "react";
-import InstallerProtection from "@/components/InstallerProtection";
-
-export const dynamic = "force-dynamic";
+import { Loader2 } from "lucide-react";
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const router = useRouter();
+  const supabase = createClientComponentClient();
+  const [isValidated, setIsValidated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const verifyRole = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          router.replace("/login");
+          return;
+        }
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", session.user.id)
+          .single();
+
+        if (profile?.role === "installer") {
+          // Immediately redirect installer to their portal
+          router.replace("/installer");
+        } else {
+          // Authorized user (admin, distributor, sub_dealer, etc.)
+          setIsValidated(true);
+          setIsLoading(false);
+        }
+      } catch (err) {
+        console.error("DashboardLayout validation failed:", err);
+        router.replace("/login");
+      }
+    };
+
+    verifyRole();
+  }, [router, supabase]);
+
+  if (isLoading || !isValidated) {
+    return (
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-slate-50">
+        <Loader2 className="w-8 h-8 animate-spin text-[#00B4D8] mb-2" />
+        <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">
+          Verifying authorization...
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
-      {/* Client-side protection to redirect installers */}
-      <InstallerProtection />
-
       {/* Sidebar Navigation */}
       <Sidebar />
 
