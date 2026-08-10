@@ -7,8 +7,8 @@ const { Client } = require("pg");
   });
   await c.connect();
 
-  const r = await c.query("SELECT p.id, p.first_name, p.role, u.email FROM public.profiles p JOIN auth.users u ON p.id = u.id WHERE p.role != 'installer'");
-  console.log("NON-INSTALLER USERS WITH AUTH EMAIL:");
+  const r = await c.query("SELECT id, email FROM auth.users WHERE email ILIKE '%munif%' OR email ILIKE '%muneef%'");
+  console.log("MATCHING USERS:");
   console.log(JSON.stringify(r.rows, null, 2));
 
   await c.end();
