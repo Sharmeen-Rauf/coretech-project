@@ -1,6 +1,7 @@
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 import { Suspense } from "react";
+import InstallerProtection from "@/components/InstallerProtection";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,9 @@ export default function DashboardLayout({
 }) {
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
+      {/* Client-side protection to redirect installers */}
+      <InstallerProtection />
+
       {/* Sidebar Navigation */}
       <Sidebar />
 
