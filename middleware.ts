@@ -114,15 +114,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  // Helper check for MFA status
-  const hasMfa = amr.some((r: any) => r === 'mfa' || r.method === 'mfa') || 
-                 request.cookies.get('mfa_verified')?.value === 'true';
+  // Helper check for MFA status (Always true to disable MFA restriction)
+  const hasMfa = true;
 
-  // Redirect logged-in users away from /login unless MFA verification is pending
+  // Redirect logged-in users away from /login
   if (isLoginRoute) {
-    if ((role === 'admin' || role === 'country_head') && !hasMfa) {
-      return response;
-    }
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
@@ -135,12 +131,8 @@ export async function middleware(request: NextRequest) {
       return redirectResponse;
     }
 
-    // B. High-Privilege MFA Enforcement for admin and country_head
-    if (role === 'admin' || role === 'country_head') {
-      if (!hasMfa) {
-        return NextResponse.redirect(new URL('/login?mfa_required=true', request.url));
-      }
-    }
+    // B. High-Privilege MFA Enforcement (Disabled)
+    // if (role === 'admin' || role === 'country_head') { ... }
 
     // C. Sub-route validation based on role permissions
     if (role === 'distributor') {

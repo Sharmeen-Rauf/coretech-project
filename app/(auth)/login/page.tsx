@@ -58,14 +58,12 @@ export default function LoginPage() {
         return;
       }
       
+      toast.success("Sign in successful!");
       if (userRole === "installer") {
-        toast.success("Sign in successful!");
         router.push("/installer");
       } else {
-        setMfaRedirectRole(userRole);
-        // Prompt MFA verification step
-        toast.success("Credentials verified. Verification code sent!");
-        setStep("mfa");
+        document.cookie = "mfa_verified=true; path=/; max-age=2592000; SameSite=Lax";
+        router.push("/dashboard");
       }
     } catch (err: any) {
       toast.error(err.message || "An authentication error occurred");
