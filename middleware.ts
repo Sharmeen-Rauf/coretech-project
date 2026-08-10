@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createMiddlewareSupabaseClient } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 // Helper to decode JWT claims locally on the edge to avoid database querying timeouts
 interface SessionDetails {
@@ -79,8 +83,13 @@ export async function middleware(request: NextRequest) {
   // DB Fallback lookup if role is missing from JWT (e.g. Supabase Custom Access Token hook disabled)
   if (!role && userId) {
     try {
-      const supabase = createMiddlewareSupabaseClient(request, response);
-      const { data: profile } = await supabase
+      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      });
+      const { data: profile } = await supabaseAdmin
         .from('profiles')
         .select('role, status')
         .eq('id', userId)
