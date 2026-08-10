@@ -132,9 +132,31 @@ export default function WebInstallerPage() {
       if (filteredLocal.length > 0) {
         // Try uploading each local job
         for (const localJob of filteredLocal) {
-          // If the job already exists in the database, consider it synced and clean it up
-          if (jobsList.some((dbJob) => dbJob.id === localJob.id)) {
-            syncedIds.push(localJob.id);
+          const matchingDbJob = jobsList.find((dbJob) => dbJob.id === localJob.id);
+          if (matchingDbJob) {
+            const dbStatus = String(matchingDbJob.status || "").toLowerCase();
+            const localStatus = String(localJob.status || "").toLowerCase();
+            
+            if (dbStatus === "rejected" && localStatus === "pending_verification") {
+              // Re-submitted rejected job needs to be synced (updated in DB)
+              try {
+                const res = await submitInstallationAction(localJob, localJob.id);
+                if (res.success) {
+                  syncedIds.push(localJob.id);
+                  // Update status in jobsList so it shows as pending in UI
+                  matchingDbJob.status = "pending_verification";
+                  matchingDbJob.remarks = localJob.remarks;
+                  matchingDbJob.photos = localJob.photos;
+                  matchingDbJob.notes = localJob.notes;
+                  matchingDbJob.is_resubmitted = true;
+                }
+              } catch (e) {
+                console.warn("Failed to sync local re-submission to database:", e);
+              }
+            } else {
+              // Otherwise it is already synced (e.g. status matches or database is newer)
+              syncedIds.push(localJob.id);
+            }
             continue;
           }
 
@@ -370,13 +392,8 @@ export default function WebInstallerPage() {
         const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
         uploadedUrls.push(pUrl.publicUrl);
       } catch (err) {
-        console.warn("Storage upload failed for photo, converting to base64 fallback", err);
-        try {
-          const base64 = await fileToBase64(file);
-          uploadedUrls.push(base64);
-        } catch (b64Err) {
-          console.warn("Photo conversion failed:", b64Err);
-        }
+        console.error("Storage upload failed for photo:", err);
+        throw new Error("Failed to upload photo proof to cloud storage. Please check your network connection and try again.");
       }
     }
     return uploadedUrls;
@@ -397,14 +414,8 @@ export default function WebInstallerPage() {
       const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
       return pUrl.publicUrl;
     } catch (err) {
-      console.warn("Storage upload failed for video, converting to base64 fallback", err);
-      try {
-        const base64 = await fileToBase64(videoFile);
-        return base64;
-      } catch (b64Err) {
-        console.warn("Video conversion failed:", b64Err);
-        return "";
-      }
+      console.error("Storage upload failed for video:", err);
+      throw new Error("Failed to upload video proof to cloud storage. Please check your network connection and try again.");
     } finally {
       setIsUploadingVideo(false);
     }

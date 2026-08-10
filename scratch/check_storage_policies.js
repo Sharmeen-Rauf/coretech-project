@@ -7,8 +7,8 @@ const { Client } = require("pg");
   });
   await c.connect();
 
-  const r = await c.query("SELECT id, status, job_title, serial_number FROM public.installer_jobs WHERE LOWER(serial_number) = LOWER('CTNX-8kW-2605190193')");
-  console.log("JOBS WITH SERIAL CTNX-8kW-2605190193:");
+  const r = await c.query("SELECT * FROM pg_policies WHERE tablename = 'objects'");
+  console.log("POLICIES ON storage.objects:");
   console.log(JSON.stringify(r.rows, null, 2));
 
   await c.end();
