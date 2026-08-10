@@ -3,6 +3,7 @@ import { createMiddlewareSupabaseClient } from '@/lib/supabase';
 
 // Helper to decode JWT claims locally on the edge to avoid database querying timeouts
 interface SessionDetails {
+  userId: string;
   role: string;
   status: string;
   amr: any[];
@@ -11,7 +12,7 @@ interface SessionDetails {
 function getSessionDetailsFromToken(accessToken: string): SessionDetails {
   try {
     const parts = accessToken.split('.');
-    if (parts.length !== 3) return { role: '', status: '', amr: [] };
+    if (parts.length !== 3) return { userId: '', role: '', status: '', amr: [] };
     const base64Url = parts[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
     const jsonPayload = decodeURIComponent(
@@ -22,13 +23,14 @@ function getSessionDetailsFromToken(accessToken: string): SessionDetails {
     );
     const payload = JSON.parse(jsonPayload);
     return {
+      userId: payload.sub || '',
       role: payload.user_role || payload.role || payload.app_metadata?.role || '',
       status: payload.user_status || '',
       amr: payload.amr || []
     };
   } catch (e) {
     console.error("Failed to parse details from JWT token:", e);
-    return { role: '', status: '', amr: [] };
+    return { userId: '', role: '', status: '', amr: [] };
   }
 }
 
@@ -72,9 +74,28 @@ export async function middleware(request: NextRequest) {
   }
 
   // 2. Authenticated users (Local JWT Claim Decoding - 1ms)
-  let { role, status, amr } = getSessionDetailsFromToken(accessToken);
+  let { userId, role, status, amr } = getSessionDetailsFromToken(accessToken);
 
-  // Default fallback role/status if missing from JWT
+  // DB Fallback lookup if role is missing from JWT (e.g. Supabase Custom Access Token hook disabled)
+  if (!role && userId) {
+    try {
+      const supabase = createMiddlewareSupabaseClient(request, response);
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role, status')
+        .eq('id', userId)
+        .single();
+      
+      if (profile) {
+        role = profile.role || '';
+        status = profile.status || '';
+      }
+    } catch (dbErr) {
+      console.warn("Middleware DB fallback lookup failed:", dbErr);
+    }
+  }
+
+  // Default fallback role/status if still missing
   if (!role) {
     role = 'admin';
     status = 'active';
