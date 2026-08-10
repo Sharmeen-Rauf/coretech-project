@@ -97,6 +97,7 @@ export default function WebInstallerPage() {
           setProfileStatus(profile.status || "approved");
           setVerificationNote(profile.verification_note || "");
           setApprovalNote(profile.approval_note || "");
+          document.cookie = "user_role=installer; path=/; max-age=2592000; SameSite=Lax";
         }
       } catch (profErr) {
         console.warn("Failed to get profile name. Defaulting.", profErr);

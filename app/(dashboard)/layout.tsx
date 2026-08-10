@@ -32,6 +32,10 @@ export default function DashboardLayout({
           .eq("id", session.user.id)
           .single();
 
+        if (profile) {
+          document.cookie = `user_role=${profile.role}; path=/; max-age=2592000; SameSite=Lax`;
+        }
+
         if (profile?.role === "installer") {
           // Immediately redirect installer to their portal
           router.replace("/installer");

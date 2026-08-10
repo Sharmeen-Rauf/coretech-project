@@ -80,6 +80,12 @@ export async function middleware(request: NextRequest) {
   // 2. Authenticated users (Local JWT Claim Decoding - 1ms)
   let { userId, role, status, amr } = getSessionDetailsFromToken(accessToken);
 
+  // Check cookie role first to avoid slow DB checks and prevent redirect loops
+  const cookieRole = request.cookies.get('user_role')?.value;
+  if (cookieRole) {
+    role = cookieRole;
+  }
+
   // DB Fallback lookup if role is missing from JWT (e.g. Supabase Custom Access Token hook disabled)
   if (!role && userId) {
     try {
@@ -106,7 +112,11 @@ export async function middleware(request: NextRequest) {
 
   // Default fallback role/status if still missing
   if (!role) {
-    role = 'admin';
+    if (isInstallerRoute) {
+      role = 'installer';
+    } else {
+      role = 'admin';
+    }
     status = 'active';
   }
 

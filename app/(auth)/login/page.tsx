@@ -59,6 +59,7 @@ export default function LoginPage() {
       }
       
       toast.success("Sign in successful!");
+      document.cookie = `user_role=${userRole}; path=/; max-age=2592000; SameSite=Lax`;
       if (userRole === "installer") {
         router.push("/installer");
       } else {
@@ -89,6 +90,7 @@ export default function LoginPage() {
     setTimeout(() => {
       setIsLoading(false);
       toast.success("MFA authentication successful!");
+      document.cookie = `user_role=${mfaRedirectRole}; path=/; max-age=2592000; SameSite=Lax`;
       // Set secure cookie for 30 days (2592000s) to prevent middleware redirect loops
       document.cookie = "mfa_verified=true; path=/; max-age=2592000; SameSite=Lax";
       
