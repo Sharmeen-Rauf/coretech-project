@@ -21,6 +21,9 @@ const nextConfig = {
   },
   experimental: {
     optimizePackageImports: ["lucide-react", "recharts", "@supabase/supabase-js", "react-hot-toast", "clsx", "tailwind-merge"],
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
   },
   async headers() {
     return [

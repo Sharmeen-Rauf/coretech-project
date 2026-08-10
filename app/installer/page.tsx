@@ -465,7 +465,8 @@ export default function WebInstallerPage() {
         // Save/Update local storage copy with pending_verification so UI updates instantly
         const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
         const index = localJobs.findIndex((j: any) => j.id === payload.id || j.id === siteFormJobId);
-        const updatedJob = { ...payload, status: "pending_verification", approval_note: null, verification_note: null };
+        const isResubmit = siteFormJobId && siteFormJobId !== "new";
+        const updatedJob = { ...payload, status: "pending_verification", approval_note: null, verification_note: null, is_resubmitted: isResubmit };
         if (index > -1) {
           localJobs[index] = updatedJob;
         } else {
@@ -475,7 +476,9 @@ export default function WebInstallerPage() {
         toast.success("Site installation submitted! Waiting for verification & approval.");
       } catch (dbErr: any) {
         console.warn("DB submission failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_installer_jobs", payload, true);
+        const isResubmit = siteFormJobId && siteFormJobId !== "new";
+        const localPayload = { ...payload, is_resubmitted: isResubmit };
+        saveLocalItem("coretech_local_installer_jobs", localPayload, true);
         toast.success("Site installation saved locally (DB fallback)!");
       }
 

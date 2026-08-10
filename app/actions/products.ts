@@ -316,7 +316,8 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
              photos = $5,
              notes = $6,
              approval_note = NULL,
-             verification_note = NULL
+             verification_note = NULL,
+             is_resubmitted = TRUE
          WHERE id = $7
          RETURNING id`,
         [
@@ -333,8 +334,8 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       const newJobId = payload.id || require("crypto").randomUUID();
       jobResult = await client.query(
         `INSERT INTO public.installer_jobs (
-          id, installer_id, job_title, address, status, serial_number, remarks, photos, notes, incentive, payment_status, created_at
-         ) VALUES ($1, $2, $3, $4, 'pending_verification', $5, $6, $7, $8, $9, $10, NOW())
+          id, installer_id, job_title, address, status, serial_number, remarks, photos, notes, incentive, payment_status, created_at, is_resubmitted
+         ) VALUES ($1, $2, $3, $4, 'pending_verification', $5, $6, $7, $8, $9, $10, NOW(), FALSE)
          RETURNING id`,
         [
           newJobId,

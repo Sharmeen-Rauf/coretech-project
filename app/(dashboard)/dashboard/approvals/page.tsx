@@ -19,7 +19,8 @@ import {
   CheckCircle,
   Play,
   Calendar,
-  Camera
+  Camera,
+  RefreshCw
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
@@ -409,7 +410,7 @@ export default function ApprovalsPage() {
         if (!dbJob) {
           jobsMap.set(local.id, local);
         } else if (localStatus === "pending_verification" && String(dbJob.status || "").trim().toLowerCase() === "rejected") {
-          jobsMap.set(local.id, { ...dbJob, ...local, status: "pending_verification" });
+          jobsMap.set(local.id, { ...dbJob, ...local, status: "pending_verification", is_resubmitted: true });
         }
       });
 
@@ -800,7 +801,8 @@ export default function ApprovalsPage() {
         status: "completed", // Keep 'completed' status so it works with all other existing pages and logic
         approved_by: currentUserId || null,
         approved_at: new Date().toISOString(),
-        approval_note: auditNote || "Approved by Country Head."
+        approval_note: auditNote || "Approved by Country Head.",
+        is_resubmitted: false
       };
       // 1. Update job ticket status to 'completed' using server action to bypass client RLS limits
       const res = await updateRecordAction("installer_jobs", job.id, updateData);
@@ -859,7 +861,8 @@ export default function ApprovalsPage() {
         status: "rejected",
         approved_by: currentUserId || null,
         approved_at: new Date().toISOString(),
-        approval_note: auditNote || "Rejected during audit review."
+        approval_note: auditNote || "Rejected during audit review.",
+        is_resubmitted: false
       };
       const res = await updateRecordAction("installer_jobs", jobId, updateData);
       if (!res.success) throw new Error(res.error);
@@ -895,6 +898,7 @@ export default function ApprovalsPage() {
         status: "pending_verification",
         approval_note: null,
         verification_note: null,
+        is_resubmitted: false
       };
       const res = await updateRecordAction("installer_jobs", jobId, updateData);
       if (!res.success) throw new Error(res.error);
@@ -1071,6 +1075,22 @@ export default function ApprovalsPage() {
 
   // Installations columns
   const installationColumns = [
+    {
+      key: "is_resubmitted",
+      label: "Request Type",
+      render: (val: boolean) => (
+        val ? (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase bg-amber-50 text-amber-600 border border-amber-200 animate-pulse">
+            <RefreshCw className="w-3 h-3" />
+            Again Request
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase bg-sky-50 text-sky-700 border border-sky-100">
+            New Request
+          </span>
+        )
+      )
+    },
     { key: "job_title", label: "Job Title" },
     { key: "serial_number", label: "Serial Number" },
     { key: "address", label: "Site Location" },
@@ -1788,6 +1808,17 @@ export default function ApprovalsPage() {
             </div>
 
             <div className="space-y-4 text-xs">
+              {selectedInstallation.is_resubmitted && (
+                <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-[8px] flex items-center gap-2 mb-1 animate-pulse">
+                  <RefreshCw className="w-4 h-4 text-amber-600 shrink-0" />
+                  <div>
+                    <p className="font-bold text-xs uppercase">Re-submitted / Again Request</p>
+                    <p className="text-[10px] text-slate-655 leading-normal">
+                      This installation ticket has been updated and re-submitted by the installer after a previous rejection.
+                    </p>
+                  </div>
+                </div>
+              )}
               <div className="bg-slate-50 border border-slate-200 rounded-[8px] p-3.5 space-y-2">
                 <p className="text-slate-500 font-bold">SERIAL NO: <span className="text-[#00B4D8] font-extrabold">{selectedInstallation.serial_number}</span></p>
                 <p className="text-slate-500"><strong>Address Location:</strong> {selectedInstallation.address}</p>
