@@ -152,6 +152,13 @@ export async function fetchStockAction() {
 }
 
 export async function verifySerialNumberAction(sNo: string, currentJobId?: string) {
+  // Pure live-inventory existence check: green (success) if the serial number
+  // exists in the `stock` table, red (failure) if it doesn't. Deliberately does
+  // NOT check for other installers/jobs already using this serial — the item
+  // stays "live" in inventory until an admin approves a job against it (Stage 2),
+  // so multiple installers are allowed to submit against the same serial while
+  // pending; duplicates are surfaced to the admin for review instead of being
+  // blocked here.
   const supabase = getAdminClient();
   try {
     const cleanSNo = sNo.trim();
@@ -159,7 +166,6 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
       return { success: false, error: "Serial number is empty" };
     }
 
-    // 1. Query the stock table case-insensitively using service role key (bypasses RLS)
     const { data: stockData, error: stockError } = await supabase
       .from("stock")
       .select(`
@@ -175,44 +181,8 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
 
     if (stockError) throw stockError;
 
-    // 2. Check if the serial number is already registered or used in active (non-rejected) installer_jobs
-    let jobsQuery = supabase
-      .from("installer_jobs")
-      .select("id, job_title, status")
-      .ilike("serial_number", cleanSNo);
-
-    if (currentJobId && currentJobId !== "new") {
-      jobsQuery = jobsQuery.neq("id", currentJobId);
-    }
-
-    const { data: jobData, error: jobError } = await jobsQuery;
-
-    if (jobError) throw jobError;
-
-    // Filter for active (non-rejected) jobs
-    const activeJobs = (jobData || []).filter((j) => {
-      const s = String(j.status || "").trim().toLowerCase();
-      return s !== "rejected" && s !== "declined";
-    });
-
-    if (activeJobs.length > 0) {
-      return { 
-        success: false, 
-        error: `Serial number is already registered for an active installation: "${activeJobs[0].job_title}".` 
-      };
-    }
-
     if (!stockData) {
-      // If not in stock table but rejected job exists or custom serial number entered, allow verification fallback
-      return {
-        success: true,
-        product: {
-          product_name: "CoreTech Solar Unit",
-          brand: "CoreTech",
-          model: "NexGen",
-          warehouse_name: "Restored Inventory",
-        }
-      };
+      return { success: false, error: "Serial number not found in inventory." };
     }
 
     return {
@@ -230,6 +200,65 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
 }
 
 export async function submitInstallationAction(payload: any, siteFormJobId: string) {
+  const MIN_PHOTOS = 3;
+
+  // === SERVER-SIDE SANITIZATION: Strip ALL fake/placeholder URLs ===
+  // This runs on the server so no matter what the client sends, fake URLs NEVER reach the DB.
+  const BLOCKED_DOMAINS = ["unsplash.com", "mixkit.co", "picsum.photos", "placeholder.com", "zencdn", "gtv-videos-bucket", "lorem.space", "placehold.co"];
+
+  const isFakeUrl = (url: string) => {
+    if (!url || typeof url !== "string") return true;
+    const lower = url.trim().toLowerCase();
+    if (!lower) return true;
+    return BLOCKED_DOMAINS.some(domain => lower.includes(domain));
+  };
+
+  // Sanitize photos array
+  if (Array.isArray(payload.photos)) {
+    payload.photos = payload.photos.filter((url: string) => !isFakeUrl(url));
+  } else if (typeof payload.photos === "string") {
+    try {
+      const parsed = JSON.parse(payload.photos);
+      if (Array.isArray(parsed)) {
+        payload.photos = parsed.filter((url: string) => !isFakeUrl(url));
+      } else {
+        payload.photos = [];
+      }
+    } catch {
+      payload.photos = [];
+    }
+  } else {
+    payload.photos = [];
+  }
+
+  // Sanitize notes: remove fake video URLs from VIDEO: metadata
+  if (typeof payload.notes === "string") {
+    payload.notes = payload.notes.replace(
+      /VIDEO:https?:\/\/[^\s|]*(?:mixkit|zencdn|gtv-videos-bucket|unsplash)[^\s|]*/gi,
+      "VIDEO:"
+    );
+  }
+
+  // === SERVER-SIDE VALIDATION: required for both a brand-new submission and a
+  // resubmission of a rejected job — the client already enforces this, but the
+  // server must not trust it as the only line of defense. ===
+  const validationErrors: string[] = [];
+  if (!String(payload.job_title || "").trim()) validationErrors.push("Job title is required.");
+  if (!String(payload.address || "").trim()) validationErrors.push("Address is required.");
+  if (!String(payload.serial_number || "").trim()) validationErrors.push("Serial number is required.");
+  if (payload.photos.length < MIN_PHOTOS) {
+    validationErrors.push(`At least ${MIN_PHOTOS} real site photos are required (got ${payload.photos.length}).`);
+  }
+  const videoMatch = String(payload.notes || "").match(/VIDEO:(\S*)/i);
+  const videoUrl = videoMatch ? videoMatch[1] : "";
+  if (!videoUrl || isFakeUrl(videoUrl)) {
+    validationErrors.push("A real installation video is required.");
+  }
+
+  if (validationErrors.length > 0) {
+    return { success: false, error: validationErrors.join(" ") };
+  }
+
   const { Client } = require("pg");
   const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
   const client = new Client({
@@ -241,69 +270,19 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
     await client.connect();
     await client.query("BEGIN");
 
-    // === SERVER-SIDE SANITIZATION: Strip ALL fake/placeholder URLs ===
-    // This runs on the server so no matter what the client sends, fake URLs NEVER reach the DB.
-    const BLOCKED_DOMAINS = ["unsplash.com", "mixkit.co", "picsum.photos", "placeholder.com", "zencdn", "gtv-videos-bucket", "lorem.space", "placehold.co"];
-
-    const isFakeUrl = (url: string) => {
-      if (!url || typeof url !== "string") return true;
-      const lower = url.trim().toLowerCase();
-      if (!lower) return true;
-      return BLOCKED_DOMAINS.some(domain => lower.includes(domain));
-    };
-
-    // Sanitize photos array
-    if (Array.isArray(payload.photos)) {
-      payload.photos = payload.photos.filter((url: string) => !isFakeUrl(url));
-    } else if (typeof payload.photos === "string") {
-      try {
-        const parsed = JSON.parse(payload.photos);
-        if (Array.isArray(parsed)) {
-          payload.photos = parsed.filter((url: string) => !isFakeUrl(url));
-        } else {
-          payload.photos = [];
-        }
-      } catch {
-        payload.photos = [];
-      }
-    } else {
-      payload.photos = [];
-    }
-
-    // Sanitize notes: remove fake video URLs from VIDEO: metadata
-    if (typeof payload.notes === "string") {
-      payload.notes = payload.notes.replace(
-        /VIDEO:https?:\/\/[^\s|]*(?:mixkit|zencdn|gtv-videos-bucket|unsplash)[^\s|]*/gi,
-        "VIDEO:"
-      );
-    }
-
     // 1. Optional check for stock item in active inventory
     const stockCheck = await client.query(
       "SELECT id, status, installation_id FROM public.stock WHERE LOWER(serial_no) = LOWER($1) LIMIT 1",
       [payload.serial_number]
     );
 
-    // 2. Check if another ACTIVE (non-rejected) job exists for this serial number (excluding current job if editing)
-    let activeJobQuery = `
-      SELECT id, job_title FROM public.installer_jobs 
-      WHERE LOWER(serial_number) = LOWER($1) 
-        AND LOWER(status) NOT IN ('rejected', 'declined')
-    `;
-    const queryParams = [payload.serial_number];
-    if (siteFormJobId && siteFormJobId !== "new") {
-      activeJobQuery += ` AND id != $2`;
-      queryParams.push(siteFormJobId);
-    }
-    activeJobQuery += ` LIMIT 1`;
+    // Note: deliberately NOT blocking on other active jobs sharing this serial number.
+    // The item stays live in inventory until an admin approves a job against it, so
+    // multiple installers are allowed to submit pending applications for the same
+    // serial — the admin resolves the conflict (approve one, reject the rest) using
+    // the duplicate-serial flag shown on the review screen.
 
-    const activeJobCheck = await client.query(activeJobQuery, queryParams);
-
-    if (activeJobCheck.rows.length > 0) {
-      throw new Error(`Serial number is already registered for an active installation: "${activeJobCheck.rows[0].job_title}".`);
-    }
-
-    // 3. Insert or update the installation job record
+    // 2. Insert or update the installation job record
     let jobResult;
     if (siteFormJobId && siteFormJobId !== "new") {
       jobResult = await client.query(
@@ -357,33 +336,13 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       throw new Error("Failed to insert or update the installation record.");
     }
 
-    // 3. Mark the inventory unit as sold_out if found in active inventory
-    const updateStock = await client.query(
-      `UPDATE public.stock 
-       SET status = 'sold_out',
-           sold_out_at = NOW(),
-           sold_out_by_installer_id = $1,
-           installation_id = $2,
-           installation_project_title = $3,
-           deployment_site_address = $4
-       WHERE LOWER(serial_no) = LOWER($5)
-       RETURNING id`,
-      [
-        payload.installer_id,
-        jobId,
-        payload.job_title,
-        payload.address,
-        payload.serial_number
-      ]
-    );
-
-    if (updateStock.rows.length === 0) {
-      console.warn("Stock item was not found in stock inventory table for serial:", payload.serial_number);
-    }
+    // Deliberately NOT marking stock as sold_out here. The item stays live in
+    // inventory while this job is pending — it only becomes sold_out once an
+    // admin gives final (Stage 2) approval, in handleApproveJobStage2.
 
     await client.query("COMMIT");
     await client.end();
-    return { success: true, message: "Installation submitted and stock consumed successfully!" };
+    return { success: true, message: "Installation submitted for verification!" };
   } catch (err: any) {
     await client.query("ROLLBACK");
     await client.end();

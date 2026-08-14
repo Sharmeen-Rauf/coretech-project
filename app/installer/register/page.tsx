@@ -104,22 +104,13 @@ export default function InstallerRegisterPage() {
 
     setIsLoading(true);
     try {
-      // 1. Prepare installer metadata for designation column
-      const installerMetadata = {
-        marital_status: maritalStatus,
-        easypaisa_jazzcash_no: `${paymentProvider}: ${paymentNo}`,
-        registered_via: "QR_CODE_SCAN",
-        email: email.trim(),
-        password: password,
-      };
-
       // Call server action to create confirmed auth user + profile
       const res = await createUserAction({
         firstName,
         lastName,
         email,
         password,
-        designation: `[INSTALLER_METADATA]${JSON.stringify(installerMetadata)}`,
+        designation: "Installer",
         contact,
         role: "installer",
         group: "operations",
@@ -128,6 +119,9 @@ export default function InstallerRegisterPage() {
         address,
         city,
         cnic,
+        maritalStatus,
+        paymentProvider,
+        paymentAccountNo: paymentNo,
       });
 
       if (!res.success) {

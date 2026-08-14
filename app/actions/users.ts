@@ -4,6 +4,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { Client } from "pg";
+import { randomInt } from "crypto";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -61,6 +62,9 @@ export async function createUserAction(formData: any) {
     bankAccount,
     accountHolderName,
     cnic,
+    maritalStatus,
+    paymentProvider,
+    paymentAccountNo,
   } = formData;
 
   try {
@@ -128,12 +132,15 @@ export async function createUserAction(formData: any) {
           bank_account: bankAccount || null,
           account_holder_name: accountHolderName || null,
           cnic: cnic || null,
+          marital_status: maritalStatus || null,
+          payment_provider: paymentProvider || null,
+          payment_account_no: paymentAccountNo || null,
         };
 
         let { error: profileError } = await supabase.from("profiles").insert(profileInsertData);
 
         if (profileError && (profileError.message.includes("column") || profileError.code === "PGRST204" || profileError.code === "42703")) {
-          const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic, designation };
+          const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic, maritalStatus, paymentProvider, paymentAccountNo, designation };
           const cleanInsertData = {
             id: tempId,
             first_name: firstName,
@@ -173,12 +180,15 @@ export async function createUserAction(formData: any) {
       bank_account: bankAccount || null,
       account_holder_name: accountHolderName || null,
       cnic: cnic || null,
+      marital_status: maritalStatus || null,
+      payment_provider: paymentProvider || null,
+      payment_account_no: paymentAccountNo || null,
     };
 
     let { error: profileError } = await supabase.from("profiles").insert(profileInsertData);
 
     if (profileError && (profileError.message.includes("column") || profileError.code === "PGRST204" || profileError.code === "42703")) {
-      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic, designation };
+      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic, maritalStatus, paymentProvider, paymentAccountNo, designation };
       const cleanInsertData = {
         id: authUser.user.id,
         first_name: firstName,
@@ -225,6 +235,9 @@ export async function updateUserAction(id: string, formData: any) {
     bankAccount,
     accountHolderName,
     cnic,
+    maritalStatus,
+    paymentProvider,
+    paymentAccountNo,
   } = formData;
 
   try {
@@ -245,6 +258,9 @@ export async function updateUserAction(id: string, formData: any) {
       bank_account: bankAccount || null,
       account_holder_name: accountHolderName || null,
       cnic: cnic || null,
+      marital_status: maritalStatus || null,
+      payment_provider: paymentProvider || null,
+      payment_account_no: paymentAccountNo || null,
     };
 
     let { data, error } = await supabase
@@ -272,7 +288,7 @@ export async function updateUserAction(id: string, formData: any) {
     }
 
     if (error && (error.message.includes("column") || error.code === "PGRST204" || error.code === "42703")) {
-      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic, designation };
+      const metadata = { state, region, warehouse, address, city, bankName, bankAccount, accountHolderName, cnic, maritalStatus, paymentProvider, paymentAccountNo, designation };
       const cleanUpdateData = {
         first_name: firstName,
         last_name: lastName,
@@ -396,6 +412,162 @@ export async function createRecordAction(table: string, data: any) {
     return { success: true, message: "Record created successfully", data: created };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to create record" };
+  }
+}
+
+// auth.users (Supabase's own login table) is the one place a real, correctly-typed
+// email is guaranteed to live - auth.users.id is always the same id as profiles.id
+// since that's how accounts get created. allowed_users.id is NOT reliable for this:
+// it's a separate, independently-generated id with no link back to the real account.
+async function queryAuthUsers(whereClause: string, params: any[]): Promise<{ id: string; email: string }[]> {
+  const client = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  try {
+    await client.connect();
+    const res = await client.query(`SELECT id, email FROM auth.users WHERE ${whereClause}`, params);
+    return res.rows;
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+export async function fetchEmailsByIdsAction(ids: string[]) {
+  if (!ids || ids.length === 0) return { success: true, data: {} as Record<string, string> };
+  try {
+    const rows = await queryAuthUsers("id = ANY($1)", [ids]);
+    const map: Record<string, string> = {};
+    rows.forEach((r) => { map[r.id] = r.email; });
+    return { success: true, data: map };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch emails", data: {} as Record<string, string> };
+  }
+}
+
+// Resolves the logged-in caller's own role from their session cookie, independent of
+// whatever the client claims - the password reset actions below must never trust the client.
+async function getCallerRole(): Promise<string | null> {
+  const cookieStore = cookies();
+  const serverClient = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {
+            // Safe to ignore in actions
+          }
+        },
+      },
+    }
+  );
+  const { data: { session } } = await serverClient.auth.getSession();
+  if (!session?.user?.id) return null;
+
+  const supabase = getAdminClient();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", session.user.id)
+    .maybeSingle();
+
+  return profile?.role || null;
+}
+
+function generateRandomPassword(length = 12): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I/O, avoids visual ambiguity
+  const lower = "abcdefghijkmnopqrstuvwxyz"; // no l
+  const digits = "23456789"; // no 0/1
+  const symbols = "!@#$%^&*";
+  const all = upper + lower + digits + symbols;
+  const pick = (charset: string) => charset[randomInt(charset.length)];
+
+  // Guarantee at least one of each category, then fill the rest randomly.
+  const chars = [pick(upper), pick(lower), pick(digits), pick(symbols)];
+  while (chars.length < length) chars.push(pick(all));
+
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+}
+
+export async function lookupUserByEmailAction(email: string) {
+  try {
+    const callerRole = await getCallerRole();
+    if (callerRole !== "admin") {
+      return { success: false, error: "Only admins can look up accounts for password reset" };
+    }
+
+    const cleanEmail = (email || "").trim().toLowerCase();
+    if (!cleanEmail) return { success: false, error: "Email is required" };
+
+    const [authUser] = await queryAuthUsers("email = $1", [cleanEmail]);
+    if (!authUser) {
+      return { success: false, error: "No account found with that email" };
+    }
+
+    const supabase = getAdminClient();
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id, first_name, last_name, role, status")
+      .eq("id", authUser.id)
+      .maybeSingle();
+
+    if (!profile) {
+      return { success: false, error: "Account found but no profile record exists for it" };
+    }
+
+    return {
+      success: true,
+      data: {
+        id: profile.id,
+        name: `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || "-",
+        role: profile.role,
+        status: profile.status,
+        email: authUser.email,
+      },
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Lookup failed" };
+  }
+}
+
+export async function resetUserPasswordAction(email: string) {
+  try {
+    const callerRole = await getCallerRole();
+    if (callerRole !== "admin") {
+      return { success: false, error: "Only admins can reset passwords" };
+    }
+
+    const cleanEmail = (email || "").trim().toLowerCase();
+    if (!cleanEmail) return { success: false, error: "Email is required" };
+
+    const [authUser] = await queryAuthUsers("email = $1", [cleanEmail]);
+    if (!authUser) {
+      return { success: false, error: "No account found with that email" };
+    }
+
+    const newPassword = generateRandomPassword(12);
+
+    const supabase = getAdminClient();
+    const { error: updateError } = await supabase.auth.admin.updateUserById(authUser.id, {
+      password: newPassword,
+    });
+
+    if (updateError) throw updateError;
+
+    // The plaintext password is returned exactly once here and is never persisted
+    // anywhere - not in profiles, not logged. This response is the only copy.
+    return { success: true, password: newPassword };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to reset password" };
   }
 }
 

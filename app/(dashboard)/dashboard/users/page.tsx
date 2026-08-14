@@ -5,8 +5,9 @@ import { useSearchParams } from "next/navigation";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
+import AdminPasswordReset from "@/components/AdminPasswordReset";
 import toast from "react-hot-toast";
-import { deleteUserAction } from "@/app/actions/users";
+import { deleteUserAction, fetchEmailsByIdsAction } from "@/app/actions/users";
 
 interface UserProfile {
   id: string;
@@ -67,57 +68,18 @@ export default function UsersPage() {
         query = query.eq("role", activeRole);
       }
 
-      // Parallel execution of profiles and allowed_users whitelist
-      const [profilesRes, allowedRes] = await Promise.all([
-        query.order("created_at", { ascending: false }),
-        supabase.from("allowed_users").select("id, email")
-      ]);
-
+      const profilesRes = await query.order("created_at", { ascending: false });
       if (profilesRes.error) throw profilesRes.error;
       const profiles = profilesRes.data || [];
 
-      const allowedMap = new Map<string, string>();
-      if (allowedRes.data) {
-        allowedRes.data.forEach((u: any) => {
-          if (u.id && u.email) allowedMap.set(u.id, u.email.trim());
-        });
-      }
+      // Real emails live in auth.users - profiles has no email column of its own.
+      const emailsRes = await fetchEmailsByIdsAction(profiles.map((p: any) => p.id));
+      const emailMap = emailsRes.success ? emailsRes.data : {};
 
-      // 3. Resolve actual user email addresses & region filtering
-      let formattedProfiles = (profiles || []).map((prof: any) => {
-        let actualEmail = prof.email || allowedMap.get(prof.id) || "";
-
-        // Check nested metadata for email if not found
-        if (!actualEmail && typeof prof.designation === "string") {
-          try {
-            if (prof.designation.includes("INSTALLER_METADATA")) {
-              const cleanVal = prof.designation.replace("[DISTRIBUTOR_METADATA]", "");
-              const outer = JSON.parse(cleanVal);
-              const innerVal = outer.designation || "";
-              if (innerVal.startsWith("[INSTALLER_METADATA]")) {
-                const innerParsed = JSON.parse(innerVal.replace("[INSTALLER_METADATA]", ""));
-                if (innerParsed.email) actualEmail = innerParsed.email;
-              } else if (outer.email) {
-                actualEmail = outer.email;
-              }
-            } else if (prof.designation.startsWith("[DISTRIBUTOR_METADATA]")) {
-              const parsed = JSON.parse(prof.designation.replace("[DISTRIBUTOR_METADATA]", ""));
-              if (parsed.email) actualEmail = parsed.email;
-            }
-          } catch (e) {}
-        }
-
-        // Clean fallback email if none registered
-        if (!actualEmail) {
-          const nameSlug = `${prof.first_name || "user"}${prof.last_name ? "." + prof.last_name : ""}`.toLowerCase().replace(/[^a-z0-9.]/g, "");
-          actualEmail = `${nameSlug}@gmail.com`;
-        }
-
-        return {
-          ...prof,
-          email: actualEmail,
-        };
-      });
+      let formattedProfiles = (profiles || []).map((prof: any) => ({
+        ...prof,
+        email: emailMap[prof.id] || "",
+      }));
 
       // 4. Strict Regional Data Isolation for RSM Users
       const isRsmUser = currentUserProfile && (currentUserProfile.role === "rsm" || currentUserProfile.group_name === "rsm");
@@ -139,6 +101,7 @@ export default function UsersPage() {
   };
 
   useEffect(() => {
+    if (activeRole === "reset_password") return;
     fetchUsers();
     setCurrentPage(1);
     setSearchQuery("");
@@ -219,13 +182,19 @@ export default function UsersPage() {
       key: "designation",
       label: "Designation",
       render: (val: string, row: any) => {
-        if (val && val.startsWith("[DISTRIBUTOR_METADATA]")) {
-          try {
-            const meta = JSON.parse(val.replace("[DISTRIBUTOR_METADATA]", ""));
-            return meta.designation || (row.role === "distributor" ? "Distributor" : "");
-          } catch (e) {
-            return row.role === "distributor" ? "Distributor" : "";
+        // Never render raw metadata JSON on screen - it may contain sensitive fields.
+        if (val && (val.includes("[DISTRIBUTOR_METADATA]") || val.includes("[INSTALLER_METADATA]"))) {
+          if (val.startsWith("[DISTRIBUTOR_METADATA]")) {
+            try {
+              const meta = JSON.parse(val.replace("[DISTRIBUTOR_METADATA]", ""));
+              return meta.designation && !meta.designation.includes("METADATA")
+                ? meta.designation
+                : (row.role === "distributor" ? "Distributor" : "Installer");
+            } catch (e) {
+              return row.role === "distributor" ? "Distributor" : "Installer";
+            }
           }
+          return "Installer";
         }
         return val;
       }
@@ -278,6 +247,20 @@ export default function UsersPage() {
   };
 
   const roleTitle = getRoleTitle(activeRole);
+
+  if (activeRole === "reset_password") {
+    return (
+      <div className="space-y-6 select-none">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Reset Password</h1>
+          <p className="text-xs text-slate-500">
+            Generate a new password for any CoreTECH account.
+          </p>
+        </div>
+        <AdminPasswordReset />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 select-none">

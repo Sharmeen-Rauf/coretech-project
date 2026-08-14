@@ -45,10 +45,10 @@ export default function PerformancePage() {
       const formatted: PerformanceRow[] = (installers || []).map((inst: any) => {
         const instJobs = (jobs || []).filter((j: any) => j.installer_id === inst.id);
         const total = instJobs.length;
-        const completed = instJobs.filter((j: any) => j.status === "completed").length;
+        const completed = instJobs.filter((j: any) => j.status === "completed" || j.status === "approved").length;
         const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
  
-        const pendingPay = instJobs.filter((j: any) => j.status === "completed" && j.payment_status === "unpaid").length;
+        const pendingPay = instJobs.filter((j: any) => (j.status === "completed" || j.status === "approved") && j.payment_status === "unpaid").length;
         const paidPay = instJobs.filter((j: any) => j.payment_status === "paid").length;
  
         return {

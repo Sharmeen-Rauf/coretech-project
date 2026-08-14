@@ -210,8 +210,10 @@ export default function DataTable({
           row.state || meta.state || "",
           row.region || meta.region || "",
           row.address || meta.address || "",
-          meta.marital_status || "Single",
-          meta.easypaisa_jazzcash_no || "",
+          row.marital_status || meta.marital_status || "Single",
+          (row.payment_provider && row.payment_account_no)
+            ? `${row.payment_provider}: ${row.payment_account_no}`
+            : meta.easypaisa_jazzcash_no || "",
           meta.registered_via || "QR Code Scan",
           row.status || "",
           verStr,
@@ -500,7 +502,7 @@ export default function DataTable({
                 </th>
               ))}
               {(onEditClick || onDeleteClick) && (
-                <th className="w-24 px-5 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                <th className="sticky right-0 z-10 w-24 px-5 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)]">
                   Actions
                 </th>
               )}
@@ -551,7 +553,7 @@ export default function DataTable({
                   <tr
                     key={rowId}
                     onClick={() => onRowClick && onRowClick(row)}
-                    className={`border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors ${
+                    className={`group border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors ${
                       isSelected ? "bg-[#F0FAFE]/20" : ""
                     } ${onRowClick ? "cursor-pointer" : ""}`}
                   >
@@ -580,7 +582,12 @@ export default function DataTable({
                     })}
                     {/* Inline Actions */}
                     {(onEditClick || onDeleteClick) && (
-                      <td className="px-5 py-3.5 text-right flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                      <td
+                        className={`sticky right-0 z-10 px-5 py-3.5 text-right flex items-center justify-end gap-2 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)] group-hover:bg-slate-50 ${
+                          isSelected ? "bg-[#F0FAFE]" : "bg-white"
+                        }`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {onEditClick && (
                           <button
                             onClick={() => onEditClick(row)}

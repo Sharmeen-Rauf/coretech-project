@@ -595,6 +595,17 @@ export default function Sidebar() {
                       >
                         Add Installer
                       </Link>
+                      {userRole === "admin" && (
+                        <Link
+                          href="/dashboard/users?role=reset_password"
+                          className={linkClass("/dashboard/users", {
+                            key: "role",
+                            value: "reset_password",
+                          })}
+                        >
+                          Reset Password
+                        </Link>
+                      )}
                     </div>
                   )}
                 </div>

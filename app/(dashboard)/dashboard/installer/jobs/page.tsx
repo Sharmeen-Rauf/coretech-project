@@ -38,6 +38,8 @@ interface JobRow {
   serial_number: string;
   remarks: string;
   incentive: number;
+  isDuplicateSerial: boolean;
+  duplicateSerialCount: number;
 }
 
 export default function AdminJobsPage() {
@@ -141,22 +143,44 @@ export default function AdminJobsPage() {
           installer_name: instName,
           status: row.status || "pending_verification",
           payment_status: row.payment_status || "unpaid",
-          created_at: row.created_at 
-            ? new Date(row.created_at).toLocaleString("en-GB", { 
-                day: "2-digit", 
-                month: "2-digit", 
-                year: "numeric", 
-                hour: "2-digit", 
-                minute: "2-digit", 
-                hour12: true 
-              }) 
+          created_at: row.created_at
+            ? new Date(row.created_at).toLocaleString("en-GB", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true
+              })
             : "-",
           photos: row.photos || [],
           notes: notesText,
           serial_number: sn,
           remarks: rem,
           incentive: inc,
+          isDuplicateSerial: false,
+          duplicateSerialCount: 0,
         };
+      });
+
+      // Flag serial numbers shared by more than one still-relevant (non-rejected) job —
+      // the item stays live in inventory until final approval, so multiple installers
+      // can legitimately submit against the same serial while pending. Surface that as
+      // a badge instead of silently blocking it.
+      const activeSerialCounts = new Map<string, number>();
+      formatted.forEach((j) => {
+        const sn = j.serial_number.trim().toLowerCase();
+        const isActive = j.status.trim().toLowerCase() !== "rejected";
+        if (sn && isActive) {
+          activeSerialCounts.set(sn, (activeSerialCounts.get(sn) || 0) + 1);
+        }
+      });
+      formatted.forEach((j) => {
+        const sn = j.serial_number.trim().toLowerCase();
+        const isActive = j.status.trim().toLowerCase() !== "rejected";
+        const count = sn && isActive ? (activeSerialCounts.get(sn) || 0) : 0;
+        j.isDuplicateSerial = count > 1;
+        j.duplicateSerialCount = count;
       });
 
       setJobs(formatted);
@@ -512,12 +536,22 @@ export default function AdminJobsPage() {
   const approvedCount = jobs.filter(j => j.status === "approved" || j.status === "completed").length;
 
   const columns = [
-    { 
-      key: "serial_number", 
+    {
+      key: "serial_number",
       label: "Job / Serial No",
       render: (val: string, row: any) => (
         <div>
-          <span className="font-extrabold text-[#00B4D8] text-xs block">{val || "JOB-" + row.id.substring(0, 6)}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="font-extrabold text-[#00B4D8] text-xs">{val || "JOB-" + row.id.substring(0, 6)}</span>
+            {row.isDuplicateSerial && (
+              <span
+                title={`${row.duplicateSerialCount} pending applications share this serial number`}
+                className="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase bg-amber-100 text-amber-700 border border-amber-300"
+              >
+                ⚠ Duplicate
+              </span>
+            )}
+          </div>
           <span className="text-[10px] text-slate-500 font-semibold">{row.job_title}</span>
         </div>
       )
@@ -977,8 +1011,13 @@ export default function AdminJobsPage() {
             <div className="space-y-4 text-xs">
               {/* Job Details Card */}
               <div className="bg-slate-50 border border-slate-200 rounded-[8px] p-3.5 space-y-2">
-                <p className="text-slate-600 font-bold">
+                <p className="text-slate-600 font-bold flex items-center gap-1.5">
                   SERIAL NO: <span className="text-[#00B4D8] font-extrabold">{selectedJob.serial_number || "JOB-" + selectedJob.id.substring(0, 6)}</span>
+                  {selectedJob.isDuplicateSerial && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase bg-amber-100 text-amber-700 border border-amber-300">
+                      ⚠ {selectedJob.duplicateSerialCount} pending applications share this serial
+                    </span>
+                  )}
                 </p>
                 <p className="text-slate-600 font-semibold">
                   <strong>Technician:</strong> {selectedJob.installer_name}
