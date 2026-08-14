@@ -44,6 +44,11 @@ export default function UserModal({
   const [accountHolderName, setAccountHolderName] = useState("");
   const [cnic, setCnic] = useState("");
 
+  // Installer specific states
+  const [maritalStatus, setMaritalStatus] = useState("Single");
+  const [paymentProvider, setPaymentProvider] = useState("EasyPaisa");
+  const [paymentAccountNo, setPaymentAccountNo] = useState("");
+
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dbWarehouses, setDbWarehouses] = useState<string[]>([]);
@@ -133,6 +138,9 @@ export default function UserModal({
         setBankAccount(editingUser.bank_account || meta.bankAccount || "");
         setAccountHolderName(editingUser.account_holder_name || meta.accountHolderName || "");
         setCnic(editingUser.cnic || meta.cnic || "");
+        setMaritalStatus(editingUser.marital_status || "Single");
+        setPaymentProvider(editingUser.payment_provider || "EasyPaisa");
+        setPaymentAccountNo(editingUser.payment_account_no || "");
       } else {
         setFirstName("");
         setLastName("");
@@ -155,6 +163,9 @@ export default function UserModal({
         setBankAccount("");
         setAccountHolderName("");
         setCnic("");
+        setMaritalStatus("Single");
+        setPaymentProvider("EasyPaisa");
+        setPaymentAccountNo("");
       }
       setErrors({});
     }
@@ -167,7 +178,7 @@ export default function UserModal({
     if (!firstName.trim()) {
       errs.firstName = role === "Distributor" ? "Distributor name is required" : "First name is required";
     }
-    if (!lastName.trim() && role !== "Installer") {
+    if (!lastName.trim()) {
       errs.lastName = role === "Distributor" ? "Owner name is required" : "Last name is required";
     }
     
@@ -225,6 +236,9 @@ export default function UserModal({
       bankAccount,
       accountHolderName,
       cnic,
+      maritalStatus,
+      paymentProvider,
+      paymentAccountNo,
     };
 
     try {
@@ -525,7 +539,7 @@ export default function UserModal({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Name*
+                  First Name*
                 </label>
                 <input
                   type="text"
@@ -537,6 +551,22 @@ export default function UserModal({
                 />
                 {errors.firstName && (
                   <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.firstName}</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Last Name*
+                </label>
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                    errors.lastName ? "border-rose-500" : "border-slate-200"
+                  }`}
+                />
+                {errors.lastName && (
+                  <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.lastName}</p>
                 )}
               </div>
               <div>
@@ -569,24 +599,21 @@ export default function UserModal({
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  System Region
+                  State / Province
                 </label>
                 <select
-                  value={resolveRegionValue(region)}
-                  onChange={(e) => {
-                    const sel = e.target.value;
-                    setRegion(sel);
-                    const matched = systemRegions.find(r => r.name === sel || r.region_code === sel);
-                    if (matched && matched.warehouse) setWarehouse(matched.warehouse);
-                  }}
-                  className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white font-semibold"
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                  className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
                 >
-                  <option value="">Select Region</option>
-                  {systemRegions.map((reg) => (
-                    <option key={reg.id || reg.name} value={reg.name}>
-                      {reg.name} ({reg.region_code})
-                    </option>
-                  ))}
+                  <option value="">Select State</option>
+                  <option value="Punjab">Punjab</option>
+                  <option value="Sindh">Sindh</option>
+                  <option value="Khyber Pakhtunkhwa">Khyber Pakhtunkhwa</option>
+                  <option value="Balochistan">Balochistan</option>
+                  <option value="Gilgit-Baltistan">Gilgit-Baltistan</option>
+                  <option value="Azad Kashmir">Azad Kashmir</option>
+                  <option value="Islamabad Capital Territory">Islamabad</option>
                 </select>
               </div>
               <div className="col-span-2">
@@ -612,7 +639,47 @@ export default function UserModal({
                   className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
                 />
               </div>
-              
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Marital Status
+                </label>
+                <select
+                  value={maritalStatus}
+                  onChange={(e) => setMaritalStatus(e.target.value)}
+                  className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
+                >
+                  <option value="Single">Single</option>
+                  <option value="Married">Married</option>
+                  <option value="Divorced">Divorced</option>
+                  <option value="Widowed">Widowed</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Payment Provider
+                </label>
+                <select
+                  value={paymentProvider}
+                  onChange={(e) => setPaymentProvider(e.target.value)}
+                  className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
+                >
+                  <option value="EasyPaisa">EasyPaisa</option>
+                  <option value="JazzCash">JazzCash</option>
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  EasyPaisa / JazzCash No.
+                </label>
+                <input
+                  type="text"
+                  value={paymentAccountNo}
+                  onChange={(e) => setPaymentAccountNo(e.target.value.replace(/\D/g, ""))}
+                  placeholder="Payout Account No."
+                  className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                />
+              </div>
+
               {!isEdit && (
                 <>
                   <div className="col-span-2 border-t pt-4 mt-2">
