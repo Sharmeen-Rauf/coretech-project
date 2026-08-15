@@ -120,11 +120,14 @@ export default function AdminJobsPage() {
         if (notesText.startsWith("[METADATA]")) {
           try {
             const firstLine = notesText.split("\n")[0];
-            notesText = notesText.substring(firstLine.length + 1);
+            // Keep notesText intact (including the VIDEO: tag) — the detail panel
+            // below re-parses it to find the installation video URL. Only use
+            // firstLine locally to read out SN/INC/REM.
             const metaStr = firstLine.replace("[METADATA] ", "");
             const parts = metaStr.split(" | ");
             parts.forEach((part: string) => {
-              const [key, val] = part.split(":");
+              const [key, ...rest] = part.split(":");
+              const val = rest.join(":");
               if (key === "SN") sn = val;
               else if (key === "INC") inc = parseFloat(val) || 0;
               else if (key === "REM") rem = val;
