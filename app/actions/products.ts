@@ -4,6 +4,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient as createJSClient } from "@supabase/supabase-js";
+import { getCallerIdentity } from "@/app/actions/users";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -73,35 +74,6 @@ export async function updateProductAction(id: string, data: any) {
     return { success: true, data: updatedProd };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to update product" };
-  }
-}
-
-export async function getOrCreateProductByCode(code: string, fallbackData: any) {
-  const supabase = getAdminClient();
-  try {
-    // 1. Check if product exists
-    const { data: existingProd, error: fetchErr } = await supabase
-      .from("products")
-      .select("*")
-      .eq("code", code)
-      .maybeSingle();
-
-    if (fetchErr) throw fetchErr;
-    if (existingProd) {
-      return { success: true, data: existingProd, created: false };
-    }
-
-    // 2. Insert new product
-    const { data: newProd, error: insertErr } = await supabase
-      .from("products")
-      .insert(fallbackData)
-      .select()
-      .single();
-
-    if (insertErr) throw insertErr;
-    return { success: true, data: newProd, created: true };
-  } catch (err: any) {
-    return { success: false, error: err.message || "Failed to get or create product" };
   }
 }
 
@@ -350,6 +322,112 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
   }
 }
 
+// === Job submission two-stage review ===
+// Stage 1 (verify/reject): Regional Manager, Country Head, or Admin.
+// Stage 2 (final approve/reject): Country Head or Admin only.
+
+export async function verifyJobStage1Action(jobId: string, note: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || !["retail_manager", "country_head", "admin"].includes(caller.role || "")) {
+      return { success: false, error: "You don't have permission to verify this installation" };
+    }
+
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("installer_jobs")
+      .update({
+        status: "pending_approval",
+        verified_by: caller.id,
+        verified_at: new Date().toISOString(),
+        verification_note: (note || "").trim(),
+      })
+      .eq("id", jobId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to verify job" };
+  }
+}
+
+export async function approveJobStage2Action(jobId: string, serialNumber: string, note: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || !["country_head", "admin"].includes(caller.role || "")) {
+      return { success: false, error: "Only Country Head or Admin can give final approval" };
+    }
+
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("installer_jobs")
+      .update({
+        status: "approved",
+        approved_by: caller.id,
+        approved_at: new Date().toISOString(),
+        approval_note: (note || "").trim(),
+      })
+      .eq("id", jobId);
+
+    if (error) throw error;
+
+    if (serialNumber) {
+      await supabase
+        .from("stock")
+        .update({
+          status: "sold_out",
+          sold_out_at: new Date().toISOString(),
+          sold_out_by_installer_id: jobId,
+          installation_id: jobId,
+        })
+        .ilike("serial_no", serialNumber.trim());
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to approve job" };
+  }
+}
+
+async function rejectJobInternal(jobId: string, serialNumber: string, note: string, callerId: string) {
+  try {
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("installer_jobs")
+      .update({
+        status: "rejected",
+        approved_by: callerId,
+        approved_at: new Date().toISOString(),
+        approval_note: (note || "").trim() || "Rejected during site audit.",
+      })
+      .eq("id", jobId);
+
+    if (error) throw error;
+
+    await revertRejectedInstallationStockAction(jobId, serialNumber);
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to reject job" };
+  }
+}
+
+export async function rejectJobStage1Action(jobId: string, serialNumber: string, note: string) {
+  const caller = await getCallerIdentity();
+  if (!caller || !["retail_manager", "country_head", "admin"].includes(caller.role || "")) {
+    return { success: false, error: "You don't have permission to reject this installation" };
+  }
+  return rejectJobInternal(jobId, serialNumber, note, caller.id);
+}
+
+export async function rejectJobStage2Action(jobId: string, serialNumber: string, note: string) {
+  const caller = await getCallerIdentity();
+  if (!caller || !["country_head", "admin"].includes(caller.role || "")) {
+    return { success: false, error: "Only Country Head or Admin can reject at this stage" };
+  }
+  return rejectJobInternal(jobId, serialNumber, note, caller.id);
+}
+
 export async function fetchSellOutAction() {
   const supabase = getAdminClient();
   try {
@@ -379,21 +457,16 @@ export async function fetchSellOutAction() {
 
 export async function bulkImportStockAction(
   items: Array<{
-    name?: string;
     code?: string;
     serial_no: string;
-    brand?: string;
-    category?: string;
-    model?: string;
-    price?: number;
-    cost?: number;
     warehouse_name?: string;
+    [key: string]: any; // other CSV columns (name/brand/category/model/price/cost) are accepted but ignored
   }>,
   globalImportDate?: string,
   globalWarehouse?: string
 ) {
   if (!items || items.length === 0) {
-    return { success: true, count: 0, message: "No items to import" };
+    return { success: true, count: 0, skipped: [], message: "No items to import" };
   }
 
   const { Client } = require("pg");
@@ -403,104 +476,96 @@ export async function bulkImportStockAction(
     ssl: { rejectUnauthorized: false }
   });
 
+  const skipped: { serial_no?: string; code?: string; reason: string }[] = [];
+
   try {
     await client.connect();
 
-    // 1. Fetch existing products to resolve IDs
-    const prodRes = await client.query(`SELECT id, code, model FROM public.products;`);
-    const existingProducts = prodRes.rows || [];
+    // 1. Resolve every item's product strictly by Product Code — no auto-creation.
+    const prodRes = await client.query(`SELECT id, code FROM public.products WHERE code IS NOT NULL;`);
     const codeMap = new Map<string, string>();
-    const modelMap = new Map<string, string>();
-
-    existingProducts.forEach((p: any) => {
-      if (p.code) codeMap.set(p.code.toLowerCase(), p.id);
-      if (p.model) modelMap.set(p.model.toLowerCase(), p.id);
+    (prodRes.rows || []).forEach((p: any) => {
+      if (p.code) codeMap.set(p.code.toLowerCase().trim(), p.id);
     });
 
-    // 2. Identify missing products in items list
-    const missingProdsMap = new Map<string, any>();
-    items.forEach((item) => {
-      const codeKey = (item.code || "").toLowerCase();
-      const modelKey = (item.model || "").toLowerCase();
-      if (!codeMap.has(codeKey) && !modelMap.has(modelKey) && item.code) {
-        if (!missingProdsMap.has(codeKey)) {
-          missingProdsMap.set(codeKey, {
-            name: item.name || item.code,
-            code: item.code,
-            brand: item.brand || "CoreTech",
-            category: (item.category || "inverter").toLowerCase(),
-            model: item.model || item.code,
-            price: Number(item.price) || 0,
-            cost: Number(item.cost) || 0,
-            alert_quantity: 5,
-          });
-        }
-      }
-    });
+    const defaultDate = globalImportDate || new Date().toISOString().split("T")[0];
 
-    // Bulk insert missing products
-    if (missingProdsMap.size > 0) {
-      const prodValues: string[] = [];
-      const prodParams: any[] = [];
-      let pIdx = 1;
+    // 2. Validate every row: must have a serial number, must map to a real product,
+    // and must not repeat a serial already seen in this file.
+    const seenInFile = new Set<string>();
+    const valid: { productId: string; serial: string; warehouse: string }[] = [];
 
-      for (const prod of Array.from(missingProdsMap.values())) {
-        prodValues.push(`(gen_random_uuid(), $${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}, $${pIdx + 7}, NOW())`);
-        prodParams.push(prod.name, prod.code, prod.brand, prod.category, prod.model, prod.price, prod.cost, prod.alert_quantity);
-        pIdx += 8;
+    for (const item of items) {
+      const serial = (item.serial_no || "").trim();
+      const codeKey = (item.code || "").toLowerCase().trim();
+
+      if (!serial) {
+        skipped.push({ code: item.code, reason: "Missing serial number" });
+        continue;
       }
 
-      const prodInsertQuery = `
-        INSERT INTO public.products (id, name, code, brand, category, model, price, cost, alert_quantity, created_at)
-        VALUES ${prodValues.join(",\n")}
-        ON CONFLICT (code) DO UPDATE SET model = EXCLUDED.model
-        RETURNING id, code, model;
-      `;
+      const serialKey = serial.toLowerCase();
+      if (seenInFile.has(serialKey)) {
+        skipped.push({ serial_no: serial, code: item.code, reason: "Duplicate serial number within this file" });
+        continue;
+      }
 
-      const insertedProds = await client.query(prodInsertQuery, prodParams);
-      (insertedProds.rows || []).forEach((p: any) => {
-        if (p.code) codeMap.set(p.code.toLowerCase(), p.id);
-        if (p.model) modelMap.set(p.model.toLowerCase(), p.id);
+      const productId = codeMap.get(codeKey);
+      if (!productId) {
+        skipped.push({ serial_no: serial, code: item.code, reason: `Product code "${item.code || ""}" does not exist in Product Management` });
+        continue;
+      }
+
+      seenInFile.add(serialKey);
+      valid.push({
+        productId,
+        serial,
+        warehouse: item.warehouse_name || globalWarehouse || "Main Warehouse (275)",
       });
     }
 
-    const fallbackProdId = existingProducts[0]?.id || null;
-    const defaultDate = globalImportDate || new Date().toISOString().split("T")[0];
+    if (valid.length === 0) {
+      await client.end();
+      return { success: true, count: 0, skipped, message: "No valid rows to import" };
+    }
 
-    // 3. Bulk insert/upsert stock items in chunks of 2,500
+    // 3. Check which of the remaining serials already exist in stock (covers both
+    // pre-existing inventory and duplicates spanning earlier chunks of this same import).
+    const candidateSerials = valid.map((v) => v.serial);
+    const existingRes = await client.query(
+      `SELECT serial_no FROM public.stock WHERE serial_no = ANY($1);`,
+      [candidateSerials]
+    );
+    const existingSerials = new Set((existingRes.rows || []).map((r: any) => String(r.serial_no).toLowerCase()));
+
+    const toInsert = valid.filter((v) => {
+      if (existingSerials.has(v.serial.toLowerCase())) {
+        skipped.push({ serial_no: v.serial, reason: "Serial number already exists in inventory" });
+        return false;
+      }
+      return true;
+    });
+
+    // 4. Bulk insert the clean rows in chunks of 2,500
     const batchSize = 2500;
     let insertedCount = 0;
 
-    for (let i = 0; i < items.length; i += batchSize) {
-      const chunk = items.slice(i, i + batchSize);
+    for (let i = 0; i < toInsert.length; i += batchSize) {
+      const chunk = toInsert.slice(i, i + batchSize);
       const valuePlaceholders: string[] = [];
       const params: any[] = [];
       let sIdx = 1;
 
       chunk.forEach((item) => {
-        const codeKey = (item.code || "").toLowerCase();
-        const modelKey = (item.model || "").toLowerCase();
-        const prodId = codeMap.get(codeKey) || modelMap.get(modelKey) || fallbackProdId;
-        const targetWarehouse = item.warehouse_name || globalWarehouse || "Main Warehouse (275)";
-
-        valuePlaceholders.push(`(gen_random_uuid(), $${sIdx}, $${sIdx + 1}, $${sIdx + 2}, $${sIdx + 3}, $${sIdx + 4}, 1, NOW(), 'active')`);
-        params.push(
-          prodId,
-          item.model || "CoreTech Product",
-          item.serial_no,
-          targetWarehouse,
-          defaultDate
-        );
-        sIdx += 5;
+        valuePlaceholders.push(`(gen_random_uuid(), $${sIdx}, $${sIdx + 1}, $${sIdx + 2}, $${sIdx + 3}, 1, NOW(), 'active')`);
+        params.push(item.productId, item.serial, item.warehouse, defaultDate);
+        sIdx += 4;
       });
 
       const stockQuery = `
-        INSERT INTO public.stock (id, product_id, model_no, serial_no, warehouse_name, import_date, quantity, created_at, status)
+        INSERT INTO public.stock (id, product_id, serial_no, warehouse_name, import_date, quantity, created_at, status)
         VALUES ${valuePlaceholders.join(",\n")}
-        ON CONFLICT (serial_no) DO UPDATE
-        SET quantity = public.stock.quantity + EXCLUDED.quantity,
-            warehouse_name = EXCLUDED.warehouse_name,
-            import_date = EXCLUDED.import_date;
+        ON CONFLICT (serial_no) DO NOTHING;
       `;
 
       await client.query(stockQuery, params);
@@ -508,99 +573,17 @@ export async function bulkImportStockAction(
     }
 
     await client.end();
-    return { success: true, count: insertedCount, message: `Successfully imported ${insertedCount} stock entries!` };
+    return {
+      success: true,
+      count: insertedCount,
+      skipped,
+      message: `Imported ${insertedCount} stock entries${skipped.length ? `, skipped ${skipped.length}` : ""}.`,
+    };
   } catch (err: any) {
     try {
       await client.end();
     } catch {}
-    return { success: false, error: err.message || "Failed bulk stock import operation" };
-  }
-}
-
-export async function bulkDeleteStockAction(ids: string[]) {
-  if (!ids || ids.length === 0) {
-    return { success: true, count: 0 };
-  }
-
-  const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
-  const client = new Client({
-    connectionString,
-    ssl: { rejectUnauthorized: false }
-  });
-
-  try {
-    await client.connect();
-
-    // Filter out local temporary IDs
-    const dbIds = ids.filter(id => id && !id.startsWith("local-"));
-    if (dbIds.length === 0) {
-      await client.end();
-      return { success: true, count: ids.length };
-    }
-
-    const deleteQuery = `DELETE FROM public.stock WHERE id = ANY($1);`;
-    const res = await client.query(deleteQuery, [dbIds]);
-
-    await client.end();
-    return { success: true, count: res.rowCount || dbIds.length };
-  } catch (err: any) {
-    try { await client.end(); } catch {}
-    return { success: false, error: err.message || "Failed bulk delete operation" };
-  }
-}
-
-export async function bulkDeleteStockByFilterAction(filters: {
-  importDate?: string;
-  productName?: string;
-  modelNo?: string;
-  warehouseName?: string;
-}) {
-  const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
-  const client = new Client({
-    connectionString,
-    ssl: { rejectUnauthorized: false }
-  });
-
-  try {
-    await client.connect();
-
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let pIdx = 1;
-
-    if (filters.importDate) {
-      conditions.push(`import_date = $${pIdx}`);
-      params.push(filters.importDate);
-      pIdx++;
-    }
-
-    if (filters.modelNo) {
-      conditions.push(`model_no ILIKE $${pIdx}`);
-      params.push(`%${filters.modelNo}%`);
-      pIdx++;
-    }
-
-    if (filters.warehouseName) {
-      conditions.push(`warehouse_name ILIKE $${pIdx}`);
-      params.push(`%${filters.warehouseName}%`);
-      pIdx++;
-    }
-
-    if (conditions.length === 0) {
-      await client.end();
-      return { success: false, error: "At least one filter criterion is required for bulk deletion" };
-    }
-
-    const query = `DELETE FROM public.stock WHERE ${conditions.join(" AND ")};`;
-    const res = await client.query(query, params);
-
-    await client.end();
-    return { success: true, count: res.rowCount || 0, message: `Bulk deleted ${res.rowCount || 0} stock items matching filter!` };
-  } catch (err: any) {
-    try { await client.end(); } catch {}
-    return { success: false, error: err.message || "Failed bulk filter delete operation" };
+    return { success: false, error: err.message || "Failed bulk stock import operation", skipped };
   }
 }
 

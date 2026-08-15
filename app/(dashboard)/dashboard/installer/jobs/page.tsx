@@ -23,7 +23,13 @@ import {
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { deleteRecordAction } from "@/app/actions/users";
-import { revertRejectedInstallationStockAction } from "@/app/actions/products";
+import {
+  revertRejectedInstallationStockAction,
+  verifyJobStage1Action,
+  approveJobStage2Action,
+  rejectJobStage1Action,
+  rejectJobStage2Action,
+} from "@/app/actions/products";
 
 interface JobRow {
   id: string;
@@ -444,20 +450,8 @@ export default function AdminJobsPage() {
 
   const handleVerifyJobStage1 = async (jobId: string) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const currentUserId = session?.user?.id;
-
-      const { error } = await supabase
-        .from("installer_jobs")
-        .update({
-          status: "pending_approval",
-          verified_by: currentUserId,
-          verified_at: new Date().toISOString(),
-          verification_note: auditNote.trim()
-        })
-        .eq("id", jobId);
-
-      if (error) throw error;
+      const res = await verifyJobStage1Action(jobId, auditNote);
+      if (!res.success) throw new Error(res.error);
       toast.success("Stage 1: Retail Manager verification completed!");
       setSelectedJob(null);
       setAuditNote("");
@@ -469,33 +463,8 @@ export default function AdminJobsPage() {
 
   const handleApproveJobStage2 = async (job: JobRow) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const currentUserId = session?.user?.id;
-
-      const { error } = await supabase
-        .from("installer_jobs")
-        .update({
-          status: "approved",
-          approved_by: currentUserId,
-          approved_at: new Date().toISOString(),
-          approval_note: auditNote.trim()
-        })
-        .eq("id", job.id);
-
-      if (error) throw error;
-
-      if (job.serial_number) {
-        await supabase
-          .from("stock")
-          .update({
-            status: "sold_out",
-            sold_out_at: new Date().toISOString(),
-            sold_out_by_installer_id: job.id,
-            installation_id: job.id
-          })
-          .ilike("serial_no", job.serial_number.trim());
-      }
-
+      const res = await approveJobStage2Action(job.id, job.serial_number, auditNote);
+      if (!res.success) throw new Error(res.error);
       toast.success("Stage 2: Installation fully approved & stock deducted!");
       setSelectedJob(null);
       setAuditNote("");
@@ -505,24 +474,13 @@ export default function AdminJobsPage() {
     }
   };
 
-  const handleRejectJobStage = async (job: JobRow) => {
+  const handleRejectJobStage = async (job: JobRow, stage: "stage1" | "stage2") => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const currentUserId = session?.user?.id;
-
-      const { error } = await supabase
-        .from("installer_jobs")
-        .update({
-          status: "rejected",
-          approved_by: currentUserId,
-          approved_at: new Date().toISOString(),
-          approval_note: auditNote.trim() || "Rejected during site audit."
-        })
-        .eq("id", job.id);
-
-      if (error) throw error;
-
-      await revertRejectedInstallationStockAction(job.id, job.serial_number);
+      const res =
+        stage === "stage2"
+          ? await rejectJobStage2Action(job.id, job.serial_number, auditNote)
+          : await rejectJobStage1Action(job.id, job.serial_number, auditNote);
+      if (!res.success) throw new Error(res.error);
 
       toast.success("Installation rejected & serial number restored to inventory!");
       setSelectedJob(null);
@@ -1301,13 +1259,15 @@ export default function AdminJobsPage() {
               {/* Pending Stage 1 (RM) */}
               {(selectedJob.status === "pending_verification" || selectedJob.status === "assigned" || selectedJob.status === "in_progress") && (
                 <>
-                  <button
-                    onClick={() => handleRejectJobStage(selectedJob)}
-                    className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    Reject Installation
-                  </button>
+                  {(userRole === "retail_manager" || userRole === "admin" || userRole === "country_head") && (
+                    <button
+                      onClick={() => handleRejectJobStage(selectedJob, "stage1")}
+                      className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Reject Installation
+                    </button>
+                  )}
                   {(userRole === "retail_manager" || userRole === "admin" || userRole === "country_head") && (
                     <button
                       onClick={() => handleVerifyJobStage1(selectedJob.id)}
@@ -1323,13 +1283,15 @@ export default function AdminJobsPage() {
               {/* Pending Stage 2 (CH) */}
               {(selectedJob.status === "pending_approval" || selectedJob.status === "pending_installation_approval") && (
                 <>
-                  <button
-                    onClick={() => handleRejectJobStage(selectedJob)}
-                    className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    Reject Installation
-                  </button>
+                  {(userRole === "country_head" || userRole === "admin") && (
+                    <button
+                      onClick={() => handleRejectJobStage(selectedJob, "stage2")}
+                      className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Reject Installation
+                    </button>
+                  )}
                   {(userRole === "country_head" || userRole === "admin") && (
                     <button
                       onClick={() => handleApproveJobStage2(selectedJob)}

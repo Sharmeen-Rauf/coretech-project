@@ -223,20 +223,6 @@ export default function Topbar() {
                     Create New
                   </div>
                   <Link
-                    href="/dashboard/invoices"
-                    onClick={() => setIsQuickAddOpen(false)}
-                    className="flex items-center px-4 py-2 hover:bg-slate-50 text-slate-700 font-medium transition-colors"
-                  >
-                    Create Invoice
-                  </Link>
-                  <Link
-                    href="/dashboard/support"
-                    onClick={() => setIsQuickAddOpen(false)}
-                    className="flex items-center px-4 py-2 hover:bg-slate-50 text-slate-700 font-medium transition-colors"
-                  >
-                    Open Support Ticket
-                  </Link>
-                  <Link
                     href="/dashboard/users?role=employee"
                     onClick={() => setIsQuickAddOpen(false)}
                     className="flex items-center px-4 py-2 hover:bg-slate-50 text-slate-700 font-medium transition-colors"

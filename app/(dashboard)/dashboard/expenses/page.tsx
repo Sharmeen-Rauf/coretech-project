@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
-import { Loader2, Plus, X, Check, FileText } from "lucide-react";
+import { Loader2, Plus, X, Check, FileText, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface ExpenseRow {
@@ -183,6 +183,26 @@ export default function ExpensesPage() {
     }
   };
 
+  const handleDeleteExpense = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this expense entry? This cannot be undone.")) return;
+
+    try {
+      try {
+        const { error } = await supabase.from("expenses").delete().eq("id", id);
+        if (error) throw error;
+      } catch (dbErr) {
+        console.warn("Supabase expense delete failed. Removing local fallback copy.", dbErr);
+        const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
+        deleteLocalItem("coretech_local_expenses", id, "id");
+      }
+
+      toast.success("Expense entry deleted successfully!");
+      fetchExpenses();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete expense");
+    }
+  };
+
   const baseColumns = [
     { key: "user_name", label: "Employee" },
     { key: "title", label: "Title" },
@@ -217,27 +237,37 @@ export default function ExpensesPage() {
     {
       key: "id",
       label: "Audit",
-      render: (val: string, row: any) => {
-        if (row.status !== "pending") return <span className="text-slate-400 text-xs">Reviewed</span>;
-        return (
-          <div className="flex gap-2">
-            <button
-              onClick={() => handleUpdateStatus(val, "approved")}
-              className="p-1 hover:bg-emerald-50 text-emerald-600 rounded border border-emerald-100 transition-colors"
-              title="Approve Claim"
-            >
-              <Check className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleUpdateStatus(val, "rejected")}
-              className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
-              title="Reject Claim"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        );
-      },
+      render: (val: string, row: any) => (
+        <div className="flex gap-2 items-center">
+          {row.status === "pending" ? (
+            <>
+              <button
+                onClick={() => handleUpdateStatus(val, "approved")}
+                className="p-1 hover:bg-emerald-50 text-emerald-600 rounded border border-emerald-100 transition-colors"
+                title="Approve Claim"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleUpdateStatus(val, "rejected")}
+                className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
+                title="Reject Claim"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <span className="text-slate-400 text-xs">Reviewed</span>
+          )}
+          <button
+            onClick={() => handleDeleteExpense(val)}
+            className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
+            title="Delete Entry"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      ),
     },
   ];
 

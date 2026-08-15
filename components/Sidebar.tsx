@@ -20,7 +20,6 @@ import {
   CreditCard,
   Download,
   HelpCircle,
-  Activity,
   Layers,
 } from "lucide-react";
 import { createClientComponentClient } from "@/lib/supabase";
@@ -306,7 +305,7 @@ export default function Sidebar() {
                 </div>
 
                 {/* Stock Out */}
-                <Link href="/dashboard/purchase/sellout" className={linkClass("/dashboard/purchase/sellout")}>
+                <Link href="/dashboard/sales/sellout" className={linkClass("/dashboard/sales/sellout")}>
                   <ShoppingBag className="w-4 h-4 mr-3" />
                   Stock Out
                 </Link>
@@ -367,11 +366,6 @@ export default function Sidebar() {
                   )}
                 </div>
 
-                {/* Support Tickets */}
-                <Link href="/dashboard/support" className={linkClass("/dashboard/support")}>
-                  <HelpCircle className="w-4 h-4 mr-3" />
-                  Support Tickets
-                </Link>
               </>
             ) : userRole === "marketing_manager" ? (
               <>
@@ -384,7 +378,7 @@ export default function Sidebar() {
                 {/* Expenses */}
                 <Link href="/dashboard/expenses" className={linkClass("/dashboard/expenses")}>
                   <CreditCard className="w-4 h-4 mr-3" />
-                  Expenses
+                  Expense Management
                 </Link>
               </>
             ) : userRole === "rsm" ? (
@@ -403,7 +397,7 @@ export default function Sidebar() {
                   >
                     <div className="flex items-center">
                       <TrendingUp className="w-4 h-4 mr-3" />
-                      <span>Sales</span>
+                      <span>Sales Management</span>
                     </div>
                     {openMenus.sales ? (
                       <ChevronDown className="w-3.5 h-3.5" />
@@ -480,13 +474,7 @@ export default function Sidebar() {
                 {/* Expenses */}
                 <Link href="/dashboard/expenses" className={linkClass("/dashboard/expenses")}>
                   <FileText className="w-4 h-4 mr-3" />
-                  Expenses
-                </Link>
-
-                {/* Invoices */}
-                <Link href="/dashboard/invoices" className={linkClass("/dashboard/invoices")}>
-                  <CreditCard className="w-4 h-4 mr-3" />
-                  Invoices & Payments
+                  Expense Management
                 </Link>
               </>
             ) : userRole === "retail_manager" ? (
@@ -511,7 +499,7 @@ export default function Sidebar() {
                   >
                     <div className="flex items-center">
                       <Wrench className="w-4 h-4 mr-3" />
-                      <span>Installer Verifications</span>
+                      <span>Installer Management</span>
                     </div>
                     {openMenus.installer ? (
                       <ChevronDown className="w-3.5 h-3.5" />
@@ -523,10 +511,10 @@ export default function Sidebar() {
                   {openMenus.installer && (
                     <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
                       <Link href="/dashboard/installer/list" className={linkClass("/dashboard/installer/list")}>
-                        Verify Installers
+                        Verify Installer
                       </Link>
                       <Link href="/dashboard/installer/jobs" className={linkClass("/dashboard/installer/jobs")}>
-                        Verify Installations
+                        Verify Installation
                       </Link>
                     </div>
                   )}
@@ -611,45 +599,10 @@ export default function Sidebar() {
                 </div>
 
                 {/* Product */}
-                <div>
-                  <button
-                    onClick={() => toggleMenu("product")}
-                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
-                  >
-                    <div className="flex items-center">
-                      <Box className="w-4 h-4 mr-3" />
-                      <span>Product</span>
-                    </div>
-                    {openMenus.product ? (
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-
-                  {openMenus.product && (
-                    <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
-                      <Link
-                        href="/dashboard/product/inverter"
-                        className={linkClass("/dashboard/product/inverter")}
-                      >
-                        Inverter
-                      </Link>
-                      <Link
-                        href="/dashboard/product/battery"
-                        className={linkClass("/dashboard/product/battery")}
-                      >
-                        Battery
-                      </Link>
-                      <Link
-                        href="/dashboard/product/aio"
-                        className={linkClass("/dashboard/product/aio")}
-                      >
-                        AIO
-                      </Link>
-                    </div>
-                  )}
-                </div>
+                <Link href="/dashboard/product" className={linkClass("/dashboard/product")}>
+                  <Box className="w-4 h-4 mr-3" />
+                  Product Management
+                </Link>
 
                 {/* Purchase */}
                 <div>
@@ -659,7 +612,7 @@ export default function Sidebar() {
                   >
                     <div className="flex items-center">
                       <ShoppingCart className="w-4 h-4 mr-3" />
-                      <span>Purchase</span>
+                      <span>Purchase Management</span>
                     </div>
                     {openMenus.purchase ? (
                       <ChevronDown className="w-3.5 h-3.5" />
@@ -688,12 +641,6 @@ export default function Sidebar() {
                       >
                         Warehouse
                       </Link>
-                      <Link
-                        href="/dashboard/purchase/sellout"
-                        className={linkClass("/dashboard/purchase/sellout")}
-                      >
-                        Sell Out
-                      </Link>
                     </div>
                   )}
                 </div>
@@ -701,7 +648,7 @@ export default function Sidebar() {
                 {/* Region */}
                 <Link href="/dashboard/region" className={linkClass("/dashboard/region")}>
                   <MapPin className="w-4 h-4 mr-3" />
-                  Region
+                  Region Management
                 </Link>
 
                 {/* Sales */}
@@ -712,7 +659,7 @@ export default function Sidebar() {
                   >
                     <div className="flex items-center">
                       <TrendingUp className="w-4 h-4 mr-3" />
-                      <span>Sales</span>
+                      <span>Sales Management</span>
                     </div>
                     {openMenus.sales ? (
                       <ChevronDown className="w-3.5 h-3.5" />
@@ -746,6 +693,12 @@ export default function Sidebar() {
                         className={linkClass("/dashboard/sales/transfer")}
                       >
                         Transfer
+                      </Link>
+                      <Link
+                        href="/dashboard/sales/sellout"
+                        className={linkClass("/dashboard/sales/sellout")}
+                      >
+                        Sell Out
                       </Link>
                     </div>
                   )}
@@ -794,7 +747,7 @@ export default function Sidebar() {
                   >
                     <div className="flex items-center">
                       <Wrench className="w-4 h-4 mr-3" />
-                      <span>Installer</span>
+                      <span>Installer Management</span>
                     </div>
                     {openMenus.installer ? (
                       <ChevronDown className="w-3.5 h-3.5" />
@@ -809,13 +762,13 @@ export default function Sidebar() {
                         href="/dashboard/installer/list"
                         className={linkClass("/dashboard/installer/list")}
                       >
-                        List
+                        Verify Installer
                       </Link>
                       <Link
                         href="/dashboard/installer/jobs"
                         className={linkClass("/dashboard/installer/jobs")}
                       >
-                        Job Assignment
+                        Verify Installation
                       </Link>
                       <Link
                         href="/dashboard/installer/performance"
@@ -836,31 +789,13 @@ export default function Sidebar() {
                 {/* Expenses */}
                 <Link href="/dashboard/expenses" className={linkClass("/dashboard/expenses")}>
                   <FileText className="w-4 h-4 mr-3" />
-                  Expenses
-                </Link>
-
-                {/* Invoices */}
-                <Link href="/dashboard/invoices" className={linkClass("/dashboard/invoices")}>
-                  <CreditCard className="w-4 h-4 mr-3" />
-                  Invoices & Payments
+                  Expense Management
                 </Link>
 
                 {/* Resources & Targets */}
                 <Link href="/dashboard/resources" className={linkClass("/dashboard/resources")}>
                   <Download className="w-4 h-4 mr-3" />
-                  Resources & Targets
-                </Link>
-
-                {/* Support Tickets */}
-                <Link href="/dashboard/support" className={linkClass("/dashboard/support")}>
-                  <HelpCircle className="w-4 h-4 mr-3" />
-                  Support Tickets
-                </Link>
-
-                {/* Activity Logs */}
-                <Link href="/dashboard/activity-logs" className={linkClass("/dashboard/activity-logs")}>
-                  <Activity className="w-4 h-4 mr-3" />
-                  Activity Logs
+                  Target Management
                 </Link>
 
                 {/* Broadcast Notice */}
