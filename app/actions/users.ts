@@ -4,7 +4,6 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { Client } from "pg";
-import { randomInt } from "crypto";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -479,25 +478,6 @@ async function getCallerRole(): Promise<string | null> {
   return profile?.role || null;
 }
 
-function generateRandomPassword(length = 12): string {
-  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // no I/O, avoids visual ambiguity
-  const lower = "abcdefghijkmnopqrstuvwxyz"; // no l
-  const digits = "23456789"; // no 0/1
-  const symbols = "!@#$%^&*";
-  const all = upper + lower + digits + symbols;
-  const pick = (charset: string) => charset[randomInt(charset.length)];
-
-  // Guarantee at least one of each category, then fill the rest randomly.
-  const chars = [pick(upper), pick(lower), pick(digits), pick(symbols)];
-  while (chars.length < length) chars.push(pick(all));
-
-  for (let i = chars.length - 1; i > 0; i--) {
-    const j = randomInt(i + 1);
-    [chars[i], chars[j]] = [chars[j], chars[i]];
-  }
-  return chars.join("");
-}
-
 export async function lookupUserByEmailAction(email: string) {
   try {
     const callerRole = await getCallerRole();
@@ -539,7 +519,7 @@ export async function lookupUserByEmailAction(email: string) {
   }
 }
 
-export async function resetUserPasswordAction(email: string) {
+export async function resetUserPasswordAction(email: string, newPassword: string) {
   try {
     const callerRole = await getCallerRole();
     if (callerRole !== "admin") {
@@ -549,12 +529,16 @@ export async function resetUserPasswordAction(email: string) {
     const cleanEmail = (email || "").trim().toLowerCase();
     if (!cleanEmail) return { success: false, error: "Email is required" };
 
+    // Server-side floor — the UI enforces this too, but a server action can be
+    // called directly, so this is the real security boundary.
+    if (!newPassword || newPassword.length < 8) {
+      return { success: false, error: "Password must be at least 8 characters" };
+    }
+
     const [authUser] = await queryAuthUsers("email = $1", [cleanEmail]);
     if (!authUser) {
       return { success: false, error: "No account found with that email" };
     }
-
-    const newPassword = generateRandomPassword(12);
 
     const supabase = getAdminClient();
     const { error: updateError } = await supabase.auth.admin.updateUserById(authUser.id, {
@@ -563,9 +547,7 @@ export async function resetUserPasswordAction(email: string) {
 
     if (updateError) throw updateError;
 
-    // The plaintext password is returned exactly once here and is never persisted
-    // anywhere - not in profiles, not logged. This response is the only copy.
-    return { success: true, password: newPassword };
+    return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to reset password" };
   }
