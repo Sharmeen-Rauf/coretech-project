@@ -1,17 +1,16 @@
 "use client";
 
 import React, { useState } from "react";
-import { Wrench, Calendar, MessageSquare, CreditCard, X, Clock, AlertTriangle, CheckCircle, ShieldAlert } from "lucide-react";
+import { Wrench, Calendar, X, Clock, CheckCircle } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface Props {
   jobsCount: number;
   claimsCount: number;
-  ticketsCount: number;
   activeJobs: any[];
 }
 
-export default function ReportingDashboardClient({ jobsCount, claimsCount, ticketsCount, activeJobs = [] }: Props) {
+export default function ReportingDashboardClient({ jobsCount, claimsCount, activeJobs = [] }: Props) {
   const [isJobsModalOpen, setIsJobsModalOpen] = useState(false);
   const [warrantyActivated, setWarrantyActivated] = useState<Record<string, boolean>>({});
 
@@ -22,7 +21,7 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, ticke
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6 select-none">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6 select-none">
         {/* Active Jobs */}
         <div
           onClick={() => setIsJobsModalOpen(true)}
@@ -48,29 +47,6 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, ticke
           <Calendar className="w-8 h-8 text-rose-400 opacity-75" />
         </div>
 
-        {/* Outstanding Receivables Ledger */}
-        <div className="bg-[#F0FAFE] border border-cyan-200 rounded-[12px] p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-[#00B4D8] uppercase tracking-wider">Outstanding Ledger</p>
-            <h4 className="text-xl font-extrabold text-slate-800">Rs. 4.25M</h4>
-            <p className="text-[9px] text-cyan-600 font-semibold flex items-center gap-1">
-              <AlertTriangle className="w-2.5 h-2.5" /> 12 Distributors overdue
-            </p>
-          </div>
-          <CreditCard className="w-8 h-8 text-[#00B4D8] opacity-75" />
-        </div>
-
-        {/* Open Inquiries & TAT SLA Status */}
-        <div className="bg-slate-50 border border-slate-200 rounded-[12px] p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Open Support Tickets</p>
-            <h4 className="text-xl font-extrabold text-slate-800">{ticketsCount} Inquiries</h4>
-            <p className="text-[9px] text-rose-600 font-bold flex items-center gap-1">
-              <ShieldAlert className="w-3 h-3 animate-pulse" /> 1 ticket pending &gt; 24 hrs
-            </p>
-          </div>
-          <MessageSquare className="w-8 h-8 text-slate-400 opacity-75" />
-        </div>
       </div>
 
       {/* Live Installer Job Monitor Modal */}

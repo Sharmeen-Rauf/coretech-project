@@ -4,10 +4,10 @@ import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
-import { deleteRecordAction, createRecordAction, fetchRecordsAction } from "@/app/actions/users";
-import { fetchStockAction, fetchProductsAction, getOrCreateProductByCode } from "@/app/actions/products";
+import { createRecordAction, fetchRecordsAction } from "@/app/actions/users";
+import { fetchStockAction, fetchProductsAction } from "@/app/actions/products";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Boxes, Clock, Wallet } from "lucide-react";
 
 interface StockItem {
   id: string;
@@ -18,7 +18,9 @@ interface StockItem {
   serial_no: string;
   warehouse_name: string;
   quantity: number;
+  sale_price: number;
   import_date: string;
+  created_at?: string;
 }
 
 export default function InventoryPage() {
@@ -81,7 +83,9 @@ export default function InventoryPage() {
           serial_no: row.serial_no || "-",
           warehouse_name: resolvedWh,
           quantity: row.quantity ?? 0,
+          sale_price: row.products?.price ?? 0,
           import_date: row.import_date || "-",
+          created_at: row.created_at || row.import_date || "",
         };
       });
 
@@ -108,7 +112,9 @@ export default function InventoryPage() {
           serial_no: row.serial_no || "-",
           warehouse_name: resolvedWh,
           quantity: row.quantity ?? 0,
+          sale_price: prod?.price ?? 0,
           import_date: row.import_date || "-",
+          created_at: row.import_date || "",
         };
       });
 
@@ -153,39 +159,44 @@ export default function InventoryPage() {
 
     setIsSyncing(true);
     try {
-      // Load all products in DB to match
+      // Load real, already-registered products from Product Management — no
+      // auto-creation. A local item can only sync if it maps to a product code
+      // that genuinely exists there.
       const dbProdsRes = await fetchProductsAction();
       const dbProds = dbProdsRes.success ? (dbProdsRes.data || []) : [];
+      const codeMap = new Map<string, string>();
+      dbProds.forEach((p: any) => {
+        if (p.code) codeMap.set(p.code.toLowerCase().trim(), p.id);
+      });
 
-      // Load local products fallback
+      // Local products fallback, only used to look up what code a queued item was for
       const localProds = getLocalItems("coretech_local_products") || [];
       const allProds = [...dbProds, ...localProds];
 
       let successCount = 0;
+      const stillQueued: any[] = [];
+      const failedReasons: string[] = [];
+
       for (const localItem of localStock) {
-        // Find local item's product info
+        const serial = (localItem.serial_no || "").trim();
         const prod = allProds.find((p: any) => p.id === localItem.product_id);
-        if (!prod) continue;
 
-        // 1. Resolve product in DB (using code fallback)
-        const prodRes = await getOrCreateProductByCode(prod.code || prod.model || "GENERIC", {
-          name: prod.name,
-          code: prod.code || prod.model || "GENERIC",
-          brand: prod.brand || "-",
-          category: prod.category || "General",
-          model: prod.model || "Generic",
-          price: prod.price || 0,
-          cost: prod.cost || 0,
-          alert_quantity: 5,
-        });
+        if (!serial) {
+          failedReasons.push("Missing serial number");
+          stillQueued.push(localItem);
+          continue;
+        }
 
-        if (!prodRes.success) continue;
+        const productId = prod?.code ? codeMap.get(prod.code.toLowerCase().trim()) : undefined;
+        if (!productId) {
+          failedReasons.push(`${serial}: product code "${prod?.code || "unknown"}" not found in Product Management`);
+          stillQueued.push(localItem);
+          continue;
+        }
 
-        // 2. Insert stock item to DB
         const payload = {
-          product_id: prodRes.data.id,
-          model_no: localItem.model_no || prod.model || "Generic",
-          serial_no: localItem.serial_no,
+          product_id: productId,
+          serial_no: serial,
           warehouse_name: localItem.warehouse_name || "General Warehouse",
           import_date: localItem.import_date || new Date().toISOString().split('T')[0],
           quantity: localItem.quantity || 1,
@@ -194,12 +205,22 @@ export default function InventoryPage() {
         const stockRes = await createRecordAction("stock", payload);
         if (stockRes.success) {
           successCount++;
+        } else {
+          failedReasons.push(`${serial}: ${stockRes.error || "insert failed"}`);
+          stillQueued.push(localItem);
         }
       }
 
-      // Clear local stock
-      localStorage.setItem("coretech_local_stock", JSON.stringify([]));
-      toast.success(`Successfully uploaded & synced ${successCount} stock items to Supabase cloud!`);
+      // Only clear the items that actually synced — anything skipped stays queued
+      // locally so it isn't silently lost.
+      localStorage.setItem("coretech_local_stock", JSON.stringify(stillQueued));
+
+      if (successCount > 0) {
+        toast.success(`Synced ${successCount} stock item(s) to the cloud database!`);
+      }
+      if (failedReasons.length > 0) {
+        toast.error(`${failedReasons.length} item(s) could not be synced — still queued locally.`);
+      }
       await fetchInventory();
     } catch (err: any) {
       toast.error(err.message || "Failed to sync local stock");
@@ -208,108 +229,13 @@ export default function InventoryPage() {
     }
   };
 
-  const handleDeleteStock = async (row: any) => {
-    if (!window.confirm(`Are you sure you want to delete ${row.product_name} (${row.serial_no})?`)) return;
-
-    try {
-      if (row.id && !row.id.startsWith("local-")) {
-        const res = await deleteRecordAction("stock", row.id);
-        if (!res.success) throw new Error(res.error || "Failed to delete from DB");
-      } else {
-        const localStock = getLocalItems("coretech_local_stock") || [];
-        const updated = localStock.filter((s: any) => s.serial_no !== row.serial_no);
-        localStorage.setItem("coretech_local_stock", JSON.stringify(updated));
-      }
-      toast.success(`Stock item deleted successfully!`);
-      fetchInventory();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to delete stock");
-    }
-  };
-
   // Filter states
   const [filterDate, setFilterDate] = useState("");
-  const [filterModel, setFilterModel] = useState("");
+  const [filterProduct, setFilterProduct] = useState("");
   const [filterWarehouse, setFilterWarehouse] = useState("");
-  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
-  const handleBulkDeleteStock = async (selectedIds: string[]) => {
-    if (!window.confirm(`Are you sure you want to delete ${selectedIds.length} selected stock items?`)) return;
-
-    setIsBulkDeleting(true);
-    try {
-      const { bulkDeleteStockAction } = await import("@/app/actions/products");
-      const res = await bulkDeleteStockAction(selectedIds);
-      
-      // Clean local storage items if any
-      let localStock = getLocalItems("coretech_local_stock") || [];
-      selectedIds.forEach((id) => {
-        if (id.startsWith("local-")) {
-          const item = stock.find((s) => s.id === id);
-          if (item) {
-            localStock = localStock.filter((s: any) => s.serial_no !== item.serial_no);
-          }
-        }
-      });
-      localStorage.setItem("coretech_local_stock", JSON.stringify(localStock));
-
-      if (!res.success) throw new Error(res.error || "Failed bulk delete");
-      toast.success(`Successfully bulk deleted ${res.count || selectedIds.length} stock items!`);
-      fetchInventory();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to bulk delete stock items");
-    } finally {
-      setIsBulkDeleting(false);
-    }
-  };
-
-  const handleBulkDeleteByFilter = async () => {
-    if (!filterDate && !filterModel && !filterWarehouse) {
-      toast.error("Please select at least a Date, Product Model, or Warehouse filter first!");
-      return;
-    }
-
-    const matchingCount = filtered.length;
-    if (matchingCount === 0) {
-      toast.error("No stock items match the currently selected filter.");
-      return;
-    }
-
-    const filterDesc = [
-      filterDate && `Import Date: ${filterDate}`,
-      filterModel && `Model: ${filterModel}`,
-      filterWarehouse && `Warehouse: ${filterWarehouse}`,
-    ].filter(Boolean).join(" | ");
-
-    if (!window.confirm(`CRITICAL WARNING: Are you sure you want to BULK DELETE ALL ${matchingCount} stock items matching (${filterDesc})? This action cannot be undone!`)) {
-      return;
-    }
-
-    setIsBulkDeleting(true);
-    try {
-      const { bulkDeleteStockByFilterAction } = await import("@/app/actions/products");
-      const res = await bulkDeleteStockByFilterAction({
-        importDate: filterDate,
-        modelNo: filterModel,
-        warehouseName: filterWarehouse,
-      });
-
-      if (!res.success) throw new Error(res.error || "Failed bulk deletion by filter");
-      toast.success(res.message || `Successfully deleted ${matchingCount} stock items!`);
-
-      setFilterDate("");
-      setFilterModel("");
-      setFilterWarehouse("");
-      fetchInventory();
-    } catch (err: any) {
-      toast.error(err.message || "Failed bulk deletion by filter");
-    } finally {
-      setIsBulkDeleting(false);
-    }
-  };
-
-  // Derive unique models & warehouses for filter dropdowns
-  const uniqueModels = Array.from(new Set(stock.map((item) => item.model).filter((m) => m && m !== "-")));
+  // Derive unique products & warehouses for filter dropdowns
+  const uniqueProducts = Array.from(new Set(stock.map((item) => item.product_name).filter((n) => n && n !== "Unknown Product")));
   const uniqueWarehouses = Array.from(new Set(stock.map((item) => item.warehouse_name).filter((w) => w && w !== "-")));
   const uniqueDates = Array.from(new Set(stock.map((item) => item.import_date).filter((d) => d && d !== "-"))).sort().reverse();
 
@@ -321,7 +247,6 @@ export default function InventoryPage() {
         item.product_name.toLowerCase().includes(q) ||
         item.serial_no.toLowerCase().includes(q) ||
         item.brand.toLowerCase().includes(q) ||
-        item.model.toLowerCase().includes(q) ||
         item.warehouse_name.toLowerCase().includes(q)
       );
       if (!matchesSearch) return false;
@@ -330,8 +255,8 @@ export default function InventoryPage() {
     // Date filter
     if (filterDate && item.import_date !== filterDate) return false;
 
-    // Model filter
-    if (filterModel && item.model.toLowerCase() !== filterModel.toLowerCase()) return false;
+    // Product filter
+    if (filterProduct && item.product_name.toLowerCase() !== filterProduct.toLowerCase()) return false;
 
     // Warehouse filter
     if (filterWarehouse && item.warehouse_name.toLowerCase() !== filterWarehouse.toLowerCase()) return false;
@@ -348,12 +273,27 @@ export default function InventoryPage() {
     { key: "sno", label: "S.No" },
     { key: "product_name", label: "Product" },
     { key: "brand", label: "Brand" },
-    { key: "model", label: "Model" },
     { key: "serial_no", label: "Serial No" },
     { key: "warehouse_name", label: "Warehouse" },
-    { key: "quantity", label: "Quantity" },
+    {
+      key: "sale_price",
+      label: "Sale Price",
+      render: (val: number) => <span className="font-semibold text-slate-700">Rs. {val?.toLocaleString() || "0"}</span>,
+    },
     { key: "import_date", label: "Import Date" },
   ];
+
+  // Top summary widgets — always reflect the whole inventory, not just the current filter/search
+  const totalInventoryCount = stock.length;
+
+  const oldestAgeDays = stock.reduce((maxDays, item) => {
+    const ts = item.created_at ? new Date(item.created_at).getTime() : NaN;
+    if (isNaN(ts)) return maxDays;
+    const days = Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
+    return Math.max(maxDays, days);
+  }, 0);
+
+  const totalEvaluation = stock.reduce((sum, item) => sum + (item.sale_price || 0) * (item.quantity || 1), 0);
 
   return (
     <div className="space-y-6 select-none">
@@ -380,6 +320,39 @@ export default function InventoryPage() {
         )}
       </div>
 
+      {/* Top summary widgets */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white border border-slate-200 rounded-[12px] p-5 shadow-sm flex items-center gap-4">
+          <div className="p-3 bg-[#F0FAFE] text-[#00B4D8] rounded-[8px]">
+            <Boxes className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Total Inventory</p>
+            <p className="text-lg font-extrabold text-slate-800">{totalInventoryCount} Item(s)</p>
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-[12px] p-5 shadow-sm flex items-center gap-4">
+          <div className="p-3 bg-amber-50 text-amber-600 rounded-[8px]">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Inventory Aging</p>
+            <p className="text-lg font-extrabold text-slate-800">{oldestAgeDays} Day(s)</p>
+          </div>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-[12px] p-5 shadow-sm flex items-center gap-4">
+          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-[8px]">
+            <Wallet className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Total Evaluation</p>
+            <p className="text-lg font-extrabold text-slate-800">Rs. {totalEvaluation.toLocaleString()}</p>
+          </div>
+        </div>
+      </div>
+
       {/* Date & Product Filter Controls Bar */}
       <div className="bg-white border border-slate-200 rounded-[8px] p-4 shadow-sm space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -404,20 +377,20 @@ export default function InventoryPage() {
               </select>
             </div>
 
-            {/* Product Model Filter */}
+            {/* Product Filter */}
             <div className="flex items-center gap-1.5">
-              <span className="text-[11px] font-semibold text-slate-500">Product Model:</span>
+              <span className="text-[11px] font-semibold text-slate-500">Product:</span>
               <select
-                value={filterModel}
+                value={filterProduct}
                 onChange={(e) => {
-                  setFilterModel(e.target.value);
+                  setFilterProduct(e.target.value);
                   setCurrentPage(1);
                 }}
                 className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-[6px] text-xs font-medium text-slate-700 focus:outline-none focus:border-[#00B4D8]"
               >
-                <option value="">All Products / Models</option>
-                {uniqueModels.map((model) => (
-                  <option key={model} value={model}>{model}</option>
+                <option value="">All Products</option>
+                {uniqueProducts.map((name) => (
+                  <option key={name} value={name}>{name}</option>
                 ))}
               </select>
             </div>
@@ -441,11 +414,11 @@ export default function InventoryPage() {
             </div>
 
             {/* Clear Filters button */}
-            {(filterDate || filterModel || filterWarehouse) && (
+            {(filterDate || filterProduct || filterWarehouse) && (
               <button
                 onClick={() => {
                   setFilterDate("");
-                  setFilterModel("");
+                  setFilterProduct("");
                   setFilterWarehouse("");
                   setCurrentPage(1);
                 }}
@@ -455,24 +428,6 @@ export default function InventoryPage() {
               </button>
             )}
           </div>
-
-          {/* Bulk Delete All Filtered Button */}
-          {(filterDate || filterModel || filterWarehouse) && (
-            <button
-              onClick={handleBulkDeleteByFilter}
-              disabled={isBulkDeleting || filtered.length === 0}
-              className="h-8 px-3.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-[6px] shadow flex items-center gap-1.5 transition-all animate-in fade-in"
-            >
-              {isBulkDeleting ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              )}
-              <span>Bulk Delete All Filtered ({filtered.length} Items)</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -492,8 +447,6 @@ export default function InventoryPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
-        onDeleteClick={handleDeleteStock}
-        onBulkDelete={handleBulkDeleteStock}
       />
     </div>
   );

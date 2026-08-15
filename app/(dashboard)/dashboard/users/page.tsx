@@ -175,8 +175,8 @@ export default function UsersPage() {
   );
 
   const columns = [
-    { key: "first_name", label: "First Name" },
-    { key: "last_name", label: "Last Name" },
+    { key: "first_name", label: activeRole === "distributor" ? "Distributor Name" : "First Name" },
+    { key: "last_name", label: activeRole === "distributor" ? "Owner Name" : "Last Name" },
     { key: "email", label: "Email Address" },
     {
       key: "designation",

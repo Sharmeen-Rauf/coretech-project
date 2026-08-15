@@ -443,7 +443,7 @@ export async function fetchEmailsByIdsAction(ids: string[]) {
 
 // Resolves the logged-in caller's own role from their session cookie, independent of
 // whatever the client claims - the password reset actions below must never trust the client.
-async function getCallerRole(): Promise<string | null> {
+async function getCallerSessionId(): Promise<string | null> {
   const cookieStore = cookies();
   const serverClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || "",
@@ -466,16 +466,108 @@ async function getCallerRole(): Promise<string | null> {
     }
   );
   const { data: { session } } = await serverClient.auth.getSession();
-  if (!session?.user?.id) return null;
+  return session?.user?.id || null;
+}
+
+export async function getCallerRole(): Promise<string | null> {
+  const callerId = await getCallerSessionId();
+  if (!callerId) return null;
 
   const supabase = getAdminClient();
   const { data: profile } = await supabase
     .from("profiles")
     .select("role")
-    .eq("id", session.user.id)
+    .eq("id", callerId)
     .maybeSingle();
 
   return profile?.role || null;
+}
+
+// Same lookup as getCallerRole, but also returns the caller's own id — needed
+// wherever an action must both authorize the caller AND stamp who performed it
+// (e.g. verified_by/approved_by columns).
+export async function getCallerIdentity(): Promise<{ id: string; role: string | null } | null> {
+  const callerId = await getCallerSessionId();
+  if (!callerId) return null;
+
+  const supabase = getAdminClient();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", callerId)
+    .maybeSingle();
+
+  return { id: callerId, role: profile?.role || null };
+}
+
+// === Installer registration two-stage review ===
+// Stage 1 (verify/reject): Regional Manager, Country Head, or Admin.
+// Stage 2 (final approve/reject): Country Head or Admin only.
+
+export async function verifyInstallerStage1Action(instId: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || !["retail_manager", "country_head", "admin"].includes(caller.role || "")) {
+      return { success: false, error: "You don't have permission to verify this registration" };
+    }
+
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        status: "pending_approval",
+        verified_by: caller.id,
+        verified_at: new Date().toISOString(),
+        verification_note: "Credentials and documents verified by Retail Manager.",
+      })
+      .eq("id", instId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to verify installer" };
+  }
+}
+
+export async function approveInstallerStage2Action(instId: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || !["country_head", "admin"].includes(caller.role || "")) {
+      return { success: false, error: "Only Country Head or Admin can give final approval" };
+    }
+
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        status: "active",
+        approved_by: caller.id,
+        approved_at: new Date().toISOString(),
+        approval_note: "Final approval granted by Country Head.",
+      })
+      .eq("id", instId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to approve installer" };
+  }
+}
+
+export async function rejectInstallerStage1Action(instId: string) {
+  const caller = await getCallerIdentity();
+  if (!caller || !["retail_manager", "country_head", "admin"].includes(caller.role || "")) {
+    return { success: false, error: "You don't have permission to reject this registration" };
+  }
+  return deleteUserAction(instId);
+}
+
+export async function rejectInstallerStage2Action(instId: string) {
+  const caller = await getCallerIdentity();
+  if (!caller || !["country_head", "admin"].includes(caller.role || "")) {
+    return { success: false, error: "Only Country Head or Admin can reject at this stage" };
+  }
+  return deleteUserAction(instId);
 }
 
 export async function lookupUserByEmailAction(email: string) {

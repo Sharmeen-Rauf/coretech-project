@@ -5,7 +5,14 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
-import { deleteUserAction, updateRecordAction, fetchEmailsByIdsAction } from "@/app/actions/users";
+import {
+  deleteUserAction,
+  fetchEmailsByIdsAction,
+  verifyInstallerStage1Action,
+  approveInstallerStage2Action,
+  rejectInstallerStage1Action,
+  rejectInstallerStage2Action,
+} from "@/app/actions/users";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
 import { Clock, Check, X, Eye, UserCheck, Calendar, CheckCircle, QrCode } from "lucide-react";
 
@@ -231,19 +238,13 @@ export default function InstallerListPage() {
 
   const handleVerifyInstaller = async (instId: string) => {
     try {
-      const updateData = {
-        status: "pending_approval",
-        verified_by: currentUserProfile?.id || null,
-        verified_at: new Date().toISOString(),
-        verification_note: "Credentials and documents verified by Retail Manager."
-      };
-      const res = await updateRecordAction("profiles", instId, updateData);
+      const res = await verifyInstallerStage1Action(instId);
       if (!res.success) throw new Error(res.error);
 
       const localProfiles = getLocalItems("profiles") || [];
       const index = localProfiles.findIndex((p: any) => p.id === instId);
       if (index > -1) {
-        Object.assign(localProfiles[index], updateData);
+        Object.assign(localProfiles[index], { status: "pending_approval" });
         localStorage.setItem("profiles", JSON.stringify(localProfiles));
       }
 
@@ -257,19 +258,13 @@ export default function InstallerListPage() {
 
   const handleApproveInstaller = async (instId: string) => {
     try {
-      const updateData = {
-        status: "active",
-        approved_by: currentUserProfile?.id || null,
-        approved_at: new Date().toISOString(),
-        approval_note: "Final approval granted by Country Head."
-      };
-      const res = await updateRecordAction("profiles", instId, updateData);
+      const res = await approveInstallerStage2Action(instId);
       if (!res.success) throw new Error(res.error);
 
       const localProfiles = getLocalItems("profiles") || [];
       const index = localProfiles.findIndex((p: any) => p.id === instId);
       if (index > -1) {
-        Object.assign(localProfiles[index], updateData);
+        Object.assign(localProfiles[index], { status: "active" });
         localStorage.setItem("profiles", JSON.stringify(localProfiles));
       }
 
@@ -281,10 +276,13 @@ export default function InstallerListPage() {
     }
   };
 
-  const handleRejectInstaller = async (instId: string) => {
+  const handleRejectInstaller = async (instId: string, stage: "stage1" | "stage2") => {
     if (!window.confirm("Are you sure you want to reject this installer registration?")) return;
     try {
-      const res = await deleteUserAction(instId);
+      const res =
+        stage === "stage2"
+          ? await rejectInstallerStage2Action(instId)
+          : await rejectInstallerStage1Action(instId);
       if (!res.success) throw new Error(res.error);
 
       const localProfiles = getLocalItems("profiles") || [];
@@ -902,32 +900,47 @@ export default function InstallerListPage() {
               <div className="flex items-center justify-between pt-4 border-t border-slate-100 mt-6">
                 <div className="flex items-center gap-2">
                   {(selectedInstaller.status === "pending_verification" || selectedInstaller.status === "pending") && (
-                    <button
-                      onClick={() => handleVerifyInstaller(selectedInstaller.id)}
-                      className="h-9 px-4 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-[6px] shadow transition-colors flex items-center gap-1.5"
-                    >
-                      <UserCheck className="w-3.5 h-3.5" />
-                      Verify Credentials (Stage 1)
-                    </button>
+                    <>
+                      {(currentUserProfile?.role === "retail_manager" || currentUserProfile?.role === "country_head" || currentUserProfile?.role === "admin") && (
+                        <button
+                          onClick={() => handleVerifyInstaller(selectedInstaller.id)}
+                          className="h-9 px-4 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-[6px] shadow transition-colors flex items-center gap-1.5"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          Verify Credentials (Stage 1)
+                        </button>
+                      )}
+                      {(currentUserProfile?.role === "retail_manager" || currentUserProfile?.role === "country_head" || currentUserProfile?.role === "admin") && (
+                        <button
+                          onClick={() => handleRejectInstaller(selectedInstaller.id, "stage1")}
+                          className="h-9 px-3.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-[6px] border border-rose-200 transition-colors"
+                        >
+                          Reject
+                        </button>
+                      )}
+                    </>
                   )}
 
                   {(selectedInstaller.status === "pending_approval" || selectedInstaller.status === "verified") && (
-                    <button
-                      onClick={() => handleApproveInstaller(selectedInstaller.id)}
-                      className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-[6px] shadow transition-colors flex items-center gap-1.5"
-                    >
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      Approve & Activate (Stage 2)
-                    </button>
-                  )}
-
-                  {selectedInstaller.status !== "active" && selectedInstaller.status !== "approved" && (
-                    <button
-                      onClick={() => handleRejectInstaller(selectedInstaller.id)}
-                      className="h-9 px-3.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-[6px] border border-rose-200 transition-colors"
-                    >
-                      Reject
-                    </button>
+                    <>
+                      {(currentUserProfile?.role === "country_head" || currentUserProfile?.role === "admin") && (
+                        <button
+                          onClick={() => handleApproveInstaller(selectedInstaller.id)}
+                          className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-[6px] shadow transition-colors flex items-center gap-1.5"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Approve & Activate (Stage 2)
+                        </button>
+                      )}
+                      {(currentUserProfile?.role === "country_head" || currentUserProfile?.role === "admin") && (
+                        <button
+                          onClick={() => handleRejectInstaller(selectedInstaller.id, "stage2")}
+                          className="h-9 px-3.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-[6px] border border-rose-200 transition-colors"
+                        >
+                          Reject
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
 

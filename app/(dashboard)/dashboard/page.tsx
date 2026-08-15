@@ -166,7 +166,6 @@ async function ReportingDashboard() {
   
   let jobsCount = 0;
   let claimsCount = 0;
-  let ticketsCount = 0;
   let activeJobs: any[] = [];
 
   try {
@@ -182,12 +181,6 @@ async function ReportingDashboard() {
       .eq("status", "pending");
     if (cCount !== null) claimsCount = cCount;
 
-    const { count: tCount } = await supabase
-      .from("support_tickets")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "open");
-    if (tCount !== null) ticketsCount = tCount;
-
     const { data: jobsData } = await supabase
       .from("installer_jobs")
       .select("*")
@@ -201,7 +194,6 @@ async function ReportingDashboard() {
     <ReportingDashboardClient
       jobsCount={jobsCount}
       claimsCount={claimsCount}
-      ticketsCount={ticketsCount}
       activeJobs={activeJobs}
     />
   );
@@ -630,39 +622,7 @@ export default async function DashboardPage() {
     console.warn("Error mapping region stats:", e);
   }
 
-  // 5. Low Stock Alerts & Aging Stock
-  let lowStockAlerts: any[] = [];
-  try {
-    const { data: allProducts } = await supabase.from("products").select("id, name, alert_quantity");
-    const { data: stockCounts } = await supabase.from("stock").select("product_id, quantity");
-
-    if (allProducts) {
-      const productStockSum: Record<string, number> = {};
-      stockCounts?.forEach(s => {
-        if (s.product_id) {
-          productStockSum[s.product_id] = (productStockSum[s.product_id] || 0) + (s.quantity || 0);
-        }
-      });
-
-      allProducts.forEach(p => {
-        const current = productStockSum[p.id] || 0;
-        const reorder = p.alert_quantity || 5;
-        if (current <= reorder) {
-          lowStockAlerts.push({
-            name: p.name,
-            current,
-            reorder,
-            unit: "units",
-            badge: current === 0 ? "Critical" : "Warning"
-          });
-        }
-      });
-      lowStockAlerts = lowStockAlerts.slice(0, 3);
-    }
-  } catch (e) {
-    console.warn("Error calculating low stock alerts:", e);
-  }
-
+  // 5. Aging Stock
   let agingStock: any[] = [];
   try {
     const { data: oldestStock } = await supabase
@@ -861,7 +821,7 @@ export default async function DashboardPage() {
         {/* Inventory & Stock Health Alerts */}
         <div className="lg:col-span-1">
           <Suspense fallback={<div className="h-64 bg-slate-100 rounded-[8px] animate-pulse"></div>}>
-            <InventoryHealthPanel lowStockAlerts={lowStockAlerts} agingStock={agingStock} />
+            <InventoryHealthPanel agingStock={agingStock} />
           </Suspense>
         </div>
 

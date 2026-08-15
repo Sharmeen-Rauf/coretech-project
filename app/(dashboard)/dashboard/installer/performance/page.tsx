@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
-import { Loader2, TrendingUp, DollarSign, Award, Percent } from "lucide-react";
+import { Loader2, Award, CheckCircle2, Trophy } from "lucide-react";
 import toast from "react-hot-toast";
  
 interface PerformanceRow {
@@ -134,8 +134,14 @@ export default function PerformancePage() {
  
   // Calculate summary metrics
   const totalTechnicians = data.length;
-  const avgCompletion = data.length > 0 ? Math.round(data.reduce((sum, item) => sum + item.completion_rate, 0) / data.length) : 0;
-  const totalPendingClaims = data.reduce((sum, item) => sum + item.pending_payments, 0);
+  const totalCompletedInstallations = data.reduce((sum, item) => sum + item.completed_jobs, 0);
+  const topInstaller = data.reduce(
+    (best: PerformanceRow | null, item) =>
+      !best || item.completed_jobs > best.completed_jobs ? item : best,
+    null
+  );
+  const topInstallerName =
+    topInstaller && topInstaller.completed_jobs > 0 ? topInstaller.name : "—";
  
   return (
     <div className="space-y-6 select-none">
@@ -153,28 +159,28 @@ export default function PerformancePage() {
             <Award className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Active Techs</p>
+            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Active Installers</p>
             <p className="text-lg font-extrabold text-slate-800">{totalTechnicians}</p>
           </div>
         </div>
- 
+
         <div className="bg-white border border-slate-200 rounded-[12px] p-5 shadow-sm flex items-center gap-4">
           <div className="p-3 bg-[#F0FAFE] text-[#00B4D8] rounded-[8px]">
-            <Percent className="w-5 h-5" />
+            <CheckCircle2 className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Avg Completion Rate</p>
-            <p className="text-lg font-extrabold text-slate-800">{avgCompletion}%</p>
+            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Completed Installations</p>
+            <p className="text-lg font-extrabold text-slate-800">{totalCompletedInstallations}</p>
           </div>
         </div>
- 
+
         <div className="bg-white border border-slate-200 rounded-[12px] p-5 shadow-sm flex items-center gap-4">
-          <div className="p-3 bg-rose-50 text-rose-500 rounded-[8px]">
-            <DollarSign className="w-5 h-5" />
+          <div className="p-3 bg-[#F0FAFE] text-[#00B4D8] rounded-[8px]">
+            <Trophy className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-rose-400 text-[10px] font-bold uppercase tracking-wider">Unpaid Job Claims</p>
-            <p className="text-lg font-extrabold text-rose-600">{totalPendingClaims} Ticket(s)</p>
+            <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Top Installer</p>
+            <p className="text-lg font-extrabold text-slate-800">{topInstallerName}</p>
           </div>
         </div>
       </div>
