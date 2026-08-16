@@ -6,7 +6,8 @@ import toast from "react-hot-toast";
 import { fetchSellOutAction, revertStockBySerialAction } from "@/app/actions/products";
 import { fetchRecordsAction, deleteRecordAction } from "@/app/actions/users";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
-import { Eye, X, Calendar, Clipboard, MapPin, User, Trash2 } from "lucide-react";
+import { Eye, X, Calendar, Clipboard, MapPin, User, Trash2, Plus } from "lucide-react";
+import ManualSelloutModal from "@/components/ManualSelloutModal";
 
 interface SellOutItem {
   id: string;
@@ -21,6 +22,8 @@ interface SellOutItem {
   site_address: string;
   sold_out_date: string;
   installation_id: string;
+  consumer_name: string;
+  consumer_phone: string;
   raw: any;
 }
 
@@ -31,6 +34,7 @@ export default function SellOutPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedInstallation, setSelectedInstallation] = useState<any>(null);
   const [isLoadingJob, setIsLoadingJob] = useState(false);
+  const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const perPage = 10;
 
   const fetchSellOuts = async () => {
@@ -65,8 +69,11 @@ export default function SellOutPage() {
         }
 
         const installer = row.installer;
-        const installerName = installer 
-          ? `${installer.first_name || ""} ${installer.last_name || ""}`.trim() 
+        const isManualEntry = !!row.consumer;
+        const installerName = isManualEntry
+          ? "Manual Entry"
+          : installer
+          ? `${installer.first_name || ""} ${installer.last_name || ""}`.trim()
           : "System Admin";
 
         return {
@@ -79,9 +86,11 @@ export default function SellOutPage() {
           warehouse_name: resolvedWh,
           installer_name: installerName || "-",
           installation_project: row.installation_project_title || "-",
-          site_address: row.deployment_site_address || "-",
+          site_address: row.deployment_site_address || row.consumer?.site_address || "-",
           sold_out_date: row.sold_out_at ? new Date(row.sold_out_at).toLocaleDateString() : "-",
           installation_id: row.installation_id,
+          consumer_name: row.consumer?.consumer_name || "-",
+          consumer_phone: row.consumer?.consumer_phone || "-",
           raw: row
         };
       });
@@ -175,7 +184,9 @@ export default function SellOutPage() {
       item.product_name.toLowerCase().includes(q) ||
       item.serial_no.toLowerCase().includes(q) ||
       item.installer_name.toLowerCase().includes(q) ||
-      item.installation_project.toLowerCase().includes(q)
+      item.installation_project.toLowerCase().includes(q) ||
+      item.consumer_name.toLowerCase().includes(q) ||
+      item.consumer_phone.toLowerCase().includes(q)
     );
   });
 
@@ -193,6 +204,8 @@ export default function SellOutPage() {
     { key: "warehouse_name", label: "Warehouse (Origin)" },
     { key: "installer_name", label: "Installer Name" },
     { key: "installation_project", label: "Installation Project" },
+    { key: "consumer_name", label: "Consumer Name" },
+    { key: "consumer_phone", label: "Consumer Phone" },
     { key: "site_address", label: "Site Address" },
     { key: "sold_out_date", label: "Sold Out Date" },
   ];
@@ -205,12 +218,19 @@ export default function SellOutPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Sell Out</h1>
           <p className="text-xs text-slate-500">
-            Track warehouse units that have been successfully deployed and sold out by installers.
+            Track units that have been sold out - deployed by installers or sold manually to a consumer.
           </p>
         </div>
+        <button
+          onClick={() => setIsManualModalOpen(true)}
+          className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Manual Sell Out
+        </button>
       </div>
 
-      <DynamicDataTable 
+      <DynamicDataTable
         allData={filtered}
         title="Sell Out Products Ledger"
         columns={columns}
@@ -247,6 +267,12 @@ export default function SellOutPage() {
             </button>
           </div>
         )}
+      />
+
+      <ManualSelloutModal
+        isOpen={isManualModalOpen}
+        onClose={() => setIsManualModalOpen(false)}
+        onSuccess={fetchSellOuts}
       />
 
       {/* View Installation Detail Modal */}

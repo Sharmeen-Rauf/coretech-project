@@ -3,22 +3,19 @@
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
-import { 
-  X, 
-  Loader2, 
-  ArrowLeft, 
-  CheckCircle, 
-  Trash2, 
-  Barcode, 
-  TrendingUp, 
-  Plus, 
-  MapPin, 
-  AlertCircle 
+import {
+  Loader2,
+  ArrowLeft,
+  Trash2,
+  Barcode,
+  Plus,
+  Download,
 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
-import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
+import { mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { fetchRecordsAction } from "@/app/actions/users";
+import { submitSt2Action, submitReturnAction, submitTransferAction } from "@/app/actions/sales";
 
 interface SalesPageProps {
   type: "ST1" | "ST2" | "return" | "transfer";
@@ -32,6 +29,8 @@ interface ScannedItem {
   productName: string;
   model: string;
   productId: string;
+  status?: "pass" | "fail";
+  reason?: string;
 }
 
 interface OrderDetailRow {
@@ -41,10 +40,26 @@ interface OrderDetailRow {
   quantity: number;
 }
 
+type PartyType = "warehouse" | "distributor" | "sub_dealer";
+
+interface ReturnLock {
+  sourceType: "distributor" | "sub_dealer";
+  sourceId: string;
+  sourceName: string;
+  destType: "distributor" | "warehouse";
+  destId: string;
+  destName: string;
+}
+
 export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: SalesPageProps) {
   const supabase = createClientComponentClient();
   const searchParams = useSearchParams();
   const mode = searchParams?.get("mode");
+
+  const isST1 = type === "ST1";
+  const isST2 = type === "ST2";
+  const isReturn = type === "return";
+  const isTransfer = type === "transfer";
 
   // View toggles
   const [isCreating, setIsCreating] = useState(false);
@@ -57,19 +72,31 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
 
   // Data states
   const [sales, setSales] = useState<any[]>([]);
-  const [distributors, setDistributors] = useState<any[]>([]);
-  const [warehouses, setWarehouses] = useState<string[]>([]);
+  const [distributors, setDistributors] = useState<any[]>([]); // includes region, used by Return
+  const [subDealers, setSubDealers] = useState<any[]>([]);
+  const [warehousesList, setWarehousesList] = useState<{ id: string; name: string }[]>([]);
+  const [regionWarehouseMap, setRegionWarehouseMap] = useState<Map<string, string>>(new Map());
+  const [callerProfile, setCallerProfile] = useState<{ id: string; role: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Form states
+  // NOTE: `warehouse` and `selectedDistributor` are reused across transaction
+  // types rather than adding parallel state per type, to keep validation/reset
+  // logic in one place:
+  //  - ST1: warehouse = source warehouse NAME, selectedDistributor = buyer distributor id.
+  //  - ST2: warehouse = source distributor id, selectedDistributor = destination sub dealer id.
+  //  - Transfer: warehouse = "From" entity id (or warehouse id), selectedDistributor = "To" entity id.
+  //  - Return: neither is used - both source and destination are auto-resolved into `returnLock`.
   const [seller, setSeller] = useState("CoreTECH HQ");
   const [selectedDistributor, setSelectedDistributor] = useState("");
   const [warehouse, setWarehouse] = useState("");
+  const [transferType, setTransferType] = useState<PartyType | "">("");
+  const [returnLock, setReturnLock] = useState<ReturnLock | null>(null);
   const [date, setDate] = useState(() => new Date().toLocaleDateString('en-CA'));
   const [remarks, setRemarks] = useState("");
-  
-  // IMEI scanning states
+
+  // Serial number scanning states
   const [imeiInput, setImeiInput] = useState("");
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [orderDetails, setOrderDetails] = useState<OrderDetailRow[]>([]);
@@ -82,22 +109,116 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 10;
 
-  // Fetch initial sales records, distributors & warehouses
+  const partyName = (t: PartyType, id: string | null) => {
+    if (!id) return "-";
+    if (t === "warehouse") return warehousesList.find(w => w.id === id)?.name || "-";
+    if (t === "distributor") {
+      const d = distributors.find(x => x.id === id);
+      return d ? `${d.first_name} ${d.last_name || ""}`.trim() : "-";
+    }
+    const s = subDealers.find(x => x.id === id);
+    return s ? `${s.first_name} ${s.last_name || ""}`.trim() : "-";
+  };
+
+  const resolveCurrentLocation = (dbRow: any): { type: PartyType; id: string | null; name: string } => {
+    if (dbRow.sub_dealer_id) return { type: "sub_dealer", id: dbRow.sub_dealer_id, name: partyName("sub_dealer", dbRow.sub_dealer_id) };
+    if (dbRow.distributor_id) return { type: "distributor", id: dbRow.distributor_id, name: partyName("distributor", dbRow.distributor_id) };
+    const wh = warehousesList.find(w => w.name === dbRow.warehouse_name);
+    return { type: "warehouse", id: wh?.id || null, name: dbRow.warehouse_name };
+  };
+
+  const resolveReturnParent = (current: { type: PartyType; id: string | null }) => {
+    if (current.type === "sub_dealer") {
+      const sd = subDealers.find(s => s.id === current.id);
+      if (!sd || !sd.distributor_id) return null;
+      return { type: "distributor" as const, id: sd.distributor_id, name: partyName("distributor", sd.distributor_id) };
+    }
+    if (current.type === "distributor") {
+      const dist = distributors.find(d => d.id === current.id);
+      const whName = dist?.region ? regionWarehouseMap.get(dist.region) : null;
+      const wh = whName ? warehousesList.find(w => w.name === whName) : null;
+      if (!wh) return null;
+      return { type: "warehouse" as const, id: wh.id, name: wh.name };
+    }
+    return null;
+  };
+
+  // Fetch initial sales records, distributors, sub dealers & warehouses
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch sales joined with distributor profile
+      let caller: { id: string; role: string } | null = null;
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: profile } = await supabase.from("profiles").select("role").eq("id", session.user.id).single();
+          if (profile) {
+            caller = { id: session.user.id, role: profile.role };
+            setCallerProfile(caller);
+          }
+        }
+      } catch (callerErr) {
+        console.warn("Failed to resolve caller identity", callerErr);
+      }
+
+      // 1. Distributors (includes region - needed by Return to resolve the warehouse a distributor's stock returns to)
+      let dbDists: any[] = [];
+      try {
+        const { data: distData, error: distErr } = await supabase
+          .from("profiles")
+          .select("id, first_name, last_name, region")
+          .eq("role", "distributor");
+        if (distErr) throw distErr;
+        dbDists = distData || [];
+      } catch (distErr) {
+        console.warn("Failed to fetch distributors.", distErr);
+      }
+      setDistributors(dbDists);
+
+      // 2. Sub dealers (Dealer Assignment relationship via distributor_id)
+      let dbSubDealers: any[] = [];
+      try {
+        const { data: subData, error: subErr } = await supabase
+          .from("profiles")
+          .select("id, first_name, last_name, distributor_id")
+          .eq("role", "sub_dealer");
+        if (subErr) throw subErr;
+        dbSubDealers = subData || [];
+      } catch (subErr) {
+        console.warn("Failed to fetch sub dealers.", subErr);
+      }
+      setSubDealers(dbSubDealers);
+
+      // 3. Region -> warehouse map, needed by Return to resolve which warehouse a
+      // distributor's stock returns to.
+      const regionWhMap = new Map<string, string>();
+      try {
+        const res = await fetchRecordsAction("regions");
+        if (res.success && res.data) {
+          res.data.forEach((r: any) => { if (r.name && r.warehouse) regionWhMap.set(r.name, r.warehouse); });
+        }
+      } catch (regionErr) {
+        console.warn("Failed to fetch regions.", regionErr);
+      }
+      setRegionWarehouseMap(regionWhMap);
+
+      // 4. Real warehouses table (id + name) - needed by ST1/Return/Transfer for a real source/destination id
+      let dbWarehousesList: { id: string; name: string }[] = [];
+      try {
+        const { data: whData, error: whErr } = await supabase.from("warehouses").select("id, name").order("name");
+        if (whErr) throw whErr;
+        dbWarehousesList = whData || [];
+      } catch (whErr) {
+        console.warn("Failed to fetch warehouses table.", whErr);
+      }
+      setWarehousesList(dbWarehousesList);
+
+      // 5. Sales ledger
       let dbSales: any[] = [];
       try {
-        const { data: salesData, error: salesErr } = await supabase
-          .from("sales")
-          .select(`
-            *,
-            distributor:profiles!distributor_id(first_name, last_name)
-          `)
-          .eq("type", type)
-          .order("created_at", { ascending: false });
-
+        let query = supabase.from("sales").select("*").eq("type", type);
+        if (isST2 && caller?.role === "distributor") query = query.eq("source_id", caller.id);
+        const { data: salesData, error: salesErr } = await query.order("created_at", { ascending: false });
         if (salesErr) throw salesErr;
         dbSales = salesData || [];
       } catch (dbErr) {
@@ -106,50 +227,26 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
 
       const mergedSales = mergeLocalItems(dbSales, "coretech_local_sales", (x: any) => x.type === type);
 
-      // 2. Fetch distributors for dropdown
-      let dbDists: any[] = [];
-      try {
-        const { data: distData, error: distErr } = await supabase
-          .from("profiles")
-          .select("id, first_name, last_name")
-          .eq("role", "distributor");
+      const distMap = new Map(dbDists.map((d: any) => [d.id, `${d.first_name} ${d.last_name || ""}`.trim()]));
+      const subDealerMap = new Map(dbSubDealers.map((s: any) => [s.id, `${s.first_name} ${s.last_name || ""}`.trim()]));
+      const warehouseMap = new Map(dbWarehousesList.map((w: any) => [w.id, w.name]));
 
-        if (distErr) throw distErr;
-        dbDists = distData || [];
-      } catch (distErr) {
-        console.warn("Failed to fetch distributors. Using local fallback.", distErr);
-        dbDists = [
-          { id: "dist_1", first_name: "Alpha", last_name: "Distributors" },
-          { id: "dist_2", first_name: "Bright", last_name: "Energy" }
-        ];
-      }
-
-      // 3. Fetch warehouses from regions to prefill selection options
-      let uniqueWHs: string[] = [];
-      try {
-        const res = await fetchRecordsAction("regions");
-        if (res.success && res.data) {
-          uniqueWHs = Array.from(new Set(res.data.map((r: any) => r.warehouse).filter(Boolean))) as string[];
-        }
-      } catch (regionErr) {
-        console.warn("Failed to fetch regions.", regionErr);
-      }
-
-      const localRegions = getLocalItems("coretech_local_regions");
-      const localWHs = localRegions.map((r: any) => r.warehouse).filter(Boolean);
-      const allWHs = Array.from(new Set([...uniqueWHs, ...localWHs]));
-      setWarehouses(allWHs);
+      const resolveName = (t: string, id: string | null) => {
+        if (!id) return "-";
+        if (t === "warehouse") return warehouseMap.get(id) || "-";
+        if (t === "distributor") return distMap.get(id) || "-";
+        if (t === "sub_dealer") return subDealerMap.get(id) || "-";
+        return "-";
+      };
 
       const formattedSales = (mergedSales || []).map((row: any, idx: number) => ({
         ...row,
         sno: String(idx + 1).padStart(2, "0"),
-        distributor_name: row.distributor
-          ? `${row.distributor.first_name} ${row.distributor.last_name || ""}`.trim()
-          : (row.local_distributor_name || "-"),
+        source_name: resolveName(row.source_type, row.source_id) !== "-" ? resolveName(row.source_type, row.source_id) : (row.local_source_name || "-"),
+        destination_name: resolveName(row.destination_type, row.destination_id) !== "-" ? resolveName(row.destination_type, row.destination_id) : (row.local_destination_name || "-"),
       }));
 
       setSales(formattedSales);
-      setDistributors(dbDists);
     } catch (err: any) {
       toast.error(err.message || "Failed to load data");
     } finally {
@@ -159,123 +256,176 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type]);
 
   const handleOpenCreateView = () => {
     setSelectedDistributor("");
-    setWarehouse("");
+    setWarehouse(isST2 && callerProfile?.role === "distributor" ? callerProfile.id : "");
+    setTransferType("");
+    setReturnLock(null);
     setRemarks("");
     setImeiInput("");
     setScannedItems([]);
     setOrderDetails([]);
-    // Default to today's date
     const today = new Date().toLocaleDateString('en-CA');
     setDate(today);
     setIsCreating(true);
   };
 
-  // Scan / Check IMEI input (supports bulk copy-paste split by comma/newline/tabs)
+  const clearScanIfNeeded = () => {
+    if (scannedItems.length > 0 || orderDetails.length > 0) {
+      setScannedItems([]);
+      setOrderDetails([]);
+      toast("Selection changed — scan record cleared.", { icon: "⚠️" });
+    }
+  };
+
+  // Changing the source (warehouse for ST1, distributor for ST2, From for
+  // Transfer) invalidates any already-checked pass/fail results.
+  const handleWarehouseChange = (value: string) => {
+    setWarehouse(value);
+    if (isST2) setSelectedDistributor("");
+    clearScanIfNeeded();
+  };
+
+  const handleTransferTypeChange = (value: PartyType | "") => {
+    setTransferType(value);
+    setWarehouse("");
+    setSelectedDistributor("");
+    clearScanIfNeeded();
+  };
+
+  const handleTransferFromChange = (value: string) => {
+    setWarehouse(value);
+    setSelectedDistributor("");
+    clearScanIfNeeded();
+  };
+
+  // Scan / Check serial number input (supports bulk copy-paste split by
+  // comma/newline/tabs/spaces, since that's how a pasted Excel column comes through).
   const handleCheckImei = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const cleanInput = imeiInput.trim();
     if (!cleanInput) return;
 
-    // Split by newlines, commas, semicolons, or tabs
-    const inputs = cleanInput.split(/[\n,;\t\r]+/).map(x => x.trim()).filter(Boolean);
+    if (isST1 && !warehouse) { toast.error("Select a warehouse first"); return; }
+    if (isST2 && !warehouse) { toast.error("Select a distributor first"); return; }
+    if (isTransfer && (!transferType || !warehouse)) { toast.error("Select a transfer type and source first"); return; }
+
+    const inputs = cleanInput.split(/[\s,;]+/).map(x => x.trim()).filter(Boolean);
     if (inputs.length === 0) return;
 
-    // Filter out items already scanned
     const newInputs = Array.from(new Set(inputs.filter(x => !scannedItems.some(item => item.imei === x))));
     const duplicatesCount = inputs.length - newInputs.length;
-    
+
     if (newInputs.length === 0) {
-      if (duplicatesCount > 0) {
-        toast.error("All entered IMEIs/SNs have already been scanned!");
-      }
+      if (duplicatesCount > 0) toast.error("All entered serial numbers have already been scanned!");
       setImeiInput("");
       return;
     }
 
     setIsCheckingImei(true);
     try {
-      // Fetch matching serials in bulk
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("stock")
         .select(`
           serial_no,
           product_id,
           model_no,
+          warehouse_name,
+          distributor_id,
+          sub_dealer_id,
           product:products(id, name, model)
         `)
         .in("serial_no", newInputs);
 
       const dbMap = new Map<string, any>();
-      if (data) {
-        data.forEach((row: any) => {
-          dbMap.set(row.serial_no, row);
-        });
-      }
+      if (data) data.forEach((row: any) => dbMap.set(row.serial_no, row));
 
       const itemsToAdd: ScannedItem[] = [];
-      let foundCount = 0;
-      let simulatedCount = 0;
+      let passCount = 0;
+      let failCount = 0;
+      let lockInProgress = returnLock;
+
+      const pushFail = (imei: string, dbRow: any, reason: string) => {
+        itemsToAdd.push({ imei, productName: dbRow?.product?.name || "-", model: dbRow?.product?.model || "-", productId: dbRow?.product_id || "", status: "fail", reason });
+        failCount++;
+      };
+      const pushPass = (dbRow: any) => {
+        itemsToAdd.push({
+          imei: dbRow.serial_no,
+          productName: dbRow.product?.name || "Stock Item",
+          model: dbRow.product?.model || dbRow.model_no || "Generic",
+          productId: dbRow.product_id,
+          status: "pass",
+        });
+        passCount++;
+      };
 
       newInputs.forEach(imei => {
         const dbRow = dbMap.get(imei);
-        if (dbRow) {
-          itemsToAdd.push({
-            imei: dbRow.serial_no,
-            productName: dbRow.product?.name || "Stock Item",
-            model: dbRow.product?.model || dbRow.model_no || "Generic",
-            productId: dbRow.product_id || "stock-item-id",
-          });
-          foundCount++;
-        } else {
-          // Fallback: If not found in stock cache, allow custom mockup creation
-          const isBattery = imei.toLowerCase().includes("bat") || imei.length % 2 === 0;
-          itemsToAdd.push({
-            imei: imei,
-            productName: isBattery ? "LiFePO4 Solar Battery 200Ah" : "CoreTECH Smart Inverter 10kW",
-            model: isBattery ? "LFP-200" : "SUN2000-10KTL",
-            productId: isBattery ? "dummy-battery-id" : "dummy-inverter-id",
-          });
-          simulatedCount++;
+        if (!dbRow) { pushFail(imei, dbRow, "Serial number not found"); return; }
+
+        if (isST1) {
+          if (dbRow.warehouse_name !== warehouse) { pushFail(imei, dbRow, `Not in ${warehouse} (currently in ${dbRow.warehouse_name})`); return; }
+          if (dbRow.distributor_id) { pushFail(imei, dbRow, "Already assigned to another distributor"); return; }
+          pushPass(dbRow);
+        } else if (isST2) {
+          if (dbRow.distributor_id !== warehouse) { pushFail(imei, dbRow, dbRow.distributor_id ? "Held by a different distributor" : "Not yet transferred to any distributor"); return; }
+          if (dbRow.sub_dealer_id) { pushFail(imei, dbRow, "Already assigned to another sub dealer"); return; }
+          pushPass(dbRow);
+        } else if (isReturn) {
+          const current = resolveCurrentLocation(dbRow);
+          if (current.type === "warehouse") { pushFail(imei, dbRow, "Already at the warehouse — nothing to return"); return; }
+          const parent = resolveReturnParent(current);
+          if (!parent) {
+            pushFail(imei, dbRow, current.type === "sub_dealer" ? "No distributor assigned to this sub dealer" : "No warehouse mapped to this distributor's region");
+            return;
+          }
+          if (!lockInProgress) {
+            lockInProgress = {
+              sourceType: current.type as "distributor" | "sub_dealer",
+              sourceId: current.id as string,
+              sourceName: current.name,
+              destType: parent.type as "distributor" | "warehouse",
+              destId: parent.id,
+              destName: parent.name,
+            };
+          } else if (lockInProgress.sourceType !== current.type || lockInProgress.sourceId !== current.id) {
+            pushFail(imei, dbRow, "Different origin — submit separately");
+            return;
+          }
+          pushPass(dbRow);
+        } else if (isTransfer) {
+          const current = resolveCurrentLocation(dbRow);
+          const fromMatches = transferType === "warehouse"
+            ? current.type === "warehouse" && current.id === warehouse
+            : current.type === transferType && current.id === warehouse;
+          if (!fromMatches) {
+            pushFail(imei, dbRow, `Not held by the selected source (currently ${current.type === "warehouse" ? `in ${current.name}` : `with ${current.name}`})`);
+            return;
+          }
+          pushPass(dbRow);
         }
       });
 
-      // 1. Add all to scanned log state
-      setScannedItems(prev => [...itemsToAdd, ...prev]);
+      if (isReturn && lockInProgress && lockInProgress !== returnLock) {
+        setReturnLock(lockInProgress);
+      }
 
-      // 2. Aggregate quantities in order details table
+      setScannedItems(prev => [...itemsToAdd, ...prev]);
       setOrderDetails(prev => {
         const updated = [...prev];
-        itemsToAdd.forEach(item => {
+        itemsToAdd.filter(item => item.status === "pass").forEach(item => {
           const idx = updated.findIndex(row => row.productName === item.productName);
-          if (idx >= 0) {
-            updated[idx].quantity += 1;
-          } else {
-            updated.push({
-              productId: item.productId,
-              productName: item.productName,
-              model: item.model,
-              quantity: 1,
-            });
-          }
+          if (idx >= 0) updated[idx].quantity += 1;
+          else updated.push({ productId: item.productId, productName: item.productName, model: item.model, quantity: 1 });
         });
         return updated;
       });
 
-      // Show toast summarizing action
-      if (newInputs.length === 1) {
-        if (foundCount === 1) {
-          toast.success("IMEI verified and added!");
-        } else {
-          toast.success("IMEI simulated and added!");
-        }
-      } else {
-        toast.success(`Bulk imported ${newInputs.length} items (${foundCount} verified, ${simulatedCount} simulated).`);
-      }
-
+      toast.success(`Checked ${newInputs.length} serial(s) — ${passCount} passed, ${failCount} failed.`);
       setImeiInput("");
     } catch (err) {
       console.error(err);
@@ -285,21 +435,31 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
     }
   };
 
+  const downloadRejectedCsv = () => {
+    const failed = scannedItems.filter(item => item.status === "fail");
+    if (failed.length === 0) return;
+    const headers = "Serial Number,Reason\n";
+    const rows = failed.map(item => `${item.imei},"${(item.reason || "").replace(/"/g, '""')}"`).join("\n");
+    const blob = new Blob([headers + rows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${stIdPrefix}_rejected_serials.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const removeScannedItem = (index: number) => {
     const itemToRemove = scannedItems[index];
-    
-    // 1. Remove from scanned log
     setScannedItems(prev => prev.filter((_, idx) => idx !== index));
-
-    // 2. Decrement or remove from order details
+    if (itemToRemove.status === "fail") return;
     setOrderDetails(prev => {
       const idx = prev.findIndex(item => item.productName === itemToRemove.productName);
       if (idx >= 0) {
         const updated = [...prev];
         updated[idx].quantity -= 1;
-        if (updated[idx].quantity <= 0) {
-          return updated.filter((_, i) => i !== idx);
-        }
+        if (updated[idx].quantity <= 0) return updated.filter((_, i) => i !== idx);
         return updated;
       }
       return prev;
@@ -308,55 +468,85 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
 
   const handleCreateSales = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedDistributor) {
-      toast.error("Distributor (Buyer) selection is required");
-      return;
+
+    if (isST2) {
+      if (!warehouse) { toast.error("Distributor selection is required"); return; }
+      if (!selectedDistributor) { toast.error("Sub Dealer selection is required"); return; }
+    } else if (isST1) {
+      if (!selectedDistributor) { toast.error("Distributor (Buyer) selection is required"); return; }
+      if (!warehouse.trim()) { toast.error("Warehouse Name is required"); return; }
+    } else if (isTransfer) {
+      if (!transferType) { toast.error("Transfer type is required"); return; }
+      if (!warehouse) { toast.error("Transfer From is required"); return; }
+      if (!selectedDistributor) { toast.error("Transfer To is required"); return; }
+    } else if (isReturn) {
+      if (!returnLock) { toast.error("Check at least one serial number first"); return; }
     }
-    if (!warehouse.trim()) {
-      toast.error("Warehouse Name is required");
-      return;
-    }
-    if (scannedItems.length === 0) {
-      toast.error("Please scan or check at least one IMEI/SN before submitting.");
+
+    const passedItems = scannedItems.filter(item => item.status === "pass");
+    if (passedItems.length === 0) {
+      toast.error("Please check at least one passing serial number before submitting.");
       return;
     }
 
     setIsSubmitting(true);
     try {
-      // Auto-generate ST ID suffix sequentially
       const nextIdNum = 12 + sales.length;
       const stId = `${stIdPrefix}${nextIdNum}`;
+      const passedForAction = passedItems.map(item => ({ serial_no: item.imei, product_id: item.productId }));
 
-      const matchedDist = distributors.find(d => d.id === selectedDistributor);
-      const distName = matchedDist ? `${matchedDist.first_name} ${matchedDist.last_name || ""}`.trim() : "-";
-
-      const payload = {
-        type,
-        distributor_id: selectedDistributor,
-        warehouse: warehouse.trim(),
-        st_id: stId,
-        date,
-      };
-
-      try {
-        const { error } = await supabase.from("sales").insert(payload);
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Database sales insert failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_sales", {
-          ...payload,
-          local_distributor_name: distName,
+      if (isST2) {
+        const res = await submitSt2Action({ distributorId: warehouse, subDealerId: selectedDistributor, passedItems: passedForAction, date, stId });
+        if (!res.success) throw new Error(res.error || "Failed to save transaction");
+      } else if (isReturn) {
+        if (!returnLock) throw new Error("Nothing resolved to return");
+        const res = await submitReturnAction({
+          sourceType: returnLock.sourceType,
+          sourceId: returnLock.sourceId,
+          destType: returnLock.destType,
+          destId: returnLock.destId,
+          passedItems: passedForAction,
+          date,
+          stId,
         });
-      }
+        if (!res.success) throw new Error(res.error || "Failed to save transaction");
+      } else if (isTransfer) {
+        const res = await submitTransferAction({ transferType: transferType as PartyType, fromId: warehouse, toId: selectedDistributor, passedItems: passedForAction, date, stId });
+        if (!res.success) throw new Error(res.error || "Failed to save transaction");
+      } else if (isST1) {
+        const passedSerials = passedItems.map(item => item.imei);
+        const { data: transferred, error: transferErr } = await supabase
+          .from("stock")
+          .update({ distributor_id: selectedDistributor })
+          .in("serial_no", passedSerials)
+          .eq("warehouse_name", warehouse)
+          .is("distributor_id", null)
+          .select("id, product_id, serial_no");
 
-      // Log activity safely
-      try {
-        await supabase.from("activity_logs").insert({
-          action: `Create ${type} Ledger`,
-          details: `${type} transaction ID "${stId}" successfully created in warehouse "${warehouse}" for distributor. Scanned ${scannedItems.length} units.`,
-        });
-      } catch (logErr) {
-        console.warn("Activity log failed:", logErr);
+        if (transferErr) throw transferErr;
+        if (!transferred || transferred.length !== passedSerials.length) {
+          throw new Error(`Only ${transferred?.length || 0} of ${passedSerials.length} units could be transferred — some may have already been claimed by another order. Please re-check serials and try again.`);
+        }
+
+        const warehouseRow = warehousesList.find(w => w.name === warehouse);
+        const { data: saleRow, error: saleErr } = await supabase
+          .from("sales")
+          .insert({ type, source_type: "warehouse", source_id: warehouseRow?.id || null, destination_type: "distributor", destination_id: selectedDistributor, st_id: stId, date })
+          .select("id")
+          .single();
+        if (saleErr) throw saleErr;
+
+        const itemRows = transferred.map((t: any) => ({ sale_id: saleRow.id, stock_id: t.id, product_id: t.product_id }));
+        if (itemRows.length > 0) {
+          const { error: itemsErr } = await supabase.from("sale_items").insert(itemRows);
+          if (itemsErr) throw itemsErr;
+        }
+
+        try {
+          await supabase.from("activity_logs").insert({ action: `Create ${type} Ledger`, details: `${type} transaction ID "${stId}" transferred ${transferred.length} units from warehouse "${warehouse}" to distributor.` });
+        } catch (logErr) {
+          console.warn("Activity log failed:", logErr);
+        }
       }
 
       toast.success(`${title} transaction successfully created!`);
@@ -369,52 +559,41 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
     }
   };
 
-  // Filter operations
   const filtered = sales.filter((item) => {
     const q = searchQuery.toLowerCase().trim();
-    const matchesSearch = q
-      ? item.st_id?.toLowerCase().includes(q) ||
-        item.warehouse?.toLowerCase().includes(q) ||
-        item.distributor_name?.toLowerCase().includes(q)
-      : true;
-
-    const matchesDistributor = filterDistributor
-      ? item.distributor_name === filterDistributor
-      : true;
-
-    const matchesWarehouse = filterWarehouse
-      ? item.warehouse === filterWarehouse
-      : true;
-
+    const matchesSearch = q ? item.st_id?.toLowerCase().includes(q) || item.source_name?.toLowerCase().includes(q) || item.destination_name?.toLowerCase().includes(q) : true;
+    const matchesDistributor = filterDistributor ? item.destination_name === filterDistributor : true;
+    const matchesWarehouse = filterWarehouse ? item.source_name === filterWarehouse : true;
     return matchesSearch && matchesDistributor && matchesWarehouse;
   });
 
-  const paginated = filtered.slice(
-    (currentPage - 1) * perPage,
-    currentPage * perPage
-  );
+  const paginated = filtered.slice((currentPage - 1) * perPage, currentPage * perPage);
 
   const columns = [
     { key: "sno", label: "S.No" },
     { key: "date", label: "Date" },
-    { key: "distributor_name", label: "Distributor" },
-    { key: "warehouse", label: "Warehouse" },
+    { key: "source_name", label: "Source" },
+    { key: "destination_name", label: "Destination" },
     { key: "st_id", label: `${type.toUpperCase()} ID` },
   ];
 
-  const uniqueWarehouses = Array.from(new Set(sales.map((s: any) => s.warehouse).filter(Boolean))) as string[];
-  const uniqueDistributorNames = Array.from(new Set(sales.map((s: any) => s.distributor_name).filter(Boolean))) as string[];
+  const uniqueWarehouses = Array.from(new Set(sales.map((s: any) => s.source_name).filter(Boolean))) as string[];
+  const uniqueDistributorNames = Array.from(new Set(sales.map((s: any) => s.destination_name).filter(Boolean))) as string[];
+
+  const isLockedDistributorCaller = isST2 && callerProfile?.role === "distributor";
+  const callerDisplayName = isLockedDistributorCaller ? distributors.find(d => d.id === callerProfile?.id) : null;
+  const availableSubDealers = subDealers.filter(s => s.distributor_id === warehouse);
+
+  const transferFromOptions = transferType === "warehouse" ? warehousesList : transferType === "distributor" ? distributors : transferType === "sub_dealer" ? subDealers : [];
+  const transferToOptions = transferFromOptions.filter((o: any) => o.id !== warehouse);
 
   return (
     <div className="space-y-6 select-none">
-      {/* Header breadcrumb / title block */}
       {!isCreating ? (
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
-            <p className="text-xs text-slate-500">
-              Manage and track details for your {title} transactions.
-            </p>
+            <p className="text-xs text-slate-500">Manage and track details for your {title} transactions.</p>
           </div>
           <button
             onClick={handleOpenCreateView}
@@ -426,166 +605,154 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
         </div>
       ) : (
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsCreating(false)}
-            className="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-full transition-colors"
-          >
+          <button onClick={() => setIsCreating(false)} className="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-full transition-colors">
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Sales / {type} Dispatch Form</h1>
-            <p className="text-xs text-slate-500">
-              Scan serial numbers and verify delivery quantities before warehouse shipment.
-            </p>
+            <p className="text-xs text-slate-500">Scan serial numbers and verify delivery quantities before shipment.</p>
           </div>
         </div>
       )}
 
-      {/* Main conditional layouts */}
       {!isCreating ? (
-        /* Ledger List Table View */
         <DataTable
           title={`${title} Ledger`}
           columns={columns}
           data={paginated}
           isLoading={isLoading}
-          searchPlaceholder={`Search ${type.toUpperCase()} ID or warehouse...`}
-          onSearch={(q) => {
-            setSearchQuery(q);
-            setCurrentPage(1);
-          }}
+          searchPlaceholder={`Search ${type.toUpperCase()} ID...`}
+          onSearch={(q) => { setSearchQuery(q); setCurrentPage(1); }}
           filters={[
-            {
-              label: "Distributor",
-              options: uniqueDistributorNames,
-              value: filterDistributor,
-              onChange: (val) => {
-                setFilterDistributor(val);
-                setCurrentPage(1);
-              },
-            },
-            {
-              label: "Warehouse",
-              options: uniqueWarehouses,
-              value: filterWarehouse,
-              onChange: (val) => {
-                setFilterWarehouse(val);
-                setCurrentPage(1);
-              },
-            },
+            { label: "Destination", options: uniqueDistributorNames, value: filterDistributor, onChange: (val) => { setFilterDistributor(val); setCurrentPage(1); } },
+            { label: "Source", options: uniqueWarehouses, value: filterWarehouse, onChange: (val) => { setFilterWarehouse(val); setCurrentPage(1); } },
           ]}
-          pagination={{
-            current: currentPage,
-            total: filtered.length,
-            perPage: perPage,
-            onChange: (page) => setCurrentPage(page),
-          }}
+          pagination={{ current: currentPage, total: filtered.length, perPage: perPage, onChange: (page) => setCurrentPage(page) }}
         />
       ) : (
-        /* Dedicated Full-Page Creation Form View */
         <form onSubmit={handleCreateSales} className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          
-          {/* Column 1 & 2: Basic Info + Order Details */}
+
           <div className="lg:col-span-2 space-y-6">
-            
-            {/* Basic Info Card */}
+
             <div className="bg-white border border-slate-150 rounded-[8px] p-6 shadow-sm space-y-4">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-2">
-                Basic Info
-              </h3>
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-2">Basic Info</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Seller
-                  </label>
-                  <input
-                    type="text"
-                    value={seller}
-                    onChange={(e) => setSeller(e.target.value)}
-                    className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
-                  />
-                </div>
+                {!isST2 && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Seller</label>
+                    <input type="text" value={seller} onChange={(e) => setSeller(e.target.value)} className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]" />
+                  </div>
+                )}
+
+                {isST1 && (
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Warehouse Name*</label>
+                      <select value={warehouse} onChange={(e) => handleWarehouseChange(e.target.value)} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]" required>
+                        <option value="">Select Warehouse</option>
+                        {warehousesList.map((wh) => (<option key={wh.id} value={wh.name}>{wh.name}</option>))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Buyer (Distributor)*</label>
+                      <select value={selectedDistributor} onChange={(e) => setSelectedDistributor(e.target.value)} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]" required>
+                        <option value="">Select Distributor</option>
+                        {distributors.map((d) => (<option key={d.id} value={d.id}>{d.first_name} {d.last_name || ""}</option>))}
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                {isST2 && (
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Distributor Name*</label>
+                      {isLockedDistributorCaller ? (
+                        <div className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-500 bg-slate-50 flex items-center">
+                          {callerDisplayName ? `${callerDisplayName.first_name} ${callerDisplayName.last_name || ""}`.trim() : "You"}
+                        </div>
+                      ) : (
+                        <select value={warehouse} onChange={(e) => handleWarehouseChange(e.target.value)} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]" required>
+                          <option value="">Select Distributor</option>
+                          {distributors.map((d) => (<option key={d.id} value={d.id}>{d.first_name} {d.last_name || ""}</option>))}
+                        </select>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Sub Dealer*</label>
+                      <select value={selectedDistributor} onChange={(e) => setSelectedDistributor(e.target.value)} disabled={!warehouse} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] disabled:bg-slate-50 disabled:text-slate-400" required>
+                        <option value="">{!warehouse ? "Select a distributor first" : availableSubDealers.length === 0 ? "No sub dealers assigned" : "Select Sub Dealer"}</option>
+                        {availableSubDealers.map((s) => (<option key={s.id} value={s.id}>{s.first_name} {s.last_name || ""}</option>))}
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                {isReturn && (
+                  <div className="md:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Source / Destination</label>
+                    {returnLock ? (
+                      <div className="flex items-center gap-3 text-xs">
+                        <span className="px-3 h-9 flex items-center border border-slate-200 rounded-[6px] bg-slate-50 text-slate-700 font-semibold">{returnLock.sourceName}</span>
+                        <ArrowLeft className="w-3.5 h-3.5 text-slate-400 rotate-180" />
+                        <span className="px-3 h-9 flex items-center border border-slate-200 rounded-[6px] bg-slate-50 text-slate-700 font-semibold">{returnLock.destName}</span>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic py-2">Scan a serial number below — the source and destination are detected automatically.</p>
+                    )}
+                  </div>
+                )}
+
+                {isTransfer && (
+                  <>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Transfer Type*</label>
+                      <select value={transferType} onChange={(e) => handleTransferTypeChange(e.target.value as PartyType | "")} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]" required>
+                        <option value="">Select Type</option>
+                        <option value="warehouse">Warehouse ↔ Warehouse</option>
+                        <option value="distributor">Distributor ↔ Distributor</option>
+                        <option value="sub_dealer">Sub Dealer ↔ Sub Dealer</option>
+                      </select>
+                    </div>
+                    <div />
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Transfer From*</label>
+                      <select value={warehouse} onChange={(e) => handleTransferFromChange(e.target.value)} disabled={!transferType} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] disabled:bg-slate-50 disabled:text-slate-400" required>
+                        <option value="">{!transferType ? "Select a type first" : "Select Source"}</option>
+                        {transferFromOptions.map((o: any) => (<option key={o.id} value={o.id}>{o.name || `${o.first_name} ${o.last_name || ""}`}</option>))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Transfer To*</label>
+                      <select value={selectedDistributor} onChange={(e) => setSelectedDistributor(e.target.value)} disabled={!warehouse} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] disabled:bg-slate-50 disabled:text-slate-400" required>
+                        <option value="">{!warehouse ? "Select a source first" : "Select Destination"}</option>
+                        {transferToOptions.map((o: any) => (<option key={o.id} value={o.id}>{o.name || `${o.first_name} ${o.last_name || ""}`}</option>))}
+                      </select>
+                    </div>
+                  </>
+                )}
 
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Warehouse Name*
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Enter warehouse name or select"
-                    list="warehouse-list"
-                    value={warehouse}
-                    onChange={(e) => setWarehouse(e.target.value)}
-                    className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
-                    required
-                  />
-                  <datalist id="warehouse-list">
-                    {warehouses.map((wh, idx) => (
-                      <option key={idx} value={wh} />
-                    ))}
-                  </datalist>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Buyer (Distributor)*
-                  </label>
-                  <select
-                    value={selectedDistributor}
-                    onChange={(e) => setSelectedDistributor(e.target.value)}
-                    className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
-                    required
-                  >
-                    <option value="">Select Distributor</option>
-                    {distributors.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.first_name} {d.last_name || ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Delivery Date*
-                  </label>
-                  <input
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
-                    required
-                  />
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Delivery Date*</label>
+                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]" required />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Order ID Remark
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter remarks or order reference note..."
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
-                />
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Order ID Remark</label>
+                <input type="text" placeholder="Enter remarks or order reference note..." value={remarks} onChange={(e) => setRemarks(e.target.value)} className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]" />
               </div>
             </div>
 
-            {/* Order Detail Summary Table Card */}
             <div className="bg-white border border-slate-150 rounded-[8px] overflow-hidden shadow-sm flex flex-col justify-between">
               <div className="p-4 border-b border-slate-100 bg-slate-50/30">
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  Order Detail
-                </h3>
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Order Summary</h3>
               </div>
               <div className="overflow-x-auto min-h-[160px]">
                 <table className="w-full text-left border-collapse text-xs select-none">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50/10">
                       <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider">Product</th>
-                      <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider">Model</th>
                       <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider text-right">Delivery Quantity</th>
                     </tr>
                   </thead>
@@ -593,128 +760,95 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
                     {orderDetails.map((row) => (
                       <tr key={row.productId} className="hover:bg-slate-50/30 transition-colors">
                         <td className="px-5 py-3 font-bold text-slate-800">{row.productName}</td>
-                        <td className="px-5 py-3 text-slate-500">{row.model}</td>
                         <td className="px-5 py-3 text-right font-bold text-[#00B4D8]">{row.quantity} Units</td>
                       </tr>
                     ))}
                     {orderDetails.length === 0 && (
-                      <tr>
-                        <td colSpan={3} className="px-5 py-12 text-center text-slate-400 italic">
-                          No Data. Scan or verify serial numbers to populate details.
-                        </td>
-                      </tr>
+                      <tr><td colSpan={2} className="px-5 py-12 text-center text-slate-400 italic">No Data. Scan or verify serial numbers to populate details.</td></tr>
                     )}
                   </tbody>
                 </table>
               </div>
-            </div>
-          </div>
 
-          {/* Column 3: IMEI Scanning + Scan Record */}
-          <div className="space-y-6">
-            
-            {/* IMEI Scanner block */}
-            <div className="bg-white border border-slate-150 rounded-[8px] p-6 shadow-sm space-y-4">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-2 flex items-center gap-1.5">
-                <Barcode className="w-4 h-4 text-[#00B4D8]" />
-                IMEI / BoxID / SN
-              </h3>
-
-              <div className="space-y-3">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                  Please enter IMEI/BoxID/SN, press enter or Check button to check
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Enter IMEI or Scan..."
-                    value={imeiInput}
-                    onChange={(e) => setImeiInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        handleCheckImei();
-                      }
-                    }}
-                    className="flex-1 h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleCheckImei()}
-                    disabled={isCheckingImei}
-                    className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-bold rounded-[6px] shadow flex items-center justify-center transition-colors min-w-[70px]"
-                  >
-                    {isCheckingImei ? <Loader2 className="w-4 h-4 animate-spin" /> : "Check"}
-                  </button>
-                </div>
-                <div className="flex items-start gap-1.5 text-[9px] text-amber-600 font-semibold leading-normal bg-amber-50/50 p-2.5 rounded-[6px] border border-amber-100">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  <span>No more than 2000 IMEIs per order. Please submit in time after completion.</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Delivery Quantity counter card */}
-            <div className="bg-gradient-to-tr from-[#0077B6] to-[#00B4D8] text-white border border-[#00B4D8]/20 rounded-[8px] p-5 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[10px] font-bold text-cyan-100 uppercase tracking-wider">Delivery Quantity</p>
-                <p className="text-3xl font-extrabold tracking-tight mt-1">
-                  {scannedItems.length}
-                </p>
-              </div>
-              <Barcode className="w-12 h-12 opacity-30 text-white" />
-            </div>
-
-            {/* Scan Record logs */}
-            <div className="bg-white border border-slate-150 rounded-[8px] p-5 shadow-sm space-y-3 flex flex-col justify-between">
-              <div>
-                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-2 mb-2">
-                  Scan Record
-                </h3>
-                <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
-                  {scannedItems.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-[6px] border border-slate-100 text-xs">
-                      <div>
-                        <p className="font-bold text-slate-800">{item.imei}</p>
-                        <p className="text-[9px] text-slate-400 font-bold mt-0.5">{item.productName} ({item.model})</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeScannedItem(idx)}
-                        className="p-1 text-rose-500 hover:bg-rose-50 rounded transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {scannedItems.length === 0 && (
-                    <div className="text-center py-8 text-slate-400 italic text-xs">
-                      No Record.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Submit operations */}
-              <div className="flex items-center gap-3 pt-4 border-t border-slate-100 mt-4">
-                <button
-                  type="button"
-                  onClick={() => setIsCreating(false)}
-                  className="flex-1 h-10 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-[6px] transition-colors"
-                >
+              {/* Submit operations - relocated to the bottom of Order Summary */}
+              <div className="flex items-center gap-3 p-4 border-t border-slate-100">
+                <button type="button" onClick={() => setIsCreating(false)} className="flex-1 h-10 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-[6px] transition-colors">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || scannedItems.length === 0}
-                  className="flex-[2] h-10 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/60 text-white font-semibold text-xs rounded-[6px] shadow flex items-center justify-center gap-1.5 transition-colors"
-                >
+                <button type="submit" disabled={isSubmitting || scannedItems.filter(i => i.status === "pass").length === 0} className="flex-[2] h-10 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/60 text-white font-semibold text-xs rounded-[6px] shadow flex items-center justify-center gap-1.5 transition-colors">
                   {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   Submit Order
                 </button>
               </div>
             </div>
+          </div>
 
+          <div className="space-y-6">
+            <div className="bg-white border border-slate-150 rounded-[8px] p-6 shadow-sm space-y-4">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-2 flex items-center gap-1.5">
+                <Barcode className="w-4 h-4 text-[#00B4D8]" />
+                BOXID / SN
+              </h3>
+              <div className="space-y-3">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Please enter Serial Number(s), press enter or Check button to check</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Enter Serial Number"
+                    value={imeiInput}
+                    onChange={(e) => setImeiInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCheckImei(); } }}
+                    className="flex-1 h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                  <button type="button" onClick={() => handleCheckImei()} disabled={isCheckingImei} className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-bold rounded-[6px] shadow flex items-center justify-center transition-colors min-w-[70px]">
+                    {isCheckingImei ? <Loader2 className="w-4 h-4 animate-spin" /> : "Check"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-tr from-[#0077B6] to-[#00B4D8] text-white border border-[#00B4D8]/20 rounded-[8px] p-5 shadow-sm flex items-center justify-between">
+              <div>
+                <p className="text-[10px] font-bold text-cyan-100 uppercase tracking-wider">Delivery Quantity</p>
+                <p className="text-3xl font-extrabold tracking-tight mt-1">{scannedItems.filter(i => i.status === "pass").length}</p>
+              </div>
+              <Barcode className="w-12 h-12 opacity-30 text-white" />
+            </div>
+
+            <div className="bg-white border border-slate-150 rounded-[8px] p-5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Scan Record</h3>
+                {scannedItems.some(i => i.status === "fail") && (
+                  <button type="button" onClick={downloadRejectedCsv} className="flex items-center gap-1 text-[10px] font-bold text-rose-600 hover:underline">
+                    <Download className="w-3 h-3" />
+                    Download Rejected CSV
+                  </button>
+                )}
+              </div>
+              <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
+                {scannedItems.map((item, idx) => (
+                  <div key={idx} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-[6px] border border-slate-100 text-xs">
+                    <div>
+                      <p className="font-bold text-slate-800">{item.imei}</p>
+                      {item.status === "fail" ? (
+                        <p className="text-[9px] text-rose-500 font-bold mt-0.5">{item.reason}</p>
+                      ) : (
+                        <p className="text-[9px] text-slate-400 font-bold mt-0.5">{item.productName} ({item.model})</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full ${item.status === "fail" ? "bg-rose-50 text-rose-600 border border-rose-200" : "bg-emerald-50 text-emerald-600 border border-emerald-200"}`}>
+                        {item.status === "fail" ? "Fail" : "Pass"}
+                      </span>
+                      <button type="button" onClick={() => removeScannedItem(idx)} className="p-1 text-rose-500 hover:bg-rose-50 rounded transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {scannedItems.length === 0 && (<div className="text-center py-8 text-slate-400 italic text-xs">No Record.</div>)}
+              </div>
+            </div>
           </div>
         </form>
       )}

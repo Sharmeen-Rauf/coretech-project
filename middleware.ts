@@ -181,6 +181,7 @@ export async function middleware(request: NextRequest) {
         '/dashboard/purchase/import-stock',
         '/dashboard/purchase/inventory',
         '/dashboard/sales/st1',
+        '/dashboard/sales/st2',
         '/dashboard/buzzcart/orders',
         '/dashboard/buzzcart/create',
         '/dashboard/users',

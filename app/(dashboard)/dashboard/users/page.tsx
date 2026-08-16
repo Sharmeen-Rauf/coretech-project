@@ -6,6 +6,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import AdminPasswordReset from "@/components/AdminPasswordReset";
+import DealerAssignment from "@/components/DealerAssignment";
 import toast from "react-hot-toast";
 import { deleteUserAction, fetchEmailsByIdsAction } from "@/app/actions/users";
 
@@ -101,7 +102,7 @@ export default function UsersPage() {
   };
 
   useEffect(() => {
-    if (activeRole === "reset_password") return;
+    if (activeRole === "reset_password" || activeRole === "dealer_assignment") return;
     fetchUsers();
     setCurrentPage(1);
     setSearchQuery("");
@@ -175,8 +176,8 @@ export default function UsersPage() {
   );
 
   const columns = [
-    { key: "first_name", label: activeRole === "distributor" ? "Distributor Name" : "First Name" },
-    { key: "last_name", label: activeRole === "distributor" ? "Owner Name" : "Last Name" },
+    { key: "first_name", label: activeRole === "distributor" ? "Distributor Name" : activeRole === "sub_dealer" ? "Sub Dealer Name" : "First Name" },
+    { key: "last_name", label: (activeRole === "distributor" || activeRole === "sub_dealer") ? "Owner Name" : "Last Name" },
     { key: "email", label: "Email Address" },
     {
       key: "designation",
@@ -258,6 +259,28 @@ export default function UsersPage() {
           </p>
         </div>
         <AdminPasswordReset />
+      </div>
+    );
+  }
+
+  if (activeRole === "dealer_assignment") {
+    if (currentUserProfile && currentUserProfile.role !== "admin") {
+      return (
+        <div className="space-y-2 select-none">
+          <h1 className="text-2xl font-bold text-slate-800">Dealer Assignment</h1>
+          <p className="text-xs text-rose-500 font-semibold">Only admins can access this page.</p>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-6 select-none">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Dealer Assignment</h1>
+          <p className="text-xs text-slate-500">
+            Map sub dealers to the distributor they operate under.
+          </p>
+        </div>
+        <DealerAssignment />
       </div>
     );
   }

@@ -96,9 +96,17 @@ export async function fetchProductsAction(category?: string) {
 export async function fetchStockAction() {
   const supabase = getAdminClient();
   try {
-    const { data, error } = await supabase
-      .from("stock")
-      .select(`
+    // A unit stays "in inventory" its whole life - warehouse, then distributor,
+    // then sub dealer - only truly leaving once it's sold out. Which slice of
+    // that pool shows up here depends on who's asking: a distributor sees only
+    // what's currently theirs, a sub dealer likewise, and everyone else (the
+    // warehouse-facing view) sees only stock nobody has claimed yet. A unit can
+    // only ever have a sub_dealer_id if it already has a distributor_id (that's
+    // enforced by how ST2's transfer is written), so the warehouse view's single
+    // "no distributor_id" filter already excludes both later stages correctly.
+    const caller = await getCallerIdentity();
+
+    let query = supabase.from("stock").select(`
         id,
         serial_no,
         model_no,
@@ -114,8 +122,17 @@ export async function fetchStockAction() {
           model,
           price
         )
-      `)
-      .order("created_at", { ascending: false });
+      `);
+
+    if (caller?.role === "distributor") {
+      query = query.eq("distributor_id", caller.id).is("sub_dealer_id", null);
+    } else if (caller?.role === "sub_dealer") {
+      query = query.eq("sub_dealer_id", caller.id);
+    } else {
+      query = query.is("distributor_id", null);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
     if (error) throw error;
     return { success: true, data: data || [] };
   } catch (err: any) {
@@ -232,9 +249,8 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
   }
 
   const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
   const client = new Client({
-    connectionString,
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
 
@@ -449,7 +465,31 @@ export async function fetchSellOutAction() {
       .order("sold_out_at", { ascending: false });
 
     if (error) throw error;
-    return { success: true, data: data || [] };
+
+    // A manually-sold-out unit has no installer job, but does have a matching
+    // sales/sale_items row (type='sellout') carrying the consumer's details -
+    // enrich each stock row with that, where it exists.
+    const stockIds = (data || []).map((r: any) => r.id);
+    const consumerMap = new Map<string, { consumer_name: string; consumer_phone: string; site_address: string | null }>();
+    if (stockIds.length > 0) {
+      const { data: items } = await supabase.from("sale_items").select("stock_id, sale_id").in("stock_id", stockIds);
+      const saleIds = Array.from(new Set((items || []).map((i: any) => i.sale_id)));
+      if (saleIds.length > 0) {
+        const { data: salesRows } = await supabase
+          .from("sales")
+          .select("id, consumer_name, consumer_phone, site_address")
+          .in("id", saleIds)
+          .eq("type", "sellout");
+        const saleMap = new Map((salesRows || []).map((s: any) => [s.id, s]));
+        (items || []).forEach((i: any) => {
+          const sale = saleMap.get(i.sale_id);
+          if (sale) consumerMap.set(i.stock_id, sale);
+        });
+      }
+    }
+
+    const enriched = (data || []).map((row: any) => ({ ...row, consumer: consumerMap.get(row.id) || null }));
+    return { success: true, data: enriched };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch sell out stock", data: [] };
   }
@@ -470,9 +510,8 @@ export async function bulkImportStockAction(
   }
 
   const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
   const client = new Client({
-    connectionString,
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
 
@@ -488,10 +527,21 @@ export async function bulkImportStockAction(
       if (p.code) codeMap.set(p.code.toLowerCase().trim(), p.id);
     });
 
+    // A warehouse must be one of the real, currently-registered warehouses (sourced
+    // from regions.warehouse - there's no separate hardcoded warehouse list, so a
+    // newly added region's warehouse is automatically accepted here too).
+    const whRes = await client.query(`SELECT DISTINCT warehouse FROM public.regions WHERE warehouse IS NOT NULL;`);
+    const canonicalWarehouses = new Map<string, string>();
+    (whRes.rows || []).forEach((r: any) => {
+      if (r.warehouse) canonicalWarehouses.set(r.warehouse.toLowerCase().trim(), r.warehouse);
+    });
+    const warehouseList = Array.from(canonicalWarehouses.values()).join(", ");
+
     const defaultDate = globalImportDate || new Date().toISOString().split("T")[0];
 
     // 2. Validate every row: must have a serial number, must map to a real product,
-    // and must not repeat a serial already seen in this file.
+    // must have a recognized warehouse, and must not repeat a serial already seen
+    // in this file.
     const seenInFile = new Set<string>();
     const valid: { productId: string; serial: string; warehouse: string }[] = [];
 
@@ -516,11 +566,22 @@ export async function bulkImportStockAction(
         continue;
       }
 
+      const rawWarehouse = (item.warehouse_name || globalWarehouse || "").trim();
+      if (!rawWarehouse) {
+        skipped.push({ serial_no: serial, code: item.code, reason: "Missing warehouse" });
+        continue;
+      }
+      const resolvedWarehouse = canonicalWarehouses.get(rawWarehouse.toLowerCase());
+      if (!resolvedWarehouse) {
+        skipped.push({ serial_no: serial, code: item.code, reason: `Unknown warehouse "${rawWarehouse}" — must be one of: ${warehouseList}` });
+        continue;
+      }
+
       seenInFile.add(serialKey);
       valid.push({
         productId,
         serial,
-        warehouse: item.warehouse_name || globalWarehouse || "Main Warehouse (275)",
+        warehouse: resolvedWarehouse,
       });
     }
 
@@ -589,9 +650,8 @@ export async function bulkImportStockAction(
 
 export async function revertRejectedInstallationStockAction(jobId: string, serialNumber?: string) {
   const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
   const client = new Client({
-    connectionString,
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
 
@@ -645,9 +705,8 @@ export async function revertRejectedInstallationStockAction(jobId: string, seria
 
 export async function revertStockBySerialAction(serialNumber: string) {
   const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
   const client = new Client({
-    connectionString,
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
 
