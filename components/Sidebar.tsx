@@ -212,6 +212,31 @@ export default function Sidebar() {
                   )}
                 </div>
 
+                {/* ST-2 */}
+                <div>
+                  <button
+                    onClick={() => toggleMenu("st2")}
+                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
+                  >
+                    <div className="flex items-center">
+                      <TrendingUp className="w-4 h-4 mr-3" />
+                      <span>ST-2</span>
+                    </div>
+                    {openMenus.st2 ? (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  {openMenus.st2 && (
+                    <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
+                      <Link href="/dashboard/sales/st2" className={linkClass("/dashboard/sales/st2")}>
+                        List
+                      </Link>
+                    </div>
+                  )}
+                </div>
+
                 {/* Transfer */}
                 <div>
                   <button
@@ -583,6 +608,17 @@ export default function Sidebar() {
                       >
                         Add Installer
                       </Link>
+                      {userRole === "admin" && (
+                        <Link
+                          href="/dashboard/users?role=dealer_assignment"
+                          className={linkClass("/dashboard/users", {
+                            key: "role",
+                            value: "dealer_assignment",
+                          })}
+                        >
+                          Dealer Assignment
+                        </Link>
+                      )}
                       {userRole === "admin" && (
                         <Link
                           href="/dashboard/users?role=reset_password"

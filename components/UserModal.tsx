@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { X, Loader2 } from "lucide-react";
-import { createUserAction, updateUserAction, fetchRecordsAction } from "@/app/actions/users";
+import { createUserAction, updateUserAction, fetchRecordsAction, fetchProfilesAction } from "@/app/actions/users";
 import toast from "react-hot-toast";
 import { mergeLocalItems } from "@/lib/supabaseLocalFallback";
 
@@ -48,6 +48,10 @@ export default function UserModal({
   const [maritalStatus, setMaritalStatus] = useState("Single");
   const [paymentProvider, setPaymentProvider] = useState("EasyPaisa");
   const [paymentAccountNo, setPaymentAccountNo] = useState("");
+
+  // Sub Dealer specific state
+  const [distributorId, setDistributorId] = useState("");
+  const [allDistributors, setAllDistributors] = useState<{ id: string; first_name: string; region: string }[]>([]);
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -101,6 +105,17 @@ export default function UserModal({
   }, []);
 
   useEffect(() => {
+    if (role !== "Sub Dealer") return;
+    const loadDistributors = async () => {
+      const res = await fetchProfilesAction("distributor");
+      if (res.success && res.data) {
+        setAllDistributors(res.data.map((d: any) => ({ id: d.id, first_name: d.first_name, region: d.region || "" })));
+      }
+    };
+    loadDistributors();
+  }, [role]);
+
+  useEffect(() => {
     if (isOpen) {
       if (editingUser) {
         setFirstName(editingUser.first_name || "");
@@ -141,12 +156,13 @@ export default function UserModal({
         setMaritalStatus(editingUser.marital_status || "Single");
         setPaymentProvider(editingUser.payment_provider || "EasyPaisa");
         setPaymentAccountNo(editingUser.payment_account_no || "");
+        setDistributorId(editingUser.distributor_id || "");
       } else {
         setFirstName("");
         setLastName("");
         setEmail("");
         setPassword("");
-        setDesignation(role === "Distributor" ? "Distributor" : "");
+        setDesignation(role === "Distributor" ? "Distributor" : role === "Sub Dealer" ? "Sub Dealer" : "");
         setContact("");
         if (role === "Employee") {
           setGroup("rsm");
@@ -166,6 +182,7 @@ export default function UserModal({
         setMaritalStatus("Single");
         setPaymentProvider("EasyPaisa");
         setPaymentAccountNo("");
+        setDistributorId("");
       }
       setErrors({});
     }
@@ -176,12 +193,12 @@ export default function UserModal({
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!firstName.trim()) {
-      errs.firstName = role === "Distributor" ? "Distributor name is required" : "First name is required";
+      errs.firstName = role === "Distributor" ? "Distributor name is required" : role === "Sub Dealer" ? "Sub dealer name is required" : "First name is required";
     }
     if (!lastName.trim()) {
-      errs.lastName = role === "Distributor" ? "Owner name is required" : "Last name is required";
+      errs.lastName = (role === "Distributor" || role === "Sub Dealer") ? "Owner name is required" : "Last name is required";
     }
-    
+
     if (!isEdit) {
       if (!email.trim()) {
         errs.email = "Email is required";
@@ -194,10 +211,15 @@ export default function UserModal({
         errs.password = "Password must be at least 6 characters";
       }
     }
-    
-    if (role !== "Distributor" && role !== "Installer" && !designation.trim()) errs.designation = "Designation is required";
+
+    if (role !== "Distributor" && role !== "Installer" && role !== "Sub Dealer" && !designation.trim()) errs.designation = "Designation is required";
     if (!contact.trim()) errs.contact = "Contact number is required";
-    
+
+    if (role === "Sub Dealer") {
+      if (!region.trim()) errs.region = "Region is required";
+      if (!distributorId) errs.distributorId = "Distributor is required";
+    }
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -222,7 +244,7 @@ export default function UserModal({
       lastName,
       email,
       password,
-      designation: role === "Distributor" ? "Distributor" : role === "Installer" ? "Installer" : designation,
+      designation: role === "Distributor" ? "Distributor" : role === "Installer" ? "Installer" : role === "Sub Dealer" ? "Sub Dealer" : designation,
       contact,
       role: finalRole,
       group: finalGroup,
@@ -235,6 +257,7 @@ export default function UserModal({
       bankName,
       bankAccount,
       accountHolderName,
+      distributorId: role === "Sub Dealer" ? distributorId : undefined,
       cnic,
       maritalStatus,
       paymentProvider,
@@ -272,7 +295,7 @@ export default function UserModal({
       ></div>
 
       {/* Card Body */}
-      <div className={`relative bg-white w-full ${role === "Distributor" ? "max-w-2xl" : "max-w-md"} border border-slate-100 rounded-[12px] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200`}>
+      <div className={`relative bg-white w-full ${(role === "Distributor" || role === "Sub Dealer") ? "max-w-2xl" : "max-w-md"} border border-slate-100 rounded-[12px] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200`}>
         {/* Header */}
         <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <h3 className="text-sm font-bold text-slate-800">
@@ -378,6 +401,273 @@ export default function UserModal({
                       </option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    City
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Lahore"
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Complete Address
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Complete Street Address"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    className="w-full p-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Right Column: Owner & Bank Details */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold text-[#00B4D8] uppercase tracking-wider border-b pb-1">
+                  Owner & Bank Info
+                </h4>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Owner Name*
+                  </label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                      errors.lastName ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  />
+                  {errors.lastName && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.lastName}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Account Holder Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Owner / Co. Account Name"
+                    value={accountHolderName}
+                    onChange={(e) => setAccountHolderName(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Bank Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. HBL / Alfalah"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Bank Account / IBAN
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Account Number / IBAN"
+                    value={bankAccount}
+                    onChange={(e) => setBankAccount(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+
+                {/* Login Info Card */}
+                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider border-b pb-1 pt-2">
+                  System Credentials
+                </h4>
+                {!isEdit ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                        Email*
+                      </label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className={`w-full h-9 px-2 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                          errors.email ? "border-rose-500" : "border-slate-200"
+                        }`}
+                      />
+                      {errors.email && (
+                        <p className="text-[9px] text-rose-500 font-semibold mt-0.5">{errors.email}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                        Password*
+                      </label>
+                      <input
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className={`w-full h-9 px-2 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                          errors.password ? "border-rose-500" : "border-slate-200"
+                        }`}
+                      />
+                      {errors.password && (
+                        <p className="text-[9px] text-rose-500 font-semibold mt-0.5">{errors.password}</p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-slate-400 italic">
+                    Login credentials cannot be modified inside the profile modal.
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between pt-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      Status
+                    </label>
+                    <div className="flex items-center mt-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setStatus(status === "active" ? "inactive" : "active")}
+                        className={`w-10 h-5 flex items-center rounded-full p-0.5 transition-colors focus:outline-none ${
+                          status === "active" ? "bg-[#00B4D8]" : "bg-slate-300"
+                        }`}
+                      >
+                        <span
+                          className={`w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                            status === "active" ? "translate-x-5" : ""
+                          }`}
+                        ></span>
+                      </button>
+                      <span className="text-[10px] text-slate-600 font-bold ml-2 uppercase tracking-wider">
+                        {status}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : role === "Sub Dealer" ? (
+            <div className="grid grid-cols-2 gap-6 text-slate-800 text-left">
+              {/* Left Column: Sub Dealer Details */}
+              <div className="space-y-4">
+                <h4 className="text-xs font-bold text-[#00B4D8] uppercase tracking-wider border-b pb-1">
+                  Sub Dealer Info
+                </h4>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Sub Dealer Name*
+                  </label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                      errors.firstName ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  />
+                  {errors.firstName && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.firstName}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Contact Phone*
+                  </label>
+                  <input
+                    type="text"
+                    value={contact}
+                    onChange={(e) => setContact(e.target.value.replace(/\D/g, ""))}
+                    placeholder="e.g. 03001234567"
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                      errors.contact ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  />
+                  {errors.contact && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.contact}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    State
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Punjab"
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
+                    className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    System Region*
+                  </label>
+                  <select
+                    value={resolveRegionValue(region)}
+                    onChange={(e) => {
+                      const sel = e.target.value;
+                      setRegion(sel);
+                      // Distributor list is scoped to this region - a distributor
+                      // picked under a different region no longer applies.
+                      setDistributorId("");
+                    }}
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white font-semibold ${
+                      errors.region ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  >
+                    <option value="">Select Region</option>
+                    {systemRegions.map((reg) => (
+                      <option key={reg.id || reg.name} value={reg.name}>
+                        {reg.name} ({reg.region_code})
+                      </option>
+                    ))}
+                  </select>
+                  {errors.region && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.region}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Distributor*
+                  </label>
+                  <select
+                    value={distributorId}
+                    onChange={(e) => setDistributorId(e.target.value)}
+                    disabled={!region}
+                    className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white disabled:bg-slate-50 disabled:text-slate-400 ${
+                      errors.distributorId ? "border-rose-500" : "border-slate-200"
+                    }`}
+                  >
+                    <option value="">
+                      {!region
+                        ? "Select a region first"
+                        : allDistributors.filter((d) => resolveRegionValue(d.region) === resolveRegionValue(region)).length === 0
+                        ? "No distributors in this region"
+                        : "Select Distributor"}
+                    </option>
+                    {allDistributors
+                      .filter((d) => resolveRegionValue(d.region) === resolveRegionValue(region))
+                      .map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.first_name}
+                        </option>
+                      ))}
+                  </select>
+                  {errors.distributorId && (
+                    <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.distributorId}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">

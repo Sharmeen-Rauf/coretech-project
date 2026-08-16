@@ -108,9 +108,9 @@ export default function ImportStockPage() {
 
   const downloadSampleFile = () => {
     const headers = "Name,Code,Serial Number,Brand,Category Code,Model,Price,Cost,Warehouse\n";
-    const sampleRows = 
-      'ASOS Ridley High Waist,ASOS-RD1,SN-BATT-001,ASOS,battery,AR-100,79.49,50.00,Lahore Central\n' +
-      'Marco Lightweight Shirt,MARCO-SH1,SN-INV-001,Marco,inverter,M-50,128.50,90.00,Karachi Port\n';
+    const sampleRows =
+      'ASOS Ridley High Waist,ASOS-RD1,SN-BATT-001,ASOS,battery,AR-100,79.49,50.00,Lahore\n' +
+      'Marco Lightweight Shirt,MARCO-SH1,SN-INV-001,Marco,inverter,M-50,128.50,90.00,Karachi Korangi\n';
     
     const blob = new Blob([headers + sampleRows], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -174,7 +174,7 @@ export default function ImportStockPage() {
           const name = row[0];
           const code = row[1] || name;
           const serialNum = row[2] || "";
-          const csvWarehouse = row[8] || warehouseName || "Main Warehouse (275)";
+          const csvWarehouse = row[8] || warehouseName || "";
 
           if (!name && !code) continue;
 
@@ -204,7 +204,7 @@ export default function ImportStockPage() {
 
           setProgressText(`Importing batch ${currentBatchNumber} of ${totalBatches} (${processedCount.toLocaleString()} / ${totalItems.toLocaleString()} items)...`);
 
-          const res = await bulkImportStockAction(chunk, importDate, warehouseName || "Main Warehouse (275)");
+          const res = await bulkImportStockAction(chunk, importDate, warehouseName || undefined);
           if (!res.success) {
             throw new Error(res.error || `Bulk batch ${currentBatchNumber} failed`);
           }
@@ -234,10 +234,10 @@ export default function ImportStockPage() {
         const manualItem = [{
           code: productCode,
           serial_no: finalSerial,
-          warehouse_name: warehouseName || "Main Warehouse (275)",
+          warehouse_name: warehouseName,
         }];
 
-        const res = await bulkImportStockAction(manualItem, importDate, warehouseName || "Main Warehouse (275)");
+        const res = await bulkImportStockAction(manualItem, importDate, warehouseName);
         if (!res.success) throw new Error(res.error || "Failed manual stock insert");
 
         if (res.skipped && res.skipped.length) allSkipped.push(...res.skipped);
@@ -285,6 +285,7 @@ export default function ImportStockPage() {
             <li>The CSV file structure should not be modified.</li>
             <li>The correct column order is: <span className="font-bold text-[#00B4D8]">Name, Code, Serial Number, Brand, Category Code, Model, Price, Cost, Warehouse</span></li>
             <li>Ensure the category code is one of: <span className="font-bold">inverter, battery, aio</span></li>
+            <li>The Warehouse column must exactly match a real warehouse (e.g. Lahore, Multan, Karachi Korangi) — unrecognized warehouse names will be skipped</li>
           </ul>
         </div>
         <button

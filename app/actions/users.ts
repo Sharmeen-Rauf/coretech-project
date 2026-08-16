@@ -40,7 +40,32 @@ function getAdminClient() {
   });
 }
 
-export async function createUserAction(formData: any) {
+// A sub_dealer must belong to exactly one distributor, and only to a distributor in
+// the same region - re-checked here since the client-side dropdown filtering can be
+// bypassed by calling the action directly.
+async function validateSubDealerDistributor(distributorId: string | undefined, region: string | undefined) {
+  if (!distributorId) {
+    return { success: false, error: "A distributor is required for Sub Dealers" };
+  }
+  const supabase = getAdminClient();
+  const { data: distributor } = await supabase
+    .from("profiles")
+    .select("id, role, region")
+    .eq("id", distributorId)
+    .maybeSingle();
+
+  if (!distributor || distributor.role !== "distributor") {
+    return { success: false, error: "Selected distributor is invalid" };
+  }
+  const distRegion = (distributor.region || "").trim().toLowerCase();
+  const subRegion = (region || "").trim().toLowerCase();
+  if (!subRegion || distRegion !== subRegion) {
+    return { success: false, error: "Sub Dealer's region must match the selected distributor's region" };
+  }
+  return { success: true };
+}
+
+export async function createUserAction(formData: any): Promise<{ success: boolean; message?: string; error?: string; data?: any }> {
   const supabase = getAdminClient();
   const {
     email,
@@ -64,9 +89,15 @@ export async function createUserAction(formData: any) {
     maritalStatus,
     paymentProvider,
     paymentAccountNo,
+    distributorId,
   } = formData;
 
   try {
+    if (role === "sub_dealer") {
+      const validation = await validateSubDealerDistributor(distributorId, region);
+      if (!validation.success) return validation;
+    }
+
     // 0. Pre-register / Whitelist email to pass database auth.users trigger
     const cookieStore = cookies();
     const serverClient = createServerClient(
@@ -134,6 +165,7 @@ export async function createUserAction(formData: any) {
           marital_status: maritalStatus || null,
           payment_provider: paymentProvider || null,
           payment_account_no: paymentAccountNo || null,
+          distributor_id: role === "sub_dealer" ? (distributorId || null) : null,
         };
 
         let { error: profileError } = await supabase.from("profiles").insert(profileInsertData);
@@ -182,6 +214,7 @@ export async function createUserAction(formData: any) {
       marital_status: maritalStatus || null,
       payment_provider: paymentProvider || null,
       payment_account_no: paymentAccountNo || null,
+      distributor_id: role === "sub_dealer" ? (distributorId || null) : null,
     };
 
     let { error: profileError } = await supabase.from("profiles").insert(profileInsertData);
@@ -215,7 +248,7 @@ export async function createUserAction(formData: any) {
   }
 }
 
-export async function updateUserAction(id: string, formData: any) {
+export async function updateUserAction(id: string, formData: any): Promise<{ success: boolean; message?: string; error?: string; data?: any }> {
   const supabase = getAdminClient();
   const {
     firstName,
@@ -237,9 +270,15 @@ export async function updateUserAction(id: string, formData: any) {
     maritalStatus,
     paymentProvider,
     paymentAccountNo,
+    distributorId,
   } = formData;
 
   try {
+    if (role === "sub_dealer") {
+      const validation = await validateSubDealerDistributor(distributorId, region);
+      if (!validation.success) return validation;
+    }
+
     const updateData: any = {
       first_name: firstName,
       last_name: lastName,
@@ -260,6 +299,7 @@ export async function updateUserAction(id: string, formData: any) {
       marital_status: maritalStatus || null,
       payment_provider: paymentProvider || null,
       payment_account_no: paymentAccountNo || null,
+      distributor_id: role === "sub_dealer" ? (distributorId || null) : null,
     };
 
     let { data, error } = await supabase
@@ -395,6 +435,122 @@ export async function fetchProfilesAction(role?: string) {
     return { success: true, data: data || [] };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch profiles", data: [] };
+  }
+}
+
+// === Dealer Assignment (admin-only) ===
+// Every action here independently re-verifies the caller is admin, same pattern as
+// the password-reset actions - the Sidebar link and page render being admin-gated is
+// not itself a security boundary.
+
+export async function fetchDealerAssignmentsAction() {
+  try {
+    const callerRole = await getCallerRole();
+    if (callerRole !== "admin") {
+      return { success: false, error: "Only admins can view dealer assignments", data: [] };
+    }
+
+    const supabase = getAdminClient();
+    // PostgREST won't resolve a self-referencing profiles->profiles embed to a
+    // single object (it comes back as an always-empty array), so the distributor
+    // is joined manually here instead of via a nested select.
+    const { data: subDealers, error } = await supabase
+      .from("profiles")
+      .select("id, first_name, last_name, region, distributor_id")
+      .eq("role", "sub_dealer")
+      .not("distributor_id", "is", null)
+      .order("first_name", { ascending: true });
+
+    if (error) throw error;
+
+    const distributorIds = Array.from(new Set((subDealers || []).map((s: any) => s.distributor_id).filter(Boolean)));
+    let distributorMap: Record<string, { id: string; first_name: string; region: string }> = {};
+    if (distributorIds.length > 0) {
+      const { data: distributors } = await supabase
+        .from("profiles")
+        .select("id, first_name, region")
+        .in("id", distributorIds);
+      (distributors || []).forEach((d: any) => { distributorMap[d.id] = d; });
+    }
+
+    const data = (subDealers || []).map((s: any) => ({
+      ...s,
+      distributor: distributorMap[s.distributor_id] || null,
+    }));
+
+    return { success: true, data };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch dealer assignments", data: [] };
+  }
+}
+
+export async function bulkAssignSubDealersAction(distributorId: string, subDealerIds: string[]) {
+  try {
+    const callerRole = await getCallerRole();
+    if (callerRole !== "admin") {
+      return { success: false, error: "Only admins can assign sub dealers to a distributor" };
+    }
+    if (!distributorId || !subDealerIds || subDealerIds.length === 0) {
+      return { success: false, error: "Select a distributor and at least one sub dealer" };
+    }
+
+    const supabase = getAdminClient();
+    const { data: distributor } = await supabase
+      .from("profiles")
+      .select("id, role, region")
+      .eq("id", distributorId)
+      .maybeSingle();
+
+    if (!distributor || distributor.role !== "distributor") {
+      return { success: false, error: "Selected distributor is invalid" };
+    }
+
+    const { data: subDealers } = await supabase
+      .from("profiles")
+      .select("id, role, region")
+      .in("id", subDealerIds);
+
+    const distRegion = (distributor.region || "").trim().toLowerCase();
+    const mismatched = (subDealers || []).filter(
+      (s: any) => s.role !== "sub_dealer" || (s.region || "").trim().toLowerCase() !== distRegion
+    );
+    if (mismatched.length > 0) {
+      return {
+        success: false,
+        error: `${mismatched.length} selected sub dealer(s) are not in the distributor's region (${distributor.region || "no region"}) and were not assigned`,
+      };
+    }
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ distributor_id: distributorId })
+      .in("id", subDealerIds);
+
+    if (error) throw error;
+    return { success: true, message: "Sub dealers assigned successfully" };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to assign sub dealers" };
+  }
+}
+
+export async function unassignSubDealerAction(subDealerId: string) {
+  try {
+    const callerRole = await getCallerRole();
+    if (callerRole !== "admin") {
+      return { success: false, error: "Only admins can unassign a sub dealer" };
+    }
+
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("profiles")
+      .update({ distributor_id: null })
+      .eq("id", subDealerId)
+      .eq("role", "sub_dealer");
+
+    if (error) throw error;
+    return { success: true, message: "Sub dealer unassigned successfully" };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to unassign sub dealer" };
   }
 }
 
