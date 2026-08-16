@@ -64,7 +64,7 @@ export default function OrderDetailPage() {
             product_id,
             user_id,
             distributor_id,
-            user:profiles!user_id(id, first_name, last_name, email, contact),
+            user:profiles!user_id(id, first_name, last_name, contact),
             product:products(*),
             distributor:profiles!distributor_id(id, first_name, last_name, contact),
             coordinator:profiles!sales_coordinator_id(id, first_name, last_name, contact)
@@ -82,7 +82,7 @@ export default function OrderDetailPage() {
         if (found) {
           orderData = {
             ...found,
-            user: { id: found.user_id, first_name: found.local_user_name || "Local Dealer", last_name: "", email: "-", contact: "-" },
+            user: { id: found.user_id, first_name: found.local_user_name || "Local Dealer", last_name: "", contact: "-" },
             distributor: { id: found.distributor_id, first_name: found.local_distributor_name || "Local Distributor", contact: "-" },
             coordinator: { id: found.sales_coordinator_id, first_name: found.local_coordinator_name || "Local RSM", contact: "-" }
           };
@@ -446,7 +446,6 @@ export default function OrderDetailPage() {
                   <User className="w-3.5 h-3.5" /> Customer Client
                 </span>
                 <p className="text-xs font-bold text-slate-800">{customerName}</p>
-                <p className="text-[10px] text-slate-400 font-bold">{order.user?.email}</p>
                 <p className="text-[10px] text-slate-400 font-bold">{order.user?.contact}</p>
               </div>
 

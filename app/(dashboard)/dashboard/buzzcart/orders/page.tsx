@@ -3,11 +3,12 @@
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
-import OrderModal from "@/components/OrderModal";
 import Link from "next/link";
 import OrderStatusModal from "@/components/OrderStatusModal";
+import BuzzcartCreateOrder from "@/components/BuzzcartCreateOrder";
 import toast from "react-hot-toast";
 import { deleteRecordAction } from "@/app/actions/users";
+import { Eye } from "lucide-react";
  
 interface OrderRow {
   id: string;
@@ -22,11 +23,10 @@ interface OrderRow {
  
 export default function BuzzcartOrdersPage() {
   const supabase = createClientComponentClient();
- 
+
   // Loading and modals
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [userRole, setUserRole] = useState<string>("");
   const [selectedStatusOrder, setSelectedStatusOrder] = useState<any>(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
@@ -100,7 +100,7 @@ export default function BuzzcartOrdersPage() {
       }
 
       const { mergeLocalItems } = require("@/lib/supabaseLocalFallback");
-      const merged = mergeLocalItems(dbData, "coretech_local_orders");
+      const merged = mergeLocalItems(dbData, "coretech_local_orders", undefined, "id", "order_code");
  
       const formatted = merged.map((row: any) => ({
         id: row.id,
@@ -270,6 +270,26 @@ export default function BuzzcartOrdersPage() {
         );
       },
     },
+    {
+      key: "review",
+      label: "Review",
+      render: (_: any, row: any) => {
+        const canReview = userRole === "country_head" || userRole === "admin";
+        if (!canReview) return <span className="text-slate-300">—</span>;
+        return (
+          <button
+            onClick={() => {
+              setSelectedStatusOrder(row.rawOrder);
+              setIsStatusModalOpen(true);
+            }}
+            className="flex items-center gap-1 text-[10px] font-bold text-[#00B4D8] hover:underline"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            Review
+          </button>
+        );
+      },
+    },
   ];
 
   return (
@@ -280,6 +300,8 @@ export default function BuzzcartOrdersPage() {
           Track customer product orders, invoice status, and distribution agents.
         </p>
       </div>
+
+      <BuzzcartCreateOrder onSuccess={fetchOrders} />
 
       <DataTable allData={filtered}
         title="Orders Ledger"
@@ -311,10 +333,6 @@ export default function BuzzcartOrdersPage() {
             },
           },
         ]}
-        actionButton={{
-          label: "Create Order",
-          onClick: () => setIsModalOpen(true),
-        }}
         pagination={{
           current: currentPage,
           total: filtered.length,
@@ -324,15 +342,10 @@ export default function BuzzcartOrdersPage() {
         onDeleteClick={handleDeleteOrder}
       />
 
-      <OrderModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSuccess={fetchOrders}
-      />
-
       {selectedStatusOrder && (
         <OrderStatusModal
           isOpen={isStatusModalOpen}
+          callerRole={userRole}
           onClose={() => {
             setIsStatusModalOpen(false);
             setSelectedStatusOrder(null);

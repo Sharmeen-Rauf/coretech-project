@@ -183,7 +183,6 @@ export async function middleware(request: NextRequest) {
         '/dashboard/sales/st1',
         '/dashboard/sales/st2',
         '/dashboard/buzzcart/orders',
-        '/dashboard/buzzcart/create',
         '/dashboard/users',
         '/dashboard/sales/transfer',
         '/dashboard/sales/return',
@@ -202,7 +201,6 @@ export async function middleware(request: NextRequest) {
         '/dashboard/purchase/inventory',
         '/dashboard/sales/sellout',
         '/dashboard/buzzcart/orders',
-        '/dashboard/buzzcart/create',
         '/dashboard/sales/transfer',
         '/dashboard/sales/return',
         '/dashboard/account',
@@ -240,7 +238,6 @@ export async function middleware(request: NextRequest) {
       }
     } else if (role === 'retail_manager') {
       const allowedRetailManagerPrefixes = [
-        '/dashboard/approvals',
         '/dashboard/installer/list',
         '/dashboard/installer/jobs',
         '/dashboard/account',
