@@ -75,6 +75,7 @@ export async function submitSt2Action(params: {
       .in("serial_no", serials)
       .eq("distributor_id", params.distributorId)
       .is("sub_dealer_id", null)
+      .neq("status", "sold_out")
       .select("id, product_id, serial_no");
 
     if (transferErr) throw transferErr;
@@ -216,6 +217,7 @@ export async function submitReturnAction(params: {
         .in("serial_no", serials)
         .eq("sub_dealer_id", params.sourceId)
         .eq("distributor_id", params.destId)
+        .neq("status", "sold_out")
         .select("id, product_id, serial_no");
       transferred = res.data;
       transferErr = res.error;
@@ -226,6 +228,7 @@ export async function submitReturnAction(params: {
         .in("serial_no", serials)
         .eq("distributor_id", params.sourceId)
         .is("sub_dealer_id", null)
+        .neq("status", "sold_out")
         .select("id, product_id, serial_no");
       transferred = res.data;
       transferErr = res.error;
@@ -325,6 +328,7 @@ export async function submitTransferAction(params: {
         .in("serial_no", serials)
         .eq("distributor_id", params.fromId)
         .is("sub_dealer_id", null)
+        .neq("status", "sold_out")
         .select("id, product_id, serial_no");
       transferred = res.data;
       transferErr = res.error;
@@ -339,6 +343,7 @@ export async function submitTransferAction(params: {
         .update({ sub_dealer_id: params.toId })
         .in("serial_no", serials)
         .eq("sub_dealer_id", params.fromId)
+        .neq("status", "sold_out")
         .select("id, product_id, serial_no");
       transferred = res.data;
       transferErr = res.error;
@@ -354,6 +359,7 @@ export async function submitTransferAction(params: {
         .in("serial_no", serials)
         .eq("warehouse_name", fromWh.name)
         .is("distributor_id", null)
+        .neq("status", "sold_out")
         .select("id, product_id, serial_no");
       transferred = res.data;
       transferErr = res.error;

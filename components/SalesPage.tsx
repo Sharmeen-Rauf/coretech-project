@@ -93,6 +93,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
   const [warehouse, setWarehouse] = useState("");
   const [transferType, setTransferType] = useState<PartyType | "">("");
   const [returnLock, setReturnLock] = useState<ReturnLock | null>(null);
+  const [sourceMissing, setSourceMissing] = useState(false);
   const [date, setDate] = useState(() => new Date().toLocaleDateString('en-CA'));
   const [remarks, setRemarks] = useState("");
 
@@ -268,6 +269,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
     setImeiInput("");
     setScannedItems([]);
     setOrderDetails([]);
+    setSourceMissing(false);
     const today = new Date().toLocaleDateString('en-CA');
     setDate(today);
     setIsCreating(true);
@@ -285,6 +287,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
   // Transfer) invalidates any already-checked pass/fail results.
   const handleWarehouseChange = (value: string) => {
     setWarehouse(value);
+    setSourceMissing(false);
     if (isST2) setSelectedDistributor("");
     clearScanIfNeeded();
   };
@@ -293,11 +296,13 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
     setTransferType(value);
     setWarehouse("");
     setSelectedDistributor("");
+    setSourceMissing(false);
     clearScanIfNeeded();
   };
 
   const handleTransferFromChange = (value: string) => {
     setWarehouse(value);
+    setSourceMissing(false);
     setSelectedDistributor("");
     clearScanIfNeeded();
   };
@@ -307,11 +312,15 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
   const handleCheckImei = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const cleanInput = imeiInput.trim();
-    if (!cleanInput) return;
+    if (!cleanInput) {
+      toast.error("Enter at least one serial number");
+      return;
+    }
 
-    if (isST1 && !warehouse) { toast.error("Select a warehouse first"); return; }
-    if (isST2 && !warehouse) { toast.error("Select a distributor first"); return; }
-    if (isTransfer && (!transferType || !warehouse)) { toast.error("Select a transfer type and source first"); return; }
+    if (isST1 && !warehouse) { setSourceMissing(true); toast.error("Select a warehouse first"); return; }
+    if (isST2 && !warehouse) { setSourceMissing(true); toast.error("Select a distributor first"); return; }
+    if (isTransfer && (!transferType || !warehouse)) { setSourceMissing(true); toast.error("Select a transfer type and source first"); return; }
+    setSourceMissing(false);
 
     const inputs = cleanInput.split(/[\s,;]+/).map(x => x.trim()).filter(Boolean);
     if (inputs.length === 0) return;
@@ -333,6 +342,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
           serial_no,
           product_id,
           model_no,
+          status,
           warehouse_name,
           distributor_id,
           sub_dealer_id,
@@ -366,6 +376,10 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
       newInputs.forEach(imei => {
         const dbRow = dbMap.get(imei);
         if (!dbRow) { pushFail(imei, dbRow, "Serial number not found"); return; }
+
+        // A sold-out unit is permanently out of the supply chain - checked once,
+        // for every type, before any type-specific logic runs.
+        if (dbRow.status === "sold_out") { pushFail(imei, dbRow, "Serial number is already sold out"); return; }
 
         if (isST1) {
           if (dbRow.warehouse_name !== warehouse) { pushFail(imei, dbRow, `Not in ${warehouse} (currently in ${dbRow.warehouse_name})`); return; }
@@ -521,6 +535,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
           .in("serial_no", passedSerials)
           .eq("warehouse_name", warehouse)
           .is("distributor_id", null)
+          .neq("status", "sold_out")
           .select("id, product_id, serial_no");
 
         if (transferErr) throw transferErr;
@@ -637,8 +652,8 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
             <div className="bg-white border border-slate-150 rounded-[8px] p-6 shadow-sm space-y-4">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-2">Basic Info</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {!isST2 && (
-                  <div>
+                {!isST2 && !isTransfer && (
+                  <div className={isReturn ? "md:col-span-2" : ""}>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Seller</label>
                     <input type="text" value={seller} onChange={(e) => setSeller(e.target.value)} className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]" />
                   </div>
@@ -648,7 +663,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
                   <>
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Warehouse Name*</label>
-                      <select value={warehouse} onChange={(e) => handleWarehouseChange(e.target.value)} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]" required>
+                      <select value={warehouse} onChange={(e) => handleWarehouseChange(e.target.value)} className={`w-full h-10 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${sourceMissing ? "border-rose-500" : "border-slate-200"}`} required>
                         <option value="">Select Warehouse</option>
                         {warehousesList.map((wh) => (<option key={wh.id} value={wh.name}>{wh.name}</option>))}
                       </select>
@@ -672,7 +687,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
                           {callerDisplayName ? `${callerDisplayName.first_name} ${callerDisplayName.last_name || ""}`.trim() : "You"}
                         </div>
                       ) : (
-                        <select value={warehouse} onChange={(e) => handleWarehouseChange(e.target.value)} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]" required>
+                        <select value={warehouse} onChange={(e) => handleWarehouseChange(e.target.value)} className={`w-full h-10 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${sourceMissing ? "border-rose-500" : "border-slate-200"}`} required>
                           <option value="">Select Distributor</option>
                           {distributors.map((d) => (<option key={d.id} value={d.id}>{d.first_name} {d.last_name || ""}</option>))}
                         </select>
@@ -707,17 +722,16 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
                   <>
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Transfer Type*</label>
-                      <select value={transferType} onChange={(e) => handleTransferTypeChange(e.target.value as PartyType | "")} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]" required>
+                      <select value={transferType} onChange={(e) => handleTransferTypeChange(e.target.value as PartyType | "")} className={`w-full h-10 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${sourceMissing && !transferType ? "border-rose-500" : "border-slate-200"}`} required>
                         <option value="">Select Type</option>
                         <option value="warehouse">Warehouse ↔ Warehouse</option>
                         <option value="distributor">Distributor ↔ Distributor</option>
                         <option value="sub_dealer">Sub Dealer ↔ Sub Dealer</option>
                       </select>
                     </div>
-                    <div />
                     <div>
                       <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Transfer From*</label>
-                      <select value={warehouse} onChange={(e) => handleTransferFromChange(e.target.value)} disabled={!transferType} className="w-full h-10 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] disabled:bg-slate-50 disabled:text-slate-400" required>
+                      <select value={warehouse} onChange={(e) => handleTransferFromChange(e.target.value)} disabled={!transferType} className={`w-full h-10 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] disabled:bg-slate-50 disabled:text-slate-400 ${sourceMissing && transferType && !warehouse ? "border-rose-500" : "border-slate-200"}`} required>
                         <option value="">{!transferType ? "Select a type first" : "Select Source"}</option>
                         {transferFromOptions.map((o: any) => (<option key={o.id} value={o.id}>{o.name || `${o.first_name} ${o.last_name || ""}`}</option>))}
                       </select>
@@ -729,13 +743,19 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
                         {transferToOptions.map((o: any) => (<option key={o.id} value={o.id}>{o.name || `${o.first_name} ${o.last_name || ""}`}</option>))}
                       </select>
                     </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Delivery Date*</label>
+                      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]" required />
+                    </div>
                   </>
                 )}
 
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Delivery Date*</label>
-                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]" required />
-                </div>
+                {!isTransfer && (
+                  <div className={(isReturn || isST2) ? "md:col-span-2" : ""}>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Delivery Date*</label>
+                    <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]" required />
+                  </div>
+                )}
               </div>
 
               <div>

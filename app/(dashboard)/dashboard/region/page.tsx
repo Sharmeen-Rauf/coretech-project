@@ -7,6 +7,7 @@ import { X, Loader2, Plus } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
 import { deleteRecordAction, fetchRecordsAction } from "@/app/actions/users";
+import { fetchWarehousesAction } from "@/app/actions/warehouses";
  
 interface RegionRow {
   id: string;
@@ -25,13 +26,19 @@ export default function RegionPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
- 
+  const [warehousesList, setWarehousesList] = useState<{ id: string; name: string }[]>([]);
+
   // Form states
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [warehouse, setWarehouse] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
- 
+
+  const fetchWarehouseOptions = async () => {
+    const res = await fetchWarehousesAction();
+    if (res.success) setWarehousesList(res.data as { id: string; name: string }[]);
+  };
+
   const fetchRegions = async () => {
     setIsLoading(true);
     let dbData: any[] = [];
@@ -79,8 +86,9 @@ export default function RegionPage() {
  
   useEffect(() => {
     fetchRegions();
+    fetchWarehouseOptions();
   }, []);
- 
+
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!code.trim()) errs.code = "Region code is required (e.g. PK-LHR)";
@@ -322,21 +330,27 @@ export default function RegionPage() {
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                   Primary Warehouse*
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Hayatabad Depot"
+                <select
                   value={warehouse}
                   onChange={(e) => setWarehouse(e.target.value)}
-                  className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                  className={`w-full h-9 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${
                     errors.warehouse ? "border-rose-500" : "border-slate-200"
                   }`}
                   required
-                />
+                >
+                  <option value="">{warehousesList.length === 0 ? "No warehouses yet — add one first" : "Select Warehouse"}</option>
+                  {warehousesList.map((wh) => (
+                    <option key={wh.id} value={wh.name}>{wh.name}</option>
+                  ))}
+                </select>
                 {errors.warehouse && (
                   <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.warehouse}</p>
                 )}
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Don't see the warehouse you need? Add it first under Purchase → Warehouses.
+                </p>
               </div>
- 
+
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100 mt-6">
                 <button
                   type="button"
