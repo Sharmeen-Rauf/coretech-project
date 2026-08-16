@@ -53,21 +53,48 @@ export function mergeLocalItems(
   dbItems: any[],
   key: string,
   filterFn?: (item: any) => boolean,
-  idField = "id"
+  idField = "id",
+  extraDedupField?: string
 ): any[] {
   const localItems = getLocalItems(key);
   const filteredLocal = filterFn ? localItems.filter(filterFn) : localItems;
-  
+
   // Merge items. Items in DB take precedence, but if a local item with same ID exists,
   // we check if it is already present in DB. If not, append it.
+  //
+  // extraDedupField covers the case where a real DB row now exists for something
+  // that previously only made it as far as the local fallback (e.g. an order that
+  // failed its DB insert and got saved locally, then succeeded on a later retry -
+  // the two copies have different generated IDs but the same order_code). Without
+  // this, the stale local copy would linger forever, showing outdated status.
+  const isDuplicate = (local: any) =>
+    dbItems.some((db) => {
+      if (db[idField] === local[idField]) return true;
+      if (extraDedupField && local[extraDedupField] && db[extraDedupField] === local[extraDedupField]) return true;
+      return false;
+    });
+
   const merged = [...dbItems];
-  
+  const staleLocalIds: any[] = [];
+
   filteredLocal.forEach((local) => {
-    const exists = dbItems.some((db) => db[idField] === local[idField]);
-    if (!exists) {
+    if (isDuplicate(local)) {
+      staleLocalIds.push(local[idField]);
+    } else {
       merged.push(local);
     }
   });
+
+  // Prune confirmed-stale local copies so they don't need re-filtering forever.
+  if (staleLocalIds.length > 0 && typeof window !== "undefined") {
+    try {
+      const allLocal = getLocalItems(key);
+      const pruned = allLocal.filter((item: any) => !staleLocalIds.includes(item[idField]));
+      localStorage.setItem(key, JSON.stringify(pruned));
+    } catch (e) {
+      console.error(`Failed to prune stale local items for key "${key}":`, e);
+    }
+  }
 
   return merged;
 }

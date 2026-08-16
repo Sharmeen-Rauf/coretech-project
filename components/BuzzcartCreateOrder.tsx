@@ -1,22 +1,16 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@/lib/supabase";
-import { 
-  Loader2, 
-  ArrowLeft, 
-  Check, 
-  AlertCircle, 
-  ShoppingBag, 
-  ChevronDown, 
-  ChevronUp, 
-  Trash2, 
-  Plus,
-  X
+import {
+  Loader2,
+  ShoppingBag,
+  ChevronDown,
+  ChevronUp,
+  Trash2,
+  X,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import Link from "next/link";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import OrderStatusModal from "@/components/OrderStatusModal";
 import { fetchRecordsAction } from "@/app/actions/users";
@@ -36,6 +30,7 @@ interface Profile {
   rsm_id?: string;
   warehouse?: string;
   region?: string;
+  distributor_id?: string;
 }
 
 interface Stock {
@@ -52,9 +47,12 @@ interface OrderItemInput {
   price: number;
 }
 
-export default function CreateOrderPage() {
+interface BuzzcartCreateOrderProps {
+  onSuccess?: () => void;
+}
+
+export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderProps) {
   const supabase = createClientComponentClient();
-  const router = useRouter();
 
   // Loading states
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -73,6 +71,11 @@ export default function CreateOrderPage() {
   const [orderItems, setOrderItems] = useState<Record<string, { quantity: number; price: number }>>({});
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
 
+  // Who the order is being sold to, for a non-distributor caller: a distributor
+  // directly, or a specific sub dealer (whose assigned distributor is then
+  // derived automatically via the Dealer Assignment relationship).
+  const [buyerType, setBuyerType] = useState<"distributor" | "sub_dealer">("distributor");
+
   // Distributor specific form states
   const [subDealers, setSubDealers] = useState<Profile[]>([]);
   const [warehouses, setWarehouses] = useState<string[]>([]);
@@ -87,12 +90,17 @@ export default function CreateOrderPage() {
   // Custom Dropdown Open States
   const [isDistributorOpen, setIsDistributorOpen] = useState(false);
   const distributorRef = useRef<HTMLDivElement>(null);
+  const [isSubDealerBuyerOpen, setIsSubDealerBuyerOpen] = useState(false);
+  const subDealerBuyerRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (distributorRef.current && !distributorRef.current.contains(event.target as Node)) {
         setIsDistributorOpen(false);
+      }
+      if (subDealerBuyerRef.current && !subDealerBuyerRef.current.contains(event.target as Node)) {
+        setIsSubDealerBuyerOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -105,30 +113,24 @@ export default function CreateOrderPage() {
     const fetchOptions = async () => {
       setIsLoading(true);
       try {
-        // 1. Get logged in user session
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
-          toast.error("Not authenticated");
-          router.push("/login");
+          setIsLoading(false);
           return;
         }
         const currentUserId = session.user.id;
 
-        // 2. Fetch profiles with resilient fallback & local storage merge
         let rawProfiles: any[] = [];
         try {
-          const { data, error } = await supabase
-            .from("profiles")
-            .select("*");
+          const { data, error } = await supabase.from("profiles").select("*");
           if (!error && data) rawProfiles = data;
         } catch (e) {
           console.warn("Failed to query full profiles table, falling back", e);
         }
 
-        // Merge local storage items
         const mergedLocal = mergeLocalItems(rawProfiles, "coretech_local_users");
         const extraLocal = getLocalItems("profiles") || [];
-        
+
         const allProfilesMap = new Map<string, any>();
         [...mergedLocal, ...extraLocal].forEach((p: any) => {
           if (p && p.id) {
@@ -145,57 +147,51 @@ export default function CreateOrderPage() {
               } catch (e) {}
             }
 
-            allProfilesMap.set(p.id, {
-              ...p,
-              rsm_id: rsmId,
-              warehouse: wh,
-              region: reg,
-            });
+            allProfilesMap.set(p.id, { ...p, rsm_id: rsmId, warehouse: wh, region: reg });
           }
         });
 
         const profiles: Profile[] = Array.from(allProfilesMap.values());
 
-        // Identify current user's profile
         const activeProfile: any = profiles.find(p => p.id === currentUserId) || null;
         setCurrentRsm(activeProfile);
 
-        // Filter employees (role === "employee" || role === "rsm" || role === "admin" || role === "country_head")
+        // Everyone except admin gets the Employee/RSM field locked to themselves -
+        // only admin can attribute an order to a different coordinator.
+        if (activeProfile && activeProfile.role !== "admin" && activeProfile.role !== "distributor") {
+          setSelectedEmployeeId(activeProfile.id);
+        }
+
         const emps = profiles.filter(
           p => p.role === "employee" || p.role === "rsm" || p.role === "admin" || p.role === "country_head"
         );
         setEmployees(emps);
 
-        // Check if logged-in user is an RSM
         const isRsmUser = activeProfile && (activeProfile.role === "rsm" || (activeProfile as any).group_name === "rsm");
         const rsmRegion = (activeProfile?.region || "").toLowerCase().trim();
 
-        // Filter sub dealers
         let subDs = profiles.filter(p => p.role === "sub_dealer");
         if (isRsmUser && rsmRegion) {
           subDs = subDs.filter(p => !p.region || (p.region || "").toLowerCase().trim() === rsmRegion);
         }
         setSubDealers(subDs);
 
-        // Filter distributors
         let dists = profiles.filter(p => p.role === "distributor");
         if (isRsmUser && rsmRegion) {
           dists = dists.filter(p => !p.region || (p.region || "").toLowerCase().trim() === rsmRegion);
         }
         setDistributors(dists);
 
-        // 3. Parallel fetch of products, stock, and region warehouses
         const [prodRes, stockRes, regionRes] = await Promise.all([
           supabase.from("products").select("id, name, model, price"),
           supabase.from("stock").select("product_id, quantity, warehouse_name"),
-          fetchRecordsAction("regions")
+          fetchRecordsAction("regions"),
         ]);
 
         const dbProds = prodRes.data || [];
         const mergedProds = mergeLocalItems(dbProds, "coretech_local_products");
         setProducts(mergedProds);
 
-        // Initialize default prices for items
         const initialItems: Record<string, { quantity: number; price: number }> = {};
         mergedProds.forEach(p => {
           initialItems[p.id] = { quantity: 0, price: p.price || 0 };
@@ -219,10 +215,9 @@ export default function CreateOrderPage() {
           ...dbWarehouses,
           ...localWHs,
           ...mergedStock.map(s => s.warehouse_name),
-          ...profiles.map(p => p.warehouse)
+          ...profiles.map(p => p.warehouse),
         ].filter(Boolean))) as string[];
         setWarehouses(whs.length > 0 ? whs : ["Lahore Central", "Karachi Port", "Islamabad Hub"]);
-
       } catch (err: any) {
         console.error(err);
         toast.error("Failed to load select parameters");
@@ -232,7 +227,7 @@ export default function CreateOrderPage() {
     };
 
     fetchOptions();
-  }, [supabase, router]);
+  }, [supabase]);
 
   const getActiveWarehouse = () => {
     if (currentRsm?.role === "distributor") return selectedWarehouse;
@@ -243,56 +238,30 @@ export default function CreateOrderPage() {
     return currentRsm?.warehouse;
   };
 
-  // Determine if a product is in stock based on active warehouse
   const checkStockStatus = (productId: string) => {
     let filtered = stockData;
     const wh = getActiveWarehouse();
-
     if (wh) {
-      filtered = stockData.filter(
-        s => s.warehouse_name?.toLowerCase().trim() === wh.toLowerCase().trim()
-      );
+      filtered = stockData.filter(s => s.warehouse_name?.toLowerCase().trim() === wh.toLowerCase().trim());
     }
-
-    const totalQty = filtered
-      .filter(s => s.product_id === productId)
-      .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
-
+    const totalQty = filtered.filter(s => s.product_id === productId).reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
     return totalQty > 0;
   };
 
   const handleToggleCheckbox = (productId: string) => {
     if (selectedProductIds.includes(productId)) {
       setSelectedProductIds(prev => prev.filter(id => id !== productId));
-      setOrderItems(prev => ({
-        ...prev,
-        [productId]: {
-          ...prev[productId],
-          quantity: 0
-        }
-      }));
+      setOrderItems(prev => ({ ...prev, [productId]: { ...prev[productId], quantity: 0 } }));
     } else {
       setSelectedProductIds(prev => [...prev, productId]);
-      setOrderItems(prev => ({
-        ...prev,
-        [productId]: {
-          ...prev[productId],
-          quantity: 10
-        }
-      }));
+      setOrderItems(prev => ({ ...prev, [productId]: { ...prev[productId], quantity: 10 } }));
     }
   };
 
   const handleQtyDecrement = (productId: string) => {
     const currentQty = orderItems[productId]?.quantity || 0;
     if (currentQty <= 1) return;
-    setOrderItems(prev => ({
-      ...prev,
-      [productId]: {
-        ...prev[productId],
-        quantity: currentQty - 1
-      }
-    }));
+    setOrderItems(prev => ({ ...prev, [productId]: { ...prev[productId], quantity: currentQty - 1 } }));
   };
 
   const handleQtyIncrement = (productId: string) => {
@@ -300,13 +269,7 @@ export default function CreateOrderPage() {
     if (!selectedProductIds.includes(productId)) {
       setSelectedProductIds(prev => [...prev, productId]);
     }
-    setOrderItems(prev => ({
-      ...prev,
-      [productId]: {
-        ...prev[productId],
-        quantity: currentQty + 1
-      }
-    }));
+    setOrderItems(prev => ({ ...prev, [productId]: { ...prev[productId], quantity: currentQty + 1 } }));
   };
 
   const handleQtyTextChange = (productId: string, val: string) => {
@@ -316,54 +279,30 @@ export default function CreateOrderPage() {
     } else if (num === 0 && selectedProductIds.includes(productId)) {
       setSelectedProductIds(prev => prev.filter(id => id !== productId));
     }
-    setOrderItems(prev => ({
-      ...prev,
-      [productId]: {
-        ...prev[productId],
-        quantity: num
-      }
-    }));
+    setOrderItems(prev => ({ ...prev, [productId]: { ...prev[productId], quantity: num } }));
   };
 
   const getAvailableQty = (productId: string) => {
     let filtered = stockData;
     const wh = getActiveWarehouse();
     if (wh) {
-      filtered = stockData.filter(
-        s => s.warehouse_name?.toLowerCase().trim() === wh.toLowerCase().trim()
-      );
+      filtered = stockData.filter(s => s.warehouse_name?.toLowerCase().trim() === wh.toLowerCase().trim());
     }
-    return filtered
-      .filter(s => s.product_id === productId)
-      .reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
+    return filtered.filter(s => s.product_id === productId).reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
   };
 
   const handleQtyChange = (productId: string, val: string) => {
     const num = Math.max(0, parseInt(val) || 0);
-    setOrderItems(prev => ({
-      ...prev,
-      [productId]: {
-        ...prev[productId],
-        quantity: num
-      }
-    }));
+    setOrderItems(prev => ({ ...prev, [productId]: { ...prev[productId], quantity: num } }));
   };
 
   const handlePriceChange = (productId: string, val: string) => {
     const num = Math.max(0, parseFloat(val) || 0);
-    setOrderItems(prev => ({
-      ...prev,
-      [productId]: {
-        ...prev[productId],
-        price: num
-      }
-    }));
+    setOrderItems(prev => ({ ...prev, [productId]: { ...prev[productId], price: num } }));
   };
 
-  // Get distributors list dynamically filtered by the picked Employee/RSM's assigned Region or Warehouse
   const getDisplayDistributors = () => {
     if (!selectedEmployeeId) return distributors;
-
     const selectedEmp = employees.find(e => e.id === selectedEmployeeId);
     if (!selectedEmp) return distributors;
 
@@ -372,12 +311,9 @@ export default function CreateOrderPage() {
 
     const filtered = distributors.filter(d => {
       if (d.rsm_id === selectedEmployeeId) return true;
-
       const dRegion = (d.region || "").toLowerCase().trim();
       const dWH = (d.warehouse || "").toLowerCase().trim();
-
-      if (!dRegion && !dWH) return true; // Include unassigned / freshly created distributors
-
+      if (!dRegion && !dWH) return true;
       if (empRegion && dRegion) {
         if (dRegion === empRegion || dRegion.includes(empRegion) || empRegion.includes(dRegion)) return true;
       }
@@ -390,30 +326,9 @@ export default function CreateOrderPage() {
     return filtered.length > 0 ? filtered : distributors;
   };
 
-  // Add product to selections
-  const handleAddProduct = (prodId: string) => {
-    if (!prodId) return;
-    if (!selectedProductIds.includes(prodId)) {
-      setSelectedProductIds(prev => [...prev, prodId]);
-      setOrderItems(prev => ({
-        ...prev,
-        [prodId]: {
-          ...prev[prodId],
-          quantity: 1, // Start with 1 qty when explicitly added
-        }
-      }));
-    }
-  };
-
   const handleRemoveProduct = (prodId: string) => {
     setSelectedProductIds(prev => prev.filter(id => id !== prodId));
-    setOrderItems(prev => ({
-      ...prev,
-      [prodId]: {
-        ...prev[prodId],
-        quantity: 0,
-      }
-    }));
+    setOrderItems(prev => ({ ...prev, [prodId]: { ...prev[prodId], quantity: 0 } }));
   };
 
   const getSubmittableItems = (): OrderItemInput[] => {
@@ -422,41 +337,38 @@ export default function CreateOrderPage() {
       const p = products.find(x => x.id === id);
       const entry = orderItems[id];
       if (p && entry && entry.quantity > 0) {
-        items.push({
-          productId: p.id,
-          productName: p.name,
-          model: p.model,
-          quantity: entry.quantity,
-          price: entry.price
-        });
+        items.push({ productId: p.id, productName: p.name, model: p.model, quantity: entry.quantity, price: entry.price });
       }
     });
     return items;
+  };
+
+  const resetForm = () => {
+    setSelectedProductIds([]);
+    setSelectedDistributorId("");
+    setSelectedSubDealerId("");
+    setSelectedWarehouse("");
+    setBuyerType("distributor");
+    const resetItems: Record<string, { quantity: number; price: number }> = {};
+    products.forEach(p => { resetItems[p.id] = { quantity: 0, price: p.price || 0 }; });
+    setOrderItems(resetItems);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const isDist = currentRsm?.role === "distributor";
+    const isGeneralSubDealer = !isDist && buyerType === "sub_dealer";
 
     if (isDist) {
-      if (!selectedSubDealerId) {
-        toast.error("Please select a Sub Dealer");
-        return;
-      }
-      if (!selectedWarehouse) {
-        toast.error("Please select a Warehouse");
-        return;
-      }
+      if (!selectedSubDealerId) { toast.error("Please select a Sub Dealer"); return; }
+      if (!selectedWarehouse) { toast.error("Please select a Warehouse"); return; }
+    } else if (isGeneralSubDealer) {
+      if (!selectedEmployeeId) { toast.error("Please select an Employee / RSM"); return; }
+      if (!selectedSubDealerId) { toast.error("Please select a Sub Dealer"); return; }
     } else {
-      if (!selectedEmployeeId) {
-        toast.error("Please select an Employee / RSM");
-        return;
-      }
-      if (!selectedDistributorId) {
-        toast.error("Please select a Distributor");
-        return;
-      }
+      if (!selectedEmployeeId) { toast.error("Please select an Employee / RSM"); return; }
+      if (!selectedDistributorId) { toast.error("Please select a Distributor"); return; }
     }
 
     const submittable = getSubmittableItems();
@@ -471,40 +383,49 @@ export default function CreateOrderPage() {
       const orderCode = `#CM${randomDigits}`;
       const totalAmount = submittable.reduce((sum, item) => sum + (item.quantity * item.price), 0);
 
-      // Selected distributor label
+      const activeGeneralSubDealer = isGeneralSubDealer ? subDealers.find(sd => sd.id === selectedSubDealerId) : null;
+
       const activeDist = isDist
         ? currentRsm
+        : isGeneralSubDealer
+        ? distributors.find(d => d.id === activeGeneralSubDealer?.distributor_id)
         : getDisplayDistributors().find(d => d.id === selectedDistributorId);
       const distName = activeDist ? `${activeDist.first_name} ${activeDist.last_name || ""}`.trim() : "";
 
-      // Selected user (sub_dealer) label
       const activeUser = isDist
         ? subDealers.find(sd => sd.id === selectedSubDealerId)
+        : isGeneralSubDealer
+        ? activeGeneralSubDealer
         : currentRsm;
       const userName = activeUser ? `${activeUser.first_name} ${activeUser.last_name || ""}`.trim() : "";
 
-      // Selected employee label
       const activeEmp = isDist
         ? (activeUser?.rsm_id ? employees.find(emp => emp.id === activeUser.rsm_id) : null)
         : employees.find(emp => emp.id === selectedEmployeeId);
       const empName = activeEmp ? `${activeEmp.first_name} ${activeEmp.last_name || ""}`.trim() : "";
 
-      const payload = {
+      // Real columns only - orders has no local_* columns, so those never belong
+      // in the DB insert itself (they used to be included here, which made every
+      // single order insert fail and silently fall back to localStorage - the
+      // order never actually reached the database, so Approve/Review had nothing
+      // real to act on). They're only meaningful for the local-fallback copy,
+      // where there's no profile join available to derive a display name from.
+      const dbPayload = {
         order_code: orderCode,
-        user_id: isDist ? selectedSubDealerId : (currentRsm?.id || null),
+        user_id: isDist ? selectedSubDealerId : isGeneralSubDealer ? selectedSubDealerId : (currentRsm?.id || null),
         product_id: submittable[0].productId,
-        distributor_id: isDist ? (currentRsm?.id || null) : (selectedDistributorId.startsWith("mock_") ? null : selectedDistributorId),
+        distributor_id: isDist
+          ? (currentRsm?.id || null)
+          : isGeneralSubDealer
+          ? (activeGeneralSubDealer?.distributor_id || null)
+          : (selectedDistributorId.startsWith("mock_") ? null : selectedDistributorId),
         sales_coordinator_id: isDist ? (activeUser?.rsm_id || null) : (selectedEmployeeId.startsWith("mock_") ? null : selectedEmployeeId),
         status: "pending",
         items: submittable,
-        local_user_name: userName,
-        local_product_name: submittable[0].productName,
-        local_distributor_name: distName,
-        local_coordinator_name: empName,
       };
 
       let finalOrderData = {
-        ...payload,
+        ...dbPayload,
         id: orderCode,
         created_at: new Date().toISOString(),
         user: activeUser ? { id: activeUser.id, first_name: activeUser.first_name, last_name: activeUser.last_name } : null,
@@ -516,17 +437,10 @@ export default function CreateOrderPage() {
       try {
         const { data: insertedOrder, error } = await supabase
           .from("orders")
-          .insert(payload)
+          .insert(dbPayload)
           .select(`
-            id,
-            order_code,
-            status,
-            created_at,
-            items,
-            product_id,
-            user_id,
-            distributor_id,
-            user:profiles!user_id(id, first_name, last_name, email, contact),
+            id, order_code, status, created_at, items, product_id, user_id, distributor_id,
+            user:profiles!user_id(id, first_name, last_name, contact),
             product:products(*),
             distributor:profiles!distributor_id(id, first_name, last_name, contact),
             coordinator:profiles!sales_coordinator_id(id, first_name, last_name, contact)
@@ -534,13 +448,17 @@ export default function CreateOrderPage() {
           .single();
 
         if (error) throw error;
-        if (insertedOrder) {
-          finalOrderData = insertedOrder;
-        }
+        if (insertedOrder) finalOrderData = insertedOrder;
         toast.success(`Order ${orderCode} created successfully!`);
       } catch (dbErr) {
         console.warn("Supabase order insert failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_orders", payload);
+        saveLocalItem("coretech_local_orders", {
+          ...dbPayload,
+          local_user_name: userName,
+          local_product_name: submittable[0].productName,
+          local_distributor_name: distName,
+          local_coordinator_name: empName,
+        });
         toast.success(`Order ${orderCode} created locally (Database fallback)!`);
       }
 
@@ -555,6 +473,8 @@ export default function CreateOrderPage() {
 
       setCreatedOrder(finalOrderData);
       setIsStatusModalOpen(true);
+      resetForm();
+      onSuccess?.();
     } catch (err: any) {
       toast.error(err.message || "Failed to create order");
     } finally {
@@ -568,53 +488,31 @@ export default function CreateOrderPage() {
 
   const displayDistributorsList = getDisplayDistributors();
   const activeDistributor = displayDistributorsList.find(d => d.id === selectedDistributorId);
-  const distributorLabel = activeDistributor 
-    ? `${activeDistributor.first_name} ${activeDistributor.last_name || ""}`.trim() 
+  const distributorLabel = activeDistributor
+    ? `${activeDistributor.first_name} ${activeDistributor.last_name || ""}`.trim()
     : "Distributer";
 
   if (isLoading) {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-[#00B4D8] animate-spin" />
+      <div className="bg-white border border-slate-200 rounded-[12px] p-12 flex items-center justify-center">
+        <Loader2 className="w-6 h-6 text-[#00B4D8] animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 select-none max-w-4xl mx-auto animate-in fade-in duration-300">
-      {/* Figma Breadcrumbs and Navigation header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/dashboard/buzzcart/orders"
-            className="p-1.5 hover:bg-slate-100 rounded-full text-slate-500 hover:text-slate-700 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
-          <div>
-            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-              <span>Buzzcart</span>
-              <span className="text-[8px] font-normal">/</span>
-              <span className="text-[#00B4D8]">{currentRsm?.role === "distributor" ? "Create ST-1" : "Create Orders"}</span>
-            </div>
-            <h1 className="text-xl font-extrabold text-slate-800 tracking-tight mt-1">
-              {currentRsm?.role === "distributor" ? "Create ST-1" : "Buzzcart-Create Orders"}
-            </h1>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-4 select-none animate-in fade-in duration-300">
+      <h2 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider">
+        {currentRsm?.role === "distributor" ? "Create ST-1" : "Create New Order"}
+      </h2>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Figma 3-Column Dropdowns Container */}
         <div className="bg-white border border-slate-200 rounded-[12px] p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-5 relative z-20">
-          
+
           {currentRsm?.role === "distributor" ? (
             <>
-              {/* 1. Sub Dealer Select */}
               <div className="flex-1 min-w-[200px]">
-                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
-                  Sub Dealer*
-                </label>
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Sub Dealer*</label>
                 <select
                   value={selectedSubDealerId}
                   onChange={(e) => setSelectedSubDealerId(e.target.value)}
@@ -623,18 +521,13 @@ export default function CreateOrderPage() {
                 >
                   <option value="">Select Sub Dealer</option>
                   {subDealers.map((sd) => (
-                    <option key={sd.id} value={sd.id}>
-                      {sd.first_name} {sd.last_name || ""}
-                    </option>
+                    <option key={sd.id} value={sd.id}>{sd.first_name} {sd.last_name || ""}</option>
                   ))}
                 </select>
               </div>
 
-              {/* 2. Warehouse Select */}
               <div className="flex-1 min-w-[200px]">
-                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
-                  Warehouse*
-                </label>
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Warehouse*</label>
                 <select
                   value={selectedWarehouse}
                   onChange={(e) => setSelectedWarehouse(e.target.value)}
@@ -642,115 +535,161 @@ export default function CreateOrderPage() {
                   required
                 >
                   <option value="">Select Warehouse</option>
-                  {warehouses.map((wh, idx) => (
-                    <option key={idx} value={wh}>
-                      {wh}
-                    </option>
-                  ))}
+                  {warehouses.map((wh, idx) => (<option key={idx} value={wh}>{wh}</option>))}
                 </select>
               </div>
             </>
           ) : (
             <>
-              {/* 1. Employee Select (Business Requirement) */}
               <div className="flex-1 min-w-[200px]">
-                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
-                  Select Employee / RSM*
-                </label>
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Select Employee / RSM*</label>
+                {currentRsm?.role !== "admin" ? (
+                  <div className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-500 bg-slate-50 flex items-center">
+                    {currentRsm ? `${currentRsm.first_name} ${currentRsm.last_name || ""}`.trim() : "You"}
+                  </div>
+                ) : (
+                  <select
+                    value={selectedEmployeeId}
+                    onChange={(e) => {
+                      const empId = e.target.value;
+                      setSelectedEmployeeId(empId);
+                      setSelectedDistributorId("");
+                    }}
+                    className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:border-[#00B4D8] cursor-pointer"
+                    required
+                  >
+                    <option value="">Select Employee / RSM</option>
+                    {employees.map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.first_name} {emp.last_name || ""} {emp.region ? `(${emp.region})` : emp.warehouse ? `(${emp.warehouse})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="flex-1 min-w-[160px]">
+                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Sell To*</label>
                 <select
-                  value={selectedEmployeeId}
+                  value={buyerType}
                   onChange={(e) => {
-                    const empId = e.target.value;
-                    setSelectedEmployeeId(empId);
+                    setBuyerType(e.target.value as "distributor" | "sub_dealer");
                     setSelectedDistributorId("");
+                    setSelectedSubDealerId("");
                   }}
                   className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:border-[#00B4D8] cursor-pointer"
-                  required
                 >
-                  <option value="">Select Employee / RSM</option>
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>
-                      {emp.first_name} {emp.last_name || ""} {emp.region ? `(${emp.region})` : emp.warehouse ? `(${emp.warehouse})` : ""}
-                    </option>
-                  ))}
+                  <option value="distributor">Distributor</option>
+                  <option value="sub_dealer">Sub Dealer</option>
                 </select>
               </div>
 
-              {/* 2. Distributor Custom 2-Column Dropdown (Figma Mockup) */}
-              <div className="flex-1 min-w-[220px]" ref={distributorRef}>
-                <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
-                  Distributer*
-                </label>
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setIsDistributorOpen(prev => !prev)}
-                    className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs font-bold text-slate-700 bg-white flex items-center justify-between hover:border-slate-300 transition-all cursor-pointer"
-                  >
-                    <span className={selectedDistributorId ? "text-slate-800" : "text-slate-400"}>
-                      {distributorLabel}
-                    </span>
-                    {isDistributorOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                  </button>
+              {buyerType === "distributor" ? (
+                <div className="flex-1 min-w-[220px]" ref={distributorRef}>
+                  <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Distributer*</label>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsDistributorOpen(prev => !prev)}
+                      className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs font-bold text-slate-700 bg-white flex items-center justify-between hover:border-slate-300 transition-all cursor-pointer"
+                    >
+                      <span className={selectedDistributorId ? "text-slate-800" : "text-slate-400"}>{distributorLabel}</span>
+                      {isDistributorOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    </button>
 
-                  {/* Figma-compliant 2-column dropdown body */}
-                  {isDistributorOpen && (
-                    <div className="absolute left-0 mt-1.5 w-[420px] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
-                      {displayDistributorsList.length === 0 ? (
-                        <p className="text-xs text-slate-400 p-2 text-center italic">No distributors assigned to this employee's region.</p>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                          {displayDistributorsList.map((d) => {
-                            const labelText = `${d.first_name} ${d.last_name || ""}`.trim();
-                            const subText = d.region ? ` (${d.region})` : d.warehouse ? ` (${d.warehouse})` : "";
-                            const isSelected = selectedDistributorId === d.id;
-                            return (
-                              <div
-                                key={d.id}
-                                onClick={() => {
-                                  setSelectedDistributorId(d.id);
-                                  setIsDistributorOpen(false);
-                                }}
-                                className={`px-3 py-2 text-[11px] font-bold rounded-[6px] transition-all cursor-pointer border ${
-                                  isSelected 
-                                    ? "bg-[#00B4D8] text-white border-[#00B4D8]" 
-                                    : "text-slate-700 hover:bg-[#F0FAFE] hover:text-[#00B4D8] border-slate-100"
-                                }`}
-                              >
-                                <div>{labelText}</div>
-                                {subText && <div className={`text-[9px] ${isSelected ? "text-white/80" : "text-slate-400"}`}>{subText}</div>}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    {isDistributorOpen && (
+                      <div className="absolute left-0 mt-1.5 w-[420px] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+                        {displayDistributorsList.length === 0 ? (
+                          <p className="text-xs text-slate-400 p-2 text-center italic">No distributors assigned to this employee's region.</p>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                            {displayDistributorsList.map((d) => {
+                              const labelText = `${d.first_name} ${d.last_name || ""}`.trim();
+                              const subText = d.region ? ` (${d.region})` : d.warehouse ? ` (${d.warehouse})` : "";
+                              const isSelected = selectedDistributorId === d.id;
+                              return (
+                                <div
+                                  key={d.id}
+                                  onClick={() => { setSelectedDistributorId(d.id); setIsDistributorOpen(false); }}
+                                  className={`px-3 py-2 text-[11px] font-bold rounded-[6px] transition-all cursor-pointer border ${
+                                    isSelected ? "bg-[#00B4D8] text-white border-[#00B4D8]" : "text-slate-700 hover:bg-[#F0FAFE] hover:text-[#00B4D8] border-slate-100"
+                                  }`}
+                                >
+                                  <div>{labelText}</div>
+                                  {subText && <div className={`text-[9px] ${isSelected ? "text-white/80" : "text-slate-400"}`}>{subText}</div>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex-1 min-w-[220px]" ref={subDealerBuyerRef}>
+                  <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Sub Dealer*</label>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsSubDealerBuyerOpen(prev => !prev)}
+                      className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs font-bold text-slate-700 bg-white flex items-center justify-between hover:border-slate-300 transition-all cursor-pointer"
+                    >
+                      <span className={selectedSubDealerId ? "text-slate-800" : "text-slate-400"}>
+                        {subDealers.find(sd => sd.id === selectedSubDealerId)
+                          ? `${subDealers.find(sd => sd.id === selectedSubDealerId)!.first_name} ${subDealers.find(sd => sd.id === selectedSubDealerId)!.last_name || ""}`.trim()
+                          : "Sub Dealer"}
+                      </span>
+                      {isSubDealerBuyerOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    </button>
+
+                    {isSubDealerBuyerOpen && (
+                      <div className="absolute left-0 mt-1.5 w-[420px] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+                        {subDealers.length === 0 ? (
+                          <p className="text-xs text-slate-400 p-2 text-center italic">No sub dealers found.</p>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                            {subDealers.map((sd) => {
+                              const labelText = `${sd.first_name} ${sd.last_name || ""}`.trim();
+                              const subText = sd.region ? ` (${sd.region})` : "";
+                              const isSelected = selectedSubDealerId === sd.id;
+                              return (
+                                <div
+                                  key={sd.id}
+                                  onClick={() => { setSelectedSubDealerId(sd.id); setIsSubDealerBuyerOpen(false); }}
+                                  className={`px-3 py-2 text-[11px] font-bold rounded-[6px] transition-all cursor-pointer border ${
+                                    isSelected ? "bg-[#00B4D8] text-white border-[#00B4D8]" : "text-slate-700 hover:bg-[#F0FAFE] hover:text-[#00B4D8] border-slate-100"
+                                  }`}
+                                >
+                                  <div>{labelText}</div>
+                                  {subText && <div className={`text-[9px] ${isSelected ? "text-white/80" : "text-slate-400"}`}>{subText}</div>}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
 
-          {/* 3. Product Custom Modal Selector Trigger */}
           <div className="flex-1 min-w-[200px]">
-            <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
-              Product
-            </label>
+            <label className="block text-[9px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">Product</label>
             <button
               type="button"
               onClick={() => setIsProductModalOpen(true)}
               className="w-full h-10 px-3 border border-slate-200 rounded-[6px] text-xs font-bold text-slate-700 bg-white flex items-center justify-between hover:border-slate-300 transition-all cursor-pointer text-left"
             >
               <span className={selectedProductIds.length > 0 ? "text-slate-800" : "text-slate-400"}>
-                {selectedProductIds.length > 0 
-                  ? `${selectedProductIds.length} Product(s) Selected` 
-                  : "Choose Model to Add"}
+                {selectedProductIds.length > 0 ? `${selectedProductIds.length} Product(s) Selected` : "Choose Model to Add"}
               </span>
               <ChevronDown className="w-4 h-4 text-slate-400" />
             </button>
           </div>
 
-          {/* 4. Action Button (Figma solid cyan layout) */}
           <div className="md:pt-4">
             <button
               type="submit"
@@ -763,16 +702,11 @@ export default function CreateOrderPage() {
           </div>
         </div>
 
-        {/* Selected Products Input Ledger */}
         {selectedProductIds.length > 0 ? (
           <div className="bg-white border border-slate-200 rounded-[12px] overflow-hidden shadow-sm animate-in slide-in-from-bottom-2 duration-300 relative z-10">
             <div className="p-4 border-b border-slate-100 bg-slate-50/20 flex justify-between items-center">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                Selected Products Specifications
-              </h3>
-              <span className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full font-bold uppercase">
-                {selectedProductIds.length} Added
-              </span>
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Selected Products Specifications</h3>
+              <span className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full font-bold uppercase">{selectedProductIds.length} Added</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -803,18 +737,14 @@ export default function CreateOrderPage() {
                         </td>
                         <td className="px-5 py-3">
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                            isInStock 
-                              ? "bg-emerald-50 text-emerald-600 border-emerald-100" 
-                              : "bg-rose-50 text-rose-600 border-rose-100"
+                            isInStock ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-rose-50 text-rose-600 border-rose-100"
                           }`}>
                             {isInStock ? "In Stock" : "Out of Stock"}
                           </span>
                         </td>
                         <td className="px-5 py-3">
                           <input
-                            type="number"
-                            min="1"
-                            placeholder="1"
+                            type="number" min="1" placeholder="1"
                             value={entry.quantity || ""}
                             onChange={(e) => handleQtyChange(p.id, e.target.value)}
                             className="w-24 h-8 px-2.5 border border-slate-200 rounded-[6px] text-xs font-semibold focus:outline-none focus:border-[#00B4D8] text-center"
@@ -822,23 +752,15 @@ export default function CreateOrderPage() {
                         </td>
                         <td className="px-5 py-3">
                           <input
-                            type="number"
-                            min="0"
-                            placeholder={String(p.price || 0)}
+                            type="number" min="0" placeholder={String(p.price || 0)}
                             value={entry.price || ""}
                             onChange={(e) => handlePriceChange(p.id, e.target.value)}
                             className="w-32 h-8 px-2.5 border border-slate-200 rounded-[6px] text-xs font-semibold focus:outline-none focus:border-[#00B4D8]"
                           />
                         </td>
-                        <td className="px-5 py-3 text-right font-bold text-slate-800">
-                          PKR {subtotal.toLocaleString()}
-                        </td>
+                        <td className="px-5 py-3 text-right font-bold text-slate-800">PKR {subtotal.toLocaleString()}</td>
                         <td className="px-5 py-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveProduct(p.id)}
-                            className="p-1 hover:bg-rose-50 text-rose-500 rounded border border-rose-100 transition-colors cursor-pointer"
-                          >
+                          <button type="button" onClick={() => handleRemoveProduct(p.id)} className="p-1 hover:bg-rose-50 text-rose-500 rounded border border-rose-100 transition-colors cursor-pointer">
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </td>
@@ -849,30 +771,25 @@ export default function CreateOrderPage() {
               </table>
             </div>
 
-            {/* Estimated Summary Bar */}
-            <div className="bg-slate-900 text-white p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="bg-slate-50/60 border-t border-slate-100 p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex gap-6">
                 <div>
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Total Pieces</p>
-                  <p className="text-xl font-extrabold text-white mt-0.5">{totalPieces} Pcs</p>
+                  <p className="text-xl font-extrabold text-slate-800 mt-0.5">{totalPieces} Pcs</p>
                 </div>
-                <div className="border-l border-slate-800 pl-6">
+                <div className="border-l border-slate-200 pl-6">
                   <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Estimated Order Value</p>
                   <p className="text-xl font-extrabold text-[#00B4D8] mt-0.5">PKR {totalValue.toLocaleString()}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => router.push("/dashboard/buzzcart/orders")}
-                  className="h-9 px-4 text-xs font-semibold hover:bg-slate-800 text-slate-400 hover:text-white rounded-[6px] transition-all cursor-pointer"
-                >
-                  Cancel
+                <button type="button" onClick={resetForm} className="h-9 px-4 text-xs font-semibold hover:bg-slate-200 text-slate-500 hover:text-slate-700 rounded-[6px] transition-all cursor-pointer">
+                  Clear
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting || totalPieces === 0}
-                  className="h-9 px-5 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-slate-800 disabled:text-slate-600 text-white font-semibold text-xs rounded-[6px] shadow flex items-center justify-center gap-1.5 transition-all hover:scale-105 duration-200 cursor-pointer"
+                  className="h-9 px-5 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold text-xs rounded-[6px] shadow flex items-center justify-center gap-1.5 transition-all hover:scale-105 duration-200 cursor-pointer"
                 >
                   {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   Submit Order Request
@@ -881,10 +798,9 @@ export default function CreateOrderPage() {
             </div>
           </div>
         ) : (
-          /* Empty State Warning matching Figma */
-          <div className="bg-white border border-slate-200 rounded-[12px] p-12 text-center shadow-sm space-y-3 animate-in fade-in duration-300">
-            <div className="w-12 h-12 rounded-full bg-[#F0FAFE] text-[#00B4D8] flex items-center justify-center mx-auto border border-[#00B4D8]/20">
-              <ShoppingBag className="w-6 h-6" />
+          <div className="bg-white border border-slate-200 rounded-[12px] p-8 text-center shadow-sm space-y-2 animate-in fade-in duration-300">
+            <div className="w-10 h-10 rounded-full bg-[#F0FAFE] text-[#00B4D8] flex items-center justify-center mx-auto border border-[#00B4D8]/20">
+              <ShoppingBag className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-sm font-bold text-slate-800">No Products Selected</h3>
@@ -896,23 +812,13 @@ export default function CreateOrderPage() {
         )}
       </form>
 
-      {/* Product Selection Modal (Figma Screen 2) */}
       {isProductModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div 
-            onClick={() => setIsProductModalOpen(false)}
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200"
-          ></div>
+          <div onClick={() => setIsProductModalOpen(false)} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200"></div>
           <div className="relative bg-white w-full max-w-4xl border border-slate-200 rounded-[12px] shadow-2xl p-6 flex flex-col max-h-[85vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-4">
-              <h3 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider">
-                Select Product Specifications
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsProductModalOpen(false)}
-                className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
-              >
+              <h3 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider">Select Product Specifications</h3>
+              <button type="button" onClick={() => setIsProductModalOpen(false)} className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -940,51 +846,22 @@ export default function CreateOrderPage() {
                     return (
                       <tr key={p.id} className={`hover:bg-slate-50/30 transition-colors ${isChecked ? "bg-slate-50/10" : ""}`}>
                         <td className="px-4 py-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => handleToggleCheckbox(p.id)}
-                            className="w-4 h-4 rounded border-slate-350 text-[#00B4D8] focus:ring-[#00B4D8] cursor-pointer"
-                          />
+                          <input type="checkbox" checked={isChecked} onChange={() => handleToggleCheckbox(p.id)} className="w-4 h-4 rounded border-slate-350 text-[#00B4D8] focus:ring-[#00B4D8] cursor-pointer" />
                         </td>
                         <td className="px-4 py-3 font-bold text-slate-800">
                           {p.name}
                           <p className="text-[10px] text-slate-400 font-normal">{p.model || "Generic"}</p>
                         </td>
-                        <td className="px-4 py-3 text-center font-semibold text-slate-650">
-                          {availableQty}
-                        </td>
+                        <td className="px-4 py-3 text-center font-semibold text-slate-650">{availableQty}</td>
                         <td className="px-4 py-3 text-center">
                           <div className="inline-flex items-center border border-slate-200 rounded-[6px] overflow-hidden bg-white">
-                            <button
-                              type="button"
-                              onClick={() => handleQtyDecrement(p.id)}
-                              className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold border-r border-slate-200 transition-colors"
-                            >
-                              -
-                            </button>
-                            <input
-                              type="number"
-                              min="1"
-                              value={qty || ""}
-                              onChange={(e) => handleQtyTextChange(p.id, e.target.value)}
-                              className="w-12 text-center text-xs font-bold text-slate-800 focus:outline-none h-7"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleQtyIncrement(p.id)}
-                              className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold border-l border-slate-200 transition-colors"
-                            >
-                              +
-                            </button>
+                            <button type="button" onClick={() => handleQtyDecrement(p.id)} className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold border-r border-slate-200 transition-colors">-</button>
+                            <input type="number" min="1" value={qty || ""} onChange={(e) => handleQtyTextChange(p.id, e.target.value)} className="w-12 text-center text-xs font-bold text-slate-800 focus:outline-none h-7" />
+                            <button type="button" onClick={() => handleQtyIncrement(p.id)} className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold border-l border-slate-200 transition-colors">+</button>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-600 font-semibold">
-                          Rs {price.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-right font-bold text-slate-800">
-                          Rs {totalPrice.toLocaleString()}
-                        </td>
+                        <td className="px-4 py-3 text-slate-600 font-semibold">Rs {price.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-800">Rs {totalPrice.toLocaleString()}</td>
                       </tr>
                     );
                   })}
@@ -993,24 +870,15 @@ export default function CreateOrderPage() {
             </div>
 
             <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-              <div className="text-xs text-slate-500 font-bold">
-                {selectedProductIds.length} product(s) selected
-              </div>
+              <div className="text-xs text-slate-500 font-bold">{selectedProductIds.length} product(s) selected</div>
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsProductModalOpen(false)}
-                  className="h-9 px-4 text-xs font-semibold hover:bg-slate-100 rounded-[6px] text-slate-500 transition-colors"
-                >
+                <button type="button" onClick={() => setIsProductModalOpen(false)} className="h-9 px-4 text-xs font-semibold hover:bg-slate-100 rounded-[6px] text-slate-500 transition-colors">
                   Cancel
                 </button>
                 <button
                   type="button"
                   disabled={selectedProductIds.length === 0}
-                  onClick={(e) => {
-                    setIsProductModalOpen(false);
-                    handleSubmit(e);
-                  }}
+                  onClick={(e) => { setIsProductModalOpen(false); handleSubmit(e); }}
                   className="h-9 px-6 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-slate-100 disabled:text-slate-400 text-white font-extrabold text-xs rounded-[6px] shadow flex items-center justify-center gap-1.5 transition-all hover:scale-[1.03] duration-200 cursor-pointer"
                 >
                   {currentRsm?.role === "distributor" ? "Create ST-1" : "Create Order"}
@@ -1021,13 +889,13 @@ export default function CreateOrderPage() {
         </div>
       )}
 
-      {/* Immediate Order Status milestone overlay (Figma Screen 3) */}
       {createdOrder && (
         <OrderStatusModal
           isOpen={isStatusModalOpen}
+          callerRole={currentRsm?.role}
           onClose={() => {
             setIsStatusModalOpen(false);
-            router.push("/dashboard/buzzcart/orders");
+            setCreatedOrder(null);
           }}
           order={createdOrder}
           onSuccess={() => {}}

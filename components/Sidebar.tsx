@@ -15,7 +15,6 @@ import {
   TrendingUp,
   Wrench,
   LogOut,
-  CheckSquare,
   FileText,
   CreditCard,
   Download,
@@ -154,32 +153,10 @@ export default function Sidebar() {
                 </div>
 
                 {/* Delivery Order */}
-                <div>
-                  <button
-                    onClick={() => toggleMenu("buzzcart")}
-                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
-                  >
-                    <div className="flex items-center">
-                      <ShoppingBag className="w-4 h-4 mr-3" />
-                      <span>Delivery Order</span>
-                    </div>
-                    {openMenus.buzzcart ? (
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                  {openMenus.buzzcart && (
-                    <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
-                      <Link href="/dashboard/buzzcart/orders" className={linkClass("/dashboard/buzzcart/orders")}>
-                        Orders
-                      </Link>
-                      <Link href="/dashboard/buzzcart/create" className={linkClass("/dashboard/buzzcart/create")}>
-                        Create Order
-                      </Link>
-                    </div>
-                  )}
-                </div>
+                <Link href="/dashboard/buzzcart/orders" className={linkClass("/dashboard/buzzcart/orders")}>
+                  <ShoppingBag className="w-4 h-4 mr-3" />
+                  Delivery Order
+                </Link>
 
                 {/* Sub Dealers */}
                 <div>
@@ -462,39 +439,10 @@ export default function Sidebar() {
                 </div>
 
                 {/* Buzzcart */}
-                <div>
-                  <button
-                    onClick={() => toggleMenu("buzzcart")}
-                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
-                  >
-                    <div className="flex items-center">
-                      <ShoppingBag className="w-4 h-4 mr-3" />
-                      <span>Buzzcart</span>
-                    </div>
-                    {openMenus.buzzcart ? (
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-
-                  {openMenus.buzzcart && (
-                    <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
-                      <Link
-                        href="/dashboard/buzzcart/orders"
-                        className={linkClass("/dashboard/buzzcart/orders")}
-                      >
-                        Order
-                      </Link>
-                      <Link
-                        href="/dashboard/buzzcart/create"
-                        className={linkClass("/dashboard/buzzcart/create")}
-                      >
-                        Create Order
-                      </Link>
-                    </div>
-                  )}
-                </div>
+                <Link href="/dashboard/buzzcart/orders" className={linkClass("/dashboard/buzzcart/orders")}>
+                  <ShoppingBag className="w-4 h-4 mr-3" />
+                  Buzzcart
+                </Link>
 
                 {/* Expenses */}
                 <Link href="/dashboard/expenses" className={linkClass("/dashboard/expenses")}>
@@ -508,12 +456,6 @@ export default function Sidebar() {
                 <Link href="/dashboard" className={linkClass("/dashboard")}>
                   <Home className="w-4 h-4 mr-3" />
                   Home
-                </Link>
-
-                {/* Approvals & Passes */}
-                <Link href="/dashboard/approvals" className={linkClass("/dashboard/approvals")}>
-                  <CheckSquare className="w-4 h-4 mr-3" />
-                  Approvals & Passes
                 </Link>
 
                 {/* Installer & Job Verification */}
@@ -741,39 +683,10 @@ export default function Sidebar() {
                 </div>
 
                 {/* Buzzcart */}
-                <div>
-                  <button
-                    onClick={() => toggleMenu("buzzcart")}
-                    className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
-                  >
-                    <div className="flex items-center">
-                      <ShoppingBag className="w-4 h-4 mr-3" />
-                      <span>Buzzcart</span>
-                    </div>
-                    {openMenus.buzzcart ? (
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    ) : (
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-
-                  {openMenus.buzzcart && (
-                    <div className="mt-1 pl-7 space-y-1 border-l border-slate-100 ml-6">
-                      <Link
-                        href="/dashboard/buzzcart/orders"
-                        className={linkClass("/dashboard/buzzcart/orders")}
-                      >
-                        Order
-                      </Link>
-                      <Link
-                        href="/dashboard/buzzcart/create"
-                        className={linkClass("/dashboard/buzzcart/create")}
-                      >
-                        Create Order
-                      </Link>
-                    </div>
-                  )}
-                </div>
+                <Link href="/dashboard/buzzcart/orders" className={linkClass("/dashboard/buzzcart/orders")}>
+                  <ShoppingBag className="w-4 h-4 mr-3" />
+                  Buzzcart
+                </Link>
 
                 {/* Installer */}
                 <div>
@@ -815,12 +728,6 @@ export default function Sidebar() {
                     </div>
                   )}
                 </div>
-
-                {/* Gate Pass & Approvals */}
-                <Link href="/dashboard/approvals" className={linkClass("/dashboard/approvals")}>
-                  <CheckSquare className="w-4 h-4 mr-3" />
-                  Approvals & Passes
-                </Link>
 
                 {/* Expenses */}
                 <Link href="/dashboard/expenses" className={linkClass("/dashboard/expenses")}>
