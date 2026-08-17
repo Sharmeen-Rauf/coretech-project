@@ -8,6 +8,7 @@ import OrderStatusModal from "@/components/OrderStatusModal";
 import BuzzcartCreateOrder from "@/components/BuzzcartCreateOrder";
 import toast from "react-hot-toast";
 import { deleteRecordAction } from "@/app/actions/users";
+import { fetchOrdersAction } from "@/app/actions/orders";
 import { Eye } from "lucide-react";
  
 interface OrderRow {
@@ -30,6 +31,7 @@ export default function BuzzcartOrdersPage() {
   const [userRole, setUserRole] = useState<string>("");
   const [selectedStatusOrder, setSelectedStatusOrder] = useState<any>(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
  
   // Filters
   const [distributors, setDistributors] = useState<string[]>([]);
@@ -45,56 +47,17 @@ export default function BuzzcartOrdersPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
- 
-      let roleStr = "sub_dealer";
-      let userRegion = "";
-      try {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role, group_name, region")
-          .eq("id", session.user.id)
-          .single();
-        if (profile?.role) roleStr = profile.role;
-        if (profile?.group_name === "rsm" || profile?.role === "rsm") {
-          roleStr = "rsm";
-          userRegion = profile.region || "";
-        }
-      } catch (profileErr) {
-        console.warn("Failed to fetch user role. Defaulting to sub_dealer.", profileErr);
-      }
-      setUserRole(roleStr);
 
+      // Scoped server-side (role_permissions.scope_level for "buzzcart") via
+      // getCallerIdentity - not a client-resolved role, which used to be the only
+      // thing standing between any caller and every order in the table.
       let dbData: any[] = [];
       try {
-        let query = supabase
-          .from("orders")
-          .select(`
-            id,
-            order_code,
-            created_at,
-            status,
-            user_id,
-            distributor_id,
-            sales_coordinator_id,
-            user:profiles!user_id(first_name, last_name, region),
-            product:products(name),
-            distributor:profiles!distributor_id(first_name, last_name, region),
-            coordinator:profiles!sales_coordinator_id(first_name, last_name)
-          `);
-
-        if (roleStr === "distributor") {
-          query = query.eq("distributor_id", session.user.id);
-        } else if (roleStr === "rsm") {
-          query = query.or(`sales_coordinator_id.eq.${session.user.id},distributor.region.ilike.%${userRegion}%`);
-        } else if (roleStr === "employee") {
-          query = query.eq("sales_coordinator_id", session.user.id);
-        } else if (roleStr === "sub_dealer") {
-          query = query.eq("user_id", session.user.id);
-        }
-
-        const { data, error } = await query.order("created_at", { ascending: false });
-        if (error) throw error;
-        dbData = data || [];
+        const res = await fetchOrdersAction();
+        if (!res.success) throw new Error(res.error);
+        dbData = res.data || [];
+        if (res.role) setUserRole(res.role);
+        setCanWrite(!!res.canWrite);
       } catch (dbErr) {
         console.warn("Failed to fetch orders from Supabase. Using local fallback.", dbErr);
       }
@@ -301,7 +264,13 @@ export default function BuzzcartOrdersPage() {
         </p>
       </div>
 
-      <BuzzcartCreateOrder onSuccess={fetchOrders} />
+      {canWrite ? (
+        <BuzzcartCreateOrder onSuccess={fetchOrders} />
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-[12px] p-8 text-center text-sm text-slate-500">
+          You have read-only access to Buzzcart.
+        </div>
+      )}
 
       <DataTable allData={filtered}
         title="Orders Ledger"

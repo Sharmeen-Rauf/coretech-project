@@ -7,6 +7,7 @@ import ProductModal from "@/components/ProductModal";
 import toast from "react-hot-toast";
 import { deleteRecordAction } from "@/app/actions/users";
 import { fetchProductsAction } from "@/app/actions/products";
+import { getMyScopeAction } from "@/app/actions/roles";
 
 const CATEGORY_LABELS: Record<string, string> = {
   inverter: "Inverter",
@@ -26,10 +27,18 @@ export default function ProductManagementPage() {
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(undefined);
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
 
   const fetchProducts = async () => {
     setIsLoading(true);
     try {
+      try {
+        const writeRes = await getMyScopeAction("product");
+        setCanWrite(writeRes.canWrite);
+      } catch (writeErr) {
+        console.warn("Failed to resolve write access", writeErr);
+      }
+
       // Use server action to bypass RLS — no category arg fetches every category at once
       const res = await fetchProductsAction();
       let dbData: any[] = [];
@@ -193,22 +202,22 @@ export default function ProductManagementPage() {
           setSearchQuery(q);
           setCurrentPage(1);
         }}
-        actionButton={{
+        actionButton={canWrite ? {
           label: "Add Product",
           onClick: () => {
             setEditingProduct(undefined);
             setIsModalOpen(true);
           },
-        }}
-        onEditClick={handleEditClick}
+        } : undefined}
+        onEditClick={canWrite ? handleEditClick : undefined}
         pagination={{
           current: currentPage,
           total: filtered.length,
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
-        onDeleteClick={handleDeleteProduct}
-        onBulkDelete={handleBulkDeleteProducts}
+        onDeleteClick={canWrite ? handleDeleteProduct : undefined}
+        onBulkDelete={canWrite ? handleBulkDeleteProducts : undefined}
       />
 
       <ProductModal

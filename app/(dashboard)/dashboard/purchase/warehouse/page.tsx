@@ -10,6 +10,7 @@ import {
   updateWarehouseAction,
   deleteWarehouseAction,
 } from "@/app/actions/warehouses";
+import { getMyScopeAction } from "@/app/actions/roles";
 
 interface WarehouseRow {
   id: string;
@@ -22,6 +23,7 @@ export default function WarehousePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
 
   const [editingWarehouse, setEditingWarehouse] = useState<WarehouseRow | undefined>(undefined);
   const [name, setName] = useState("");
@@ -38,6 +40,12 @@ export default function WarehousePage() {
 
   const fetchWarehouses = async () => {
     setIsLoading(true);
+    try {
+      const writeRes = await getMyScopeAction("purchase.warehouse");
+      setCanWrite(writeRes.canWrite);
+    } catch (writeErr) {
+      console.warn("Failed to resolve write access", writeErr);
+    }
     const res = await fetchWarehousesAction();
     if (res.success) {
       setWarehousesList(res.data as WarehouseRow[]);
@@ -113,16 +121,18 @@ export default function WarehousePage() {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setEditingWarehouse(undefined);
-            setIsModalOpen(true);
-          }}
-          className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Warehouse
-        </button>
+        {canWrite && (
+          <button
+            onClick={() => {
+              setEditingWarehouse(undefined);
+              setIsModalOpen(true);
+            }}
+            className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Warehouse
+          </button>
+        )}
       </div>
 
       <DataTable
@@ -137,11 +147,11 @@ export default function WarehousePage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
-        onEditClick={(row) => {
+        onEditClick={canWrite ? (row) => {
           setEditingWarehouse(row as WarehouseRow);
           setIsModalOpen(true);
-        }}
-        onDeleteClick={(row) => handleDeleteWarehouse(row as WarehouseRow)}
+        } : undefined}
+        onDeleteClick={canWrite ? (row) => handleDeleteWarehouse(row as WarehouseRow) : undefined}
       />
 
       {isModalOpen && (

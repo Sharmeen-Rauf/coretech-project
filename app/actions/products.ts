@@ -5,6 +5,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
+import { getMyScopeAction } from "@/app/actions/roles";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -44,6 +45,9 @@ function getAdminClient() {
 export async function createProductAction(data: any) {
   const supabase = getAdminClient();
   try {
+    const { canWrite } = await getMyScopeAction("product");
+    if (!canWrite) return { success: false, error: "You have read-only access to Product Management" };
+
     const { data: newProd, error } = await supabase
       .from("products")
       .insert(data)
@@ -60,6 +64,9 @@ export async function createProductAction(data: any) {
 export async function updateProductAction(id: string, data: any) {
   const supabase = getAdminClient();
   try {
+    const { canWrite } = await getMyScopeAction("product");
+    if (!canWrite) return { success: false, error: "You have read-only access to Product Management" };
+
     const { data: updatedProd, error } = await supabase
       .from("products")
       .update(data)
@@ -97,14 +104,17 @@ export async function fetchStockAction() {
   const supabase = getAdminClient();
   try {
     // A unit stays "in inventory" its whole life - warehouse, then distributor,
-    // then sub dealer - only truly leaving once it's sold out. Which slice of
-    // that pool shows up here depends on who's asking: a distributor sees only
-    // what's currently theirs, a sub dealer likewise, and everyone else (the
-    // warehouse-facing view) sees only stock nobody has claimed yet. A unit can
-    // only ever have a sub_dealer_id if it already has a distributor_id (that's
-    // enforced by how ST2's transfer is written), so the warehouse view's single
-    // "no distributor_id" filter already excludes both later stages correctly.
+    // then sub dealer - only truly leaving once it's sold out. Which slice of that
+    // pool shows up here now comes from the caller's role_permissions scope_level
+    // for "purchase.inventory" (Role Management, Stage 2), not a hardcoded role
+    // check: "self" mirrors the exact ownership each role already has elsewhere
+    // (distributor's own unclaimed-by-a-sub-dealer stock, sub dealer's own stock),
+    // "region" shows everything held by any distributor in the caller's region,
+    // and "everything" shows the full pool with no filter at all - genuinely every
+    // unit regardless of allocation stage, not just unclaimed warehouse stock the
+    // way the old hardcoded catch-all worked.
     const caller = await getCallerIdentity();
+    const { scope, callerId, callerRegion } = await getMyScopeAction("purchase.inventory");
 
     let query = supabase.from("stock").select(`
         id,
@@ -116,6 +126,8 @@ export async function fetchStockAction() {
         import_date,
         created_at,
         product_id,
+        distributor_id,
+        sub_dealer_id,
         products (
           name,
           brand,
@@ -124,13 +136,23 @@ export async function fetchStockAction() {
         )
       `);
 
-    if (caller?.role === "distributor") {
-      query = query.eq("distributor_id", caller.id).is("sub_dealer_id", null);
-    } else if (caller?.role === "sub_dealer") {
-      query = query.eq("sub_dealer_id", caller.id);
-    } else {
-      query = query.is("distributor_id", null);
+    if (scope === "self" && callerId) {
+      if (caller?.role === "distributor") {
+        query = query.eq("distributor_id", callerId).is("sub_dealer_id", null);
+      } else if (caller?.role === "sub_dealer") {
+        query = query.eq("sub_dealer_id", callerId);
+      } else {
+        // No ownership concept defined for this role on inventory - default-deny
+        // rather than guess, same posture as every other scope check in this system.
+        query = query.eq("id", "00000000-0000-0000-0000-000000000000");
+      }
+    } else if (scope === "region" && callerRegion) {
+      const { data: regionalDistributors } = await supabase
+        .from("profiles").select("id").eq("role", "distributor").ilike("region", callerRegion);
+      const ids = (regionalDistributors || []).map((d) => d.id);
+      query = query.in("distributor_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
     }
+    // scope === "everything": no filter - full pool, every allocation stage.
 
     const { data, error } = await query.order("created_at", { ascending: false });
     if (error) throw error;
@@ -447,7 +469,9 @@ export async function rejectJobStage2Action(jobId: string, serialNumber: string,
 export async function fetchSellOutAction() {
   const supabase = getAdminClient();
   try {
-    const { data, error } = await supabase
+    const { scope, callerId, canWrite } = await getMyScopeAction("sales.sellout");
+
+    let query = supabase
       .from("stock")
       .select(`
         *,
@@ -461,8 +485,16 @@ export async function fetchSellOutAction() {
           last_name
         )
       `)
-      .eq("status", "sold_out")
-      .order("sold_out_at", { ascending: false });
+      .eq("status", "sold_out");
+
+    // Self scope mirrors the ownership check submitManualSelloutAction already
+    // enforces on write - a sub-dealer (or distributor) only ever sees sellouts
+    // that were actually theirs, not the whole table.
+    if (scope === "self" && callerId) {
+      query = query.or(`distributor_id.eq.${callerId},sub_dealer_id.eq.${callerId}`);
+    }
+
+    const { data, error } = await query.order("sold_out_at", { ascending: false });
 
     if (error) throw error;
 
@@ -489,9 +521,9 @@ export async function fetchSellOutAction() {
     }
 
     const enriched = (data || []).map((row: any) => ({ ...row, consumer: consumerMap.get(row.id) || null }));
-    return { success: true, data: enriched };
+    return { success: true, data: enriched, canWrite };
   } catch (err: any) {
-    return { success: false, error: err.message || "Failed to fetch sell out stock", data: [] };
+    return { success: false, error: err.message || "Failed to fetch sell out stock", data: [], canWrite: false };
   }
 }
 
@@ -505,6 +537,9 @@ export async function bulkImportStockAction(
   globalImportDate?: string,
   globalWarehouse?: string
 ) {
+  const { canWrite } = await getMyScopeAction("purchase.import_stock");
+  if (!canWrite) return { success: false, error: "You have read-only access to Import Stock", count: 0, skipped: [] };
+
   if (!items || items.length === 0) {
     return { success: true, count: 0, skipped: [], message: "No items to import" };
   }

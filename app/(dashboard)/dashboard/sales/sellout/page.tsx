@@ -35,6 +35,7 @@ export default function SellOutPage() {
   const [selectedInstallation, setSelectedInstallation] = useState<any>(null);
   const [isLoadingJob, setIsLoadingJob] = useState(false);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as SalesPage.tsx
   const perPage = 10;
 
   const fetchSellOuts = async () => {
@@ -48,6 +49,7 @@ export default function SellOutPage() {
       if (!res.success) {
         throw new Error(res.error || "Failed to fetch sell outs");
       }
+      setCanWrite(!!res.canWrite);
 
       let regionsList: any[] = [];
       if (regRes.success && regRes.data) {
@@ -220,13 +222,15 @@ export default function SellOutPage() {
             Track units that have been sold out - deployed by installers or sold manually to a consumer.
           </p>
         </div>
-        <button
-          onClick={() => setIsManualModalOpen(true)}
-          className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Manual Sell Out
-        </button>
+        {canWrite && (
+          <button
+            onClick={() => setIsManualModalOpen(true)}
+            className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Manual Sell Out
+          </button>
+        )}
       </div>
 
       <DynamicDataTable

@@ -15,7 +15,8 @@ import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { fetchRecordsAction } from "@/app/actions/users";
-import { submitSt2Action, submitReturnAction, submitTransferAction } from "@/app/actions/sales";
+import { submitSt1Action, submitSt2Action, submitReturnAction, submitTransferAction, fetchSalesLedgerAction } from "@/app/actions/sales";
+import { getMyScopeAction } from "@/app/actions/roles";
 
 interface SalesPageProps {
   type: "ST1" | "ST2" | "return" | "transfer";
@@ -77,6 +78,11 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
   const [warehousesList, setWarehousesList] = useState<{ id: string; name: string }[]>([]);
   const [regionWarehouseMap, setRegionWarehouseMap] = useState<Map<string, string>>(new Map());
   const [callerProfile, setCallerProfile] = useState<{ id: string; role: string } | null>(null);
+  // Defaults false (deny-until-resolved) rather than true, matching the same
+  // fail-closed posture Sidebar.tsx already uses while its own permission fetch
+  // is in flight - avoids a flash of write-capable UI for a genuinely read-only
+  // caller before the real check comes back.
+  const [canWrite, setCanWrite] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -214,16 +220,27 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
       }
       setWarehousesList(dbWarehousesList);
 
-      // 5. Sales ledger
+      // 5. Sales ledger - scoped server-side (role_permissions.scope_level for the
+      // matching sales.* key) via getCallerIdentity, replacing the old client-side
+      // query that only ever had one hardcoded rule (ST2 + distributor).
       let dbSales: any[] = [];
       try {
-        let query = supabase.from("sales").select("*").eq("type", type);
-        if (isST2 && caller?.role === "distributor") query = query.eq("source_id", caller.id);
-        const { data: salesData, error: salesErr } = await query.order("created_at", { ascending: false });
-        if (salesErr) throw salesErr;
-        dbSales = salesData || [];
+        const ledgerRes = await fetchSalesLedgerAction(type);
+        if (!ledgerRes.success) throw new Error(ledgerRes.error);
+        dbSales = ledgerRes.data || [];
       } catch (dbErr) {
         console.warn("Failed to fetch sales from Supabase. Using local fallback.", dbErr);
+      }
+
+      try {
+        const scopeKeyByType: Record<string, string> = { ST1: "sales.st1", ST2: "sales.st2", return: "sales.return", transfer: "sales.transfer" };
+        const scopeKey = scopeKeyByType[type];
+        if (scopeKey) {
+          const writeRes = await getMyScopeAction(scopeKey);
+          setCanWrite(writeRes.canWrite);
+        }
+      } catch (writeErr) {
+        console.warn("Failed to resolve write access", writeErr);
       }
 
       const mergedSales = mergeLocalItems(dbSales, "coretech_local_sales", (x: any) => x.type === type);
@@ -528,40 +545,9 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
         const res = await submitTransferAction({ transferType: transferType as PartyType, fromId: warehouse, toId: selectedDistributor, passedItems: passedForAction, date, stId });
         if (!res.success) throw new Error(res.error || "Failed to save transaction");
       } else if (isST1) {
-        const passedSerials = passedItems.map(item => item.imei);
-        const { data: transferred, error: transferErr } = await supabase
-          .from("stock")
-          .update({ distributor_id: selectedDistributor })
-          .in("serial_no", passedSerials)
-          .eq("warehouse_name", warehouse)
-          .is("distributor_id", null)
-          .neq("status", "sold_out")
-          .select("id, product_id, serial_no");
-
-        if (transferErr) throw transferErr;
-        if (!transferred || transferred.length !== passedSerials.length) {
-          throw new Error(`Only ${transferred?.length || 0} of ${passedSerials.length} units could be transferred — some may have already been claimed by another order. Please re-check serials and try again.`);
-        }
-
-        const warehouseRow = warehousesList.find(w => w.name === warehouse);
-        const { data: saleRow, error: saleErr } = await supabase
-          .from("sales")
-          .insert({ type, source_type: "warehouse", source_id: warehouseRow?.id || null, destination_type: "distributor", destination_id: selectedDistributor, st_id: stId, date })
-          .select("id")
-          .single();
-        if (saleErr) throw saleErr;
-
-        const itemRows = transferred.map((t: any) => ({ sale_id: saleRow.id, stock_id: t.id, product_id: t.product_id }));
-        if (itemRows.length > 0) {
-          const { error: itemsErr } = await supabase.from("sale_items").insert(itemRows);
-          if (itemsErr) throw itemsErr;
-        }
-
-        try {
-          await supabase.from("activity_logs").insert({ action: `Create ${type} Ledger`, details: `${type} transaction ID "${stId}" transferred ${transferred.length} units from warehouse "${warehouse}" to distributor.` });
-        } catch (logErr) {
-          console.warn("Activity log failed:", logErr);
-        }
+        const passedSerials = passedItems.map(item => ({ serial_no: item.imei, product_id: item.productId }));
+        const res = await submitSt1Action({ distributorId: selectedDistributor, warehouseName: warehouse, passedItems: passedSerials, date, stId, type });
+        if (!res.success) throw new Error(res.error || "Failed to save transaction");
       }
 
       toast.success(`${title} transaction successfully created!`);
@@ -610,13 +596,15 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
             <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
             <p className="text-xs text-slate-500">Manage and track details for your {title} transactions.</p>
           </div>
-          <button
-            onClick={handleOpenCreateView}
-            className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            {buttonLabel}
-          </button>
+          {canWrite && (
+            <button
+              onClick={handleOpenCreateView}
+              className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              {buttonLabel}
+            </button>
+          )}
         </div>
       ) : (
         <div className="flex items-center gap-3">
@@ -644,6 +632,10 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
           ]}
           pagination={{ current: currentPage, total: filtered.length, perPage: perPage, onChange: (page) => setCurrentPage(page) }}
         />
+      ) : !canWrite ? (
+        <div className="bg-white border border-slate-200 rounded-[12px] p-8 text-center text-sm text-slate-500">
+          You have read-only access to {title}.
+        </div>
       ) : (
         <form onSubmit={handleCreateSales} className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
 

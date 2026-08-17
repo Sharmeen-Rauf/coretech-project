@@ -8,6 +8,8 @@ import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
 import { deleteRecordAction, fetchRecordsAction } from "@/app/actions/users";
 import { fetchWarehousesAction } from "@/app/actions/warehouses";
+import { createRegionAction } from "@/app/actions/regions";
+import { getMyScopeAction } from "@/app/actions/roles";
  
 interface RegionRow {
   id: string;
@@ -27,6 +29,7 @@ export default function RegionPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [warehousesList, setWarehousesList] = useState<{ id: string; name: string }[]>([]);
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
 
   // Form states
   const [code, setCode] = useState("");
@@ -41,6 +44,12 @@ export default function RegionPage() {
 
   const fetchRegions = async () => {
     setIsLoading(true);
+    try {
+      const writeRes = await getMyScopeAction("region");
+      setCanWrite(writeRes.canWrite);
+    } catch (writeErr) {
+      console.warn("Failed to resolve write access", writeErr);
+    }
     let dbData: any[] = [];
     try {
       // Use server action to bypass RLS
@@ -104,35 +113,24 @@ export default function RegionPage() {
  
     setIsSubmitting(true);
     try {
-      const newRegion = {
-        region_code: code.trim().toUpperCase(),
-        name: name.trim(),
-        warehouse: warehouse.trim(),
-        distributors: 0,
-        sub_dealers: 0,
-        status: "active",
-      };
- 
+      // Real server action now, gated by role_permissions.can_write for
+      // "region" - an explicit denial must never fall back to local storage.
       try {
-        const { error } = await supabase.from("regions").insert(newRegion);
-        if (error) throw error;
-        toast.success(`Region ${newRegion.region_code} successfully registered!`);
+        const res = await createRegionAction({ regionCode: code, name, warehouse });
+        if (!res.success) {
+          toast.error(res.error || "Failed to create region");
+          return;
+        }
+        toast.success(`Region ${res.data?.region_code || code.trim().toUpperCase()} successfully registered!`);
       } catch (dbErr) {
-        console.warn("Database region insert failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_regions", newRegion);
-        toast.success(`Region ${newRegion.region_code} registered locally (Database fallback)`);
-      }
- 
-      // Log audit activity safely
-      try {
-        await supabase.from("activity_logs").insert({
-          action: "Region Registered",
-          details: `Region Hub "${newRegion.name}" (${newRegion.region_code}) was registered`,
+        console.warn("createRegionAction failed unexpectedly. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_regions", {
+          region_code: code.trim().toUpperCase(), name: name.trim(), warehouse: warehouse.trim(),
+          distributors: 0, sub_dealers: 0, status: "active",
         });
-      } catch (logErr) {
-        console.warn("Activity log failed:", logErr);
+        toast.success(`Region ${code.trim().toUpperCase()} registered locally (Database fallback)`);
       }
- 
+
       setIsModalOpen(false);
       setCode("");
       setName("");
@@ -242,13 +240,15 @@ export default function RegionPage() {
           </p>
         </div>
  
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Region
-        </button>
+        {canWrite && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Region
+          </button>
+        )}
       </div>
  
       <DataTable allData={regions}
@@ -262,7 +262,7 @@ export default function RegionPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
-        onDeleteClick={handleDeleteRegion}
+        onDeleteClick={canWrite ? handleDeleteRegion : undefined}
         onBulkDelete={handleBulkDeleteRegions}
       />
  

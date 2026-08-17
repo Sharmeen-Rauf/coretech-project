@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient as createJSClient } from "@supabase/supabase-js";
+import { getMyScopeAction } from "@/app/actions/roles";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -29,6 +30,9 @@ export async function createWarehouseAction(name: string) {
   const clean = (name || "").trim();
   if (!clean) return { success: false, error: "Warehouse name is required" };
   try {
+    const { canWrite } = await getMyScopeAction("purchase.warehouse");
+    if (!canWrite) return { success: false, error: "You have read-only access to Warehouse" };
+
     const supabase = getAdminClient();
     const { data: existing } = await supabase.from("warehouses").select("id").ilike("name", clean).maybeSingle();
     if (existing) return { success: false, error: "A warehouse with this name already exists" };
@@ -49,6 +53,9 @@ export async function updateWarehouseAction(id: string, name: string) {
   const clean = (name || "").trim();
   if (!clean) return { success: false, error: "Warehouse name is required" };
   try {
+    const { canWrite } = await getMyScopeAction("purchase.warehouse");
+    if (!canWrite) return { success: false, error: "You have read-only access to Warehouse" };
+
     const supabase = getAdminClient();
     const { data: current } = await supabase.from("warehouses").select("id, name").eq("id", id).maybeSingle();
     if (!current) return { success: false, error: "Warehouse not found" };
@@ -77,6 +84,9 @@ export async function updateWarehouseAction(id: string, name: string) {
 // exists anywhere.
 export async function deleteWarehouseAction(id: string) {
   try {
+    const { canWrite } = await getMyScopeAction("purchase.warehouse");
+    if (!canWrite) return { success: false, error: "You have read-only access to Warehouse" };
+
     const supabase = getAdminClient();
     const { data: wh } = await supabase.from("warehouses").select("id, name").eq("id", id).maybeSingle();
     if (!wh) return { success: false, error: "Warehouse not found" };

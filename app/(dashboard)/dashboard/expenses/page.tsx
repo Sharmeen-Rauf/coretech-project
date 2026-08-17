@@ -5,6 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import { Loader2, Plus, X, Check, FileText, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
+import { fetchExpensesAction, submitExpenseAction, updateExpenseStatusAction, deleteExpenseAction } from "@/app/actions/expenses";
 
 interface ExpenseRow {
   id: string;
@@ -22,6 +23,7 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>("");
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -37,42 +39,17 @@ export default function ExpensesPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
- 
-      let roleStr = "employee";
-      try {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", session.user.id)
-          .single();
-        if (profile?.role) roleStr = profile.role;
-      } catch (profileErr) {
-        console.warn("Failed to fetch user role. Defaulting to employee.", profileErr);
-      }
-      setUserRole(roleStr);
- 
+
+      // Scoped server-side (role_permissions.scope_level for "expenses") via
+      // getCallerIdentity - not a client-resolved role, which was the only real
+      // barrier here given expenses' fully permissive RLS policy.
       let dbData: any[] = [];
       try {
-        let query = supabase
-          .from("expenses")
-          .select(`
-            id,
-            title,
-            amount,
-            category,
-            date,
-            status,
-            description,
-            profile:profiles!user_id(first_name, last_name)
-          `);
- 
-        if (roleStr === "employee") {
-          query = query.eq("user_id", session.user.id);
-        }
- 
-        const { data, error } = await query.order("date", { ascending: false });
-        if (error) throw error;
-        dbData = data || [];
+        const res = await fetchExpensesAction();
+        if (!res.success) throw new Error(res.error);
+        dbData = res.data || [];
+        if (res.role) setUserRole(res.role);
+        setCanWrite(!!res.canWrite);
       } catch (dbErr) {
         console.warn("Failed to fetch expenses from Supabase. Using local fallback.", dbErr);
       }
@@ -112,59 +89,49 @@ export default function ExpensesPage() {
  
     setIsSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No authenticated user session found");
- 
-      const newExpense = {
-        user_id: user.id,
-        title,
-        amount: parseFloat(amount),
-        category,
-        date,
-        description,
-        status: "pending",
-      };
-
-      try {
-        const { error } = await supabase.from("expenses").insert(newExpense);
-        if (error) throw error;
-        toast.success("Expense claim successfully submitted!");
-      } catch (dbErr) {
-        console.warn("Supabase expense insert failed. Falling back to local storage.", dbErr);
-        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
-        saveLocalItem("coretech_local_expenses", newExpense);
-        toast.success("Expense claim successfully submitted locally (Database fallback)!");
+      // Real server action now, gated by role_permissions.can_write for "expenses" -
+      // an explicit denial must never fall back to local storage, since that would
+      // let a read-only user "submit" locally as if the write actually went through.
+      const res = await submitExpenseAction({
+        title, amount: parseFloat(amount), category, date, description,
+      });
+      if (!res.success) {
+        toast.error(res.error || "Failed to submit expense");
+        return;
       }
- 
+      toast.success("Expense claim successfully submitted!");
       setIsModalOpen(false);
       setTitle("");
       setAmount("");
       setDescription("");
       fetchExpenses();
     } catch (err: any) {
-      toast.error(err.message || "Failed to submit expense");
+      // Genuine unexpected failure (network, etc.), not a permission denial - the
+      // local fallback still makes sense here.
+      console.warn("submitExpenseAction failed unexpectedly. Falling back to local storage.", err);
+      const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
+      saveLocalItem("coretech_local_expenses", {
+        title, amount: parseFloat(amount), category, date, description, status: "pending",
+      });
+      toast.success("Expense claim successfully submitted locally (Database fallback)!");
+      setIsModalOpen(false);
+      setTitle("");
+      setAmount("");
+      setDescription("");
+      fetchExpenses();
     } finally {
       setIsSubmitting(false);
     }
   };
- 
+
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     try {
-      try {
-        const { error } = await supabase
-          .from("expenses")
-          .update({ status: newStatus })
-          .eq("id", id);
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Supabase expense status update failed. Falling back to local storage.", dbErr);
-        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
-        const target = expenses.find((e) => e.id === id);
-        if (target) {
-          saveLocalItem("coretech_local_expenses", { ...target, status: newStatus }, true);
-        }
+      const res = await updateExpenseStatusAction(id, newStatus as "approved" | "rejected");
+      if (!res.success) {
+        toast.error(res.error || "Failed to update expense status");
+        return;
       }
- 
+
       // Log activity safely
       try {
         const target = expenses.find((e) => e.id === id);
@@ -187,14 +154,14 @@ export default function ExpensesPage() {
     if (!window.confirm("Are you sure you want to delete this expense entry? This cannot be undone.")) return;
 
     try {
-      try {
-        const { error } = await supabase.from("expenses").delete().eq("id", id);
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Supabase expense delete failed. Removing local fallback copy.", dbErr);
-        const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
-        deleteLocalItem("coretech_local_expenses", id, "id");
+      const res = await deleteExpenseAction(id);
+      if (!res.success) {
+        toast.error(res.error || "Failed to delete expense");
+        return;
       }
+
+      const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
+      deleteLocalItem("coretech_local_expenses", id, "id");
 
       toast.success("Expense entry deleted successfully!");
       fetchExpenses();
@@ -232,7 +199,7 @@ export default function ExpensesPage() {
     },
   ];
 
-  const columns = userRole === "employee" ? baseColumns : [
+  const columns = (userRole === "employee" || !canWrite) ? baseColumns : [
     ...baseColumns,
     {
       key: "id",
@@ -289,17 +256,19 @@ export default function ExpensesPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            const today = new Date().toLocaleDateString('en-CA');
-            setDate(today);
-            setIsModalOpen(true);
-          }}
-          className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Submit Expense
-        </button>
+        {canWrite && (
+          <button
+            onClick={() => {
+              const today = new Date().toLocaleDateString('en-CA');
+              setDate(today);
+              setIsModalOpen(true);
+            }}
+            className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Submit Expense
+          </button>
+        )}
       </div>
 
       {isLoading ? (
