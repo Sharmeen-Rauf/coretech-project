@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createMiddlewareSupabaseClient } from '@/lib/supabase';
 import { createClient } from '@supabase/supabase-js';
+import { PERMISSION_CATALOG } from '@/lib/permissionCatalog';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -175,78 +176,47 @@ export async function middleware(request: NextRequest) {
     // B. High-Privilege MFA Enforcement (Disabled)
     // if (role === 'admin' || role === 'country_head') { ... }
 
-    // C. Sub-route validation based on role permissions
-    if (role === 'distributor') {
-      const allowedDistributorPrefixes = [
-        '/dashboard/purchase/import-stock',
-        '/dashboard/purchase/inventory',
-        '/dashboard/sales/st1',
-        '/dashboard/sales/st2',
-        '/dashboard/buzzcart/orders',
-        '/dashboard/users',
-        '/dashboard/sales/transfer',
-        '/dashboard/sales/return',
-        '/dashboard/account',
-      ];
-      
-      const isExactDashboard = pathname === '/dashboard';
-      const isAllowed = isExactDashboard || allowedDistributorPrefixes.some(prefix => pathname.startsWith(prefix));
+    // C. Sub-route validation, data-driven from Role Management (roles/role_permissions).
+    // Admin is structurally unrestricted - never depends on table data being correct.
+    // Home and Account are universal for every active role, never gated by permissions.
+    // Permission changes apply on the very next request by design - this reads fresh
+    // from the database every time rather than caching the granted-route list, since
+    // that was the explicit tradeoff accepted over a stale, login-cached permission set.
+    const isExactDashboard = pathname === '/dashboard';
+    const isAccountRoute = pathname.startsWith('/dashboard/account');
 
-      if (!isAllowed) {
-        return redirectWithCookies('/dashboard');
-      }
-    } else if (role === 'sub_dealer') {
-      const allowedSubDealerPrefixes = [
-        '/dashboard/purchase/import-stock',
-        '/dashboard/purchase/inventory',
-        '/dashboard/sales/sellout',
-        '/dashboard/buzzcart/orders',
-        '/dashboard/sales/transfer',
-        '/dashboard/sales/return',
-        '/dashboard/account',
-      ];
+    if (role !== 'admin' && !isExactDashboard && !isAccountRoute) {
+      try {
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
 
-      const isExactDashboard = pathname === '/dashboard';
-      const isAllowed = isExactDashboard || allowedSubDealerPrefixes.some(prefix => pathname.startsWith(prefix));
+        const { data: roleRow } = await supabaseAdmin
+          .from('roles')
+          .select('id')
+          .eq('name', role)
+          .maybeSingle();
 
-      if (!isAllowed) {
-        return redirectWithCookies('/dashboard');
-      }
-    } else if (role === 'marketing_manager') {
-      const allowedMarketingPrefixes = [
-        '/dashboard/expenses',
-      ];
+        let allowedRoutes: string[] = [];
+        if (roleRow) {
+          const { data: perms } = await supabaseAdmin
+            .from('role_permissions')
+            .select('permission_key')
+            .eq('role_id', roleRow.id)
+            .eq('granted', true);
 
-      const isExactDashboard = pathname === '/dashboard';
-      const isAllowed = isExactDashboard || allowedMarketingPrefixes.some(prefix => pathname.startsWith(prefix));
+          const grantedKeys = new Set((perms || []).map((p) => p.permission_key));
+          allowedRoutes = PERMISSION_CATALOG.flatMap((g) => g.items)
+            .filter((item) => grantedKeys.has(item.key))
+            .map((item) => item.route);
+        }
 
-      if (!isAllowed) {
-        return redirectWithCookies('/dashboard');
-      }
-    } else if (role === 'rsm') {
-      const allowedRsmPrefixes = [
-        '/dashboard/buzzcart',
-        '/dashboard/sales',
-        '/dashboard/expenses',
-      ];
-
-      const isExactDashboard = pathname === '/dashboard';
-      const isAllowed = isExactDashboard || allowedRsmPrefixes.some(prefix => pathname.startsWith(prefix));
-
-      if (!isAllowed) {
-        return redirectWithCookies('/dashboard');
-      }
-    } else if (role === 'retail_manager') {
-      const allowedRetailManagerPrefixes = [
-        '/dashboard/installer/list',
-        '/dashboard/installer/jobs',
-        '/dashboard/account',
-      ];
-
-      const isExactDashboard = pathname === '/dashboard';
-      const isAllowed = isExactDashboard || allowedRetailManagerPrefixes.some(prefix => pathname.startsWith(prefix));
-
-      if (!isAllowed) {
+        const isAllowed = allowedRoutes.some((route) => pathname.startsWith(route));
+        if (!isAllowed) {
+          return redirectWithCookies('/dashboard');
+        }
+      } catch (permErr) {
+        console.warn('Middleware permission lookup failed, denying by default:', permErr);
         return redirectWithCookies('/dashboard');
       }
     }

@@ -2,6 +2,7 @@
 
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
+import { getMyScopeAction } from "@/app/actions/roles";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -32,6 +33,9 @@ export async function submitSt2Action(params: {
     if (caller.role === "distributor" && caller.id !== params.distributorId) {
       return { success: false, error: "You can only create ST2 transfers for your own distributor account" };
     }
+
+    const { canWrite } = await getMyScopeAction("sales.st2");
+    if (!canWrite) return { success: false, error: "You have read-only access to ST-2" };
 
     if (!params.distributorId || !params.subDealerId) {
       return { success: false, error: "Distributor and Sub Dealer are required" };
@@ -169,6 +173,9 @@ export async function submitReturnAction(params: {
       return { success: false, error: "You can only return stock that's currently your own" };
     }
 
+    const { canWrite } = await getMyScopeAction("sales.return");
+    if (!canWrite) return { success: false, error: "You have read-only access to Return" };
+
     if (!params.sourceId || !params.destId) {
       return { success: false, error: "Source and destination could not be resolved" };
     }
@@ -300,6 +307,9 @@ export async function submitTransferAction(params: {
       return { success: false, error: "You can only transfer stock that's currently your own" };
     }
 
+    const { canWrite } = await getMyScopeAction("sales.transfer");
+    if (!canWrite) return { success: false, error: "You have read-only access to Transfer" };
+
     if (!params.fromId || !params.toId) {
       return { success: false, error: "Transfer From and Transfer To are required" };
     }
@@ -422,6 +432,9 @@ export async function submitManualSelloutAction(params: {
     const caller = await getCallerIdentity();
     if (!caller) return { success: false, error: "Not authenticated" };
 
+    const { canWrite } = await getMyScopeAction("sales.sellout");
+    if (!canWrite) return { success: false, error: "You have read-only access to Sell Out" };
+
     if (!params.serialNo?.trim()) return { success: false, error: "Serial number is required" };
     if (!params.consumerName?.trim()) return { success: false, error: "Consumer name is required" };
     if (!params.consumerPhone?.trim()) return { success: false, error: "Consumer phone is required" };
@@ -507,5 +520,133 @@ export async function submitManualSelloutAction(params: {
     return { success: true, message: "Sell out recorded successfully", data: saleRow };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to record sell out" };
+  }
+}
+
+// ST1 moves stock from a raw warehouse into a distributor's holdings - the one
+// sales type that was still a raw client-side multi-step write (stock update +
+// sales insert + sale_items insert), found and converted alongside the other
+// three during the read-only/read-write pass, for the same reason: no server-side
+// check existed at all, so the read-only toggle could never have done anything
+// for ST1 even if it had been wired.
+export async function submitSt1Action(params: {
+  distributorId: string;
+  warehouseName: string;
+  passedItems: { serial_no: string; product_id: string }[];
+  date: string;
+  stId: string;
+  type: string;
+}) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated" };
+
+    const { canWrite } = await getMyScopeAction("sales.st1");
+    if (!canWrite) return { success: false, error: "You have read-only access to ST-1" };
+
+    if (!params.distributorId || !params.warehouseName) {
+      return { success: false, error: "Distributor and Warehouse are required" };
+    }
+    if (!params.passedItems || params.passedItems.length === 0) {
+      return { success: false, error: "No passed serial numbers to submit" };
+    }
+
+    const supabase = getAdminClient();
+
+    const { data: distributor } = await supabase
+      .from("profiles")
+      .select("id, role")
+      .eq("id", params.distributorId)
+      .maybeSingle();
+    if (!distributor || distributor.role !== "distributor") {
+      return { success: false, error: "Selected distributor is invalid" };
+    }
+
+    const serials = params.passedItems.map((i) => i.serial_no);
+
+    const { data: transferred, error: transferErr } = await supabase
+      .from("stock")
+      .update({ distributor_id: params.distributorId })
+      .in("serial_no", serials)
+      .eq("warehouse_name", params.warehouseName)
+      .is("distributor_id", null)
+      .neq("status", "sold_out")
+      .select("id, product_id, serial_no");
+
+    if (transferErr) throw transferErr;
+    if (!transferred || transferred.length !== serials.length) {
+      return {
+        success: false,
+        error: `Only ${transferred?.length || 0} of ${serials.length} units could be transferred — some may have already been claimed by another order. Please re-check serials and try again.`,
+      };
+    }
+
+    const { data: warehouseRow } = await supabase.from("warehouses").select("id").eq("name", params.warehouseName).maybeSingle();
+
+    const { data: saleRow, error: saleErr } = await supabase
+      .from("sales")
+      .insert({
+        type: params.type,
+        source_type: "warehouse",
+        source_id: warehouseRow?.id || null,
+        destination_type: "distributor",
+        destination_id: params.distributorId,
+        st_id: params.stId,
+        date: params.date,
+      })
+      .select("id")
+      .single();
+    if (saleErr) throw saleErr;
+
+    const itemRows = transferred.map((t: any) => ({ sale_id: saleRow.id, stock_id: t.id, product_id: t.product_id }));
+    const { error: itemsErr } = await supabase.from("sale_items").insert(itemRows);
+    if (itemsErr) throw itemsErr;
+
+    try {
+      await supabase.from("activity_logs").insert({
+        action: `Create ${params.type} Ledger`,
+        details: `${params.type} transaction ID "${params.stId}" transferred ${transferred.length} units from warehouse "${params.warehouseName}" to distributor.`,
+      });
+    } catch {
+      // Non-critical.
+    }
+
+    return { success: true, message: "ST1 transaction successfully created", data: saleRow };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to submit ST1 transaction" };
+  }
+}
+
+// Stage 2 (Role Management), applied to the last remaining page that still had a
+// raw client-side read: the sales ledger for ST1/ST2/Return/Transfer only ever
+// had one hardcoded scoping rule (ST2 + distributor). Moved to a real server
+// action - self-scope covers whichever side of the transaction actually belongs
+// to the caller (source or destination, since a distributor might be either
+// depending on the transaction type), everything is unfiltered.
+export async function fetchSalesLedgerAction(type: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated", data: [], role: null };
+
+    const scopeKeyByType: Record<string, string> = {
+      ST1: "sales.st1", ST2: "sales.st2", return: "sales.return", transfer: "sales.transfer",
+    };
+    const scopeKey = scopeKeyByType[type];
+    const { scope, callerId } = scopeKey
+      ? await getMyScopeAction(scopeKey)
+      : { scope: "everything" as const, callerId: caller.id };
+
+    const supabase = getAdminClient();
+    let query = supabase.from("sales").select("*").eq("type", type);
+    if (scope === "self" && callerId) {
+      query = query.or(`source_id.eq.${callerId},destination_id.eq.${callerId}`);
+    }
+    // scope === "region"/"everything": no filter (region not yet meaningful for this ledger - no region column, and the transacting parties' own regions can differ from each other within one row).
+
+    const { data, error } = await query.order("created_at", { ascending: false });
+    if (error) throw error;
+    return { success: true, data: data || [], role: caller.role };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch sales ledger", data: [], role: null };
   }
 }

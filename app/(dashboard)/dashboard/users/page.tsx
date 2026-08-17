@@ -7,8 +7,10 @@ import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import AdminPasswordReset from "@/components/AdminPasswordReset";
 import DealerAssignment from "@/components/DealerAssignment";
+import RoleManagement from "@/components/RoleManagement";
 import toast from "react-hot-toast";
-import { deleteUserAction, fetchEmailsByIdsAction } from "@/app/actions/users";
+import { deleteUserAction, fetchUsersAction } from "@/app/actions/users";
+import { getMyPermissionKeysAction } from "@/app/actions/roles";
 
 interface UserProfile {
   id: string;
@@ -40,6 +42,8 @@ export default function UsersPage() {
   const perPage = 10;
 
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
+  const [grantedKeys, setGrantedKeys] = useState<Set<string>>(new Set());
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
 
   useEffect(() => {
     const checkCurrentUserRole = async () => {
@@ -55,6 +59,13 @@ export default function UsersPage() {
       } catch (e) {
         console.warn("Failed to fetch session profile", e);
       }
+
+      try {
+        const permRes = await getMyPermissionKeysAction();
+        setGrantedKeys(new Set(permRes.keys));
+      } catch (e) {
+        console.warn("Failed to fetch permissions", e);
+      }
     };
     checkCurrentUserRole();
   }, [supabase]);
@@ -62,38 +73,13 @@ export default function UsersPage() {
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      let query = supabase.from("profiles").select("*");
-      if (activeRole === "employee") {
-        query = query.in("role", ["employee", "rsm", "country_head", "retail_manager", "admin", "marketing_manager"]);
-      } else {
-        query = query.eq("role", activeRole);
-      }
-
-      const profilesRes = await query.order("created_at", { ascending: false });
-      if (profilesRes.error) throw profilesRes.error;
-      const profiles = profilesRes.data || [];
-
-      // Real emails live in auth.users - profiles has no email column of its own.
-      const emailsRes = await fetchEmailsByIdsAction(profiles.map((p: any) => p.id));
-      const emailMap = emailsRes.success ? emailsRes.data : {};
-
-      let formattedProfiles = (profiles || []).map((prof: any) => ({
-        ...prof,
-        email: emailMap[prof.id] || "",
-      }));
-
-      // 4. Strict Regional Data Isolation for RSM Users
-      const isRsmUser = currentUserProfile && (currentUserProfile.role === "rsm" || currentUserProfile.group_name === "rsm");
-      if (isRsmUser && currentUserProfile.region) {
-        const rsmRegionLower = currentUserProfile.region.toLowerCase().trim();
-        formattedProfiles = formattedProfiles.filter((u: any) => {
-          if (u.id === currentUserProfile.id) return true;
-          const uRegionLower = (u.region || "").toLowerCase().trim();
-          return uRegionLower === rsmRegionLower;
-        });
-      }
-
-      setUsers(formattedProfiles);
+      // Scoped server-side (role_permissions.scope_level for the matching
+      // users.add_* key) via getCallerIdentity - replaces the old client-side
+      // query that only ever had one hardcoded rule (RSM regional isolation).
+      const res = await fetchUsersAction(activeRole);
+      if (!res.success) throw new Error(res.error);
+      setUsers(res.data);
+      setCanWrite(!!res.canWrite);
     } catch (err: any) {
       toast.error(err.message || "Failed to fetch users");
     } finally {
@@ -102,7 +88,7 @@ export default function UsersPage() {
   };
 
   useEffect(() => {
-    if (activeRole === "reset_password" || activeRole === "dealer_assignment") return;
+    if (activeRole === "reset_password" || activeRole === "dealer_assignment" || activeRole === "role_management") return;
     fetchUsers();
     setCurrentPage(1);
     setSearchQuery("");
@@ -249,7 +235,17 @@ export default function UsersPage() {
 
   const roleTitle = getRoleTitle(activeRole);
 
+  const hasPermission = (key: string) => currentUserProfile?.role === "admin" || grantedKeys.has(key);
+
   if (activeRole === "reset_password") {
+    if (currentUserProfile && !hasPermission("users.reset_password")) {
+      return (
+        <div className="space-y-2 select-none">
+          <h1 className="text-2xl font-bold text-slate-800">Reset Password</h1>
+          <p className="text-xs text-rose-500 font-semibold">Only admins can access this page.</p>
+        </div>
+      );
+    }
     return (
       <div className="space-y-6 select-none">
         <div>
@@ -263,8 +259,20 @@ export default function UsersPage() {
     );
   }
 
+  if (activeRole === "role_management") {
+    if (currentUserProfile && !hasPermission("users.role_management")) {
+      return (
+        <div className="space-y-2 select-none">
+          <h1 className="text-2xl font-bold text-slate-800">Role Management</h1>
+          <p className="text-xs text-rose-500 font-semibold">Only admins can access this page.</p>
+        </div>
+      );
+    }
+    return <RoleManagement />;
+  }
+
   if (activeRole === "dealer_assignment") {
-    if (currentUserProfile && currentUserProfile.role !== "admin") {
+    if (currentUserProfile && !hasPermission("users.dealer_assignment")) {
       return (
         <div className="space-y-2 select-none">
           <h1 className="text-2xl font-bold text-slate-800">Dealer Assignment</h1>
@@ -308,19 +316,19 @@ export default function UsersPage() {
           setSearchQuery(q);
           setCurrentPage(1);
         }}
-        actionButton={{
+        actionButton={canWrite ? {
           label: `Add ${roleTitle}`,
           onClick: handleAddClick,
-        }}
+        } : undefined}
         pagination={{
           current: currentPage,
           total: filteredUsers.length,
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
-        onEditClick={handleEditClick}
-        onDeleteClick={handleDeleteUser}
-        onBulkDelete={handleBulkDeleteUsers}
+        onEditClick={canWrite ? handleEditClick : undefined}
+        onDeleteClick={canWrite ? handleDeleteUser : undefined}
+        onBulkDelete={canWrite ? handleBulkDeleteUsers : undefined}
       />
 
       {/* User Management Form Modal */}

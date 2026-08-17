@@ -65,6 +65,35 @@ async function validateSubDealerDistributor(distributorId: string | undefined, r
   return { success: true };
 }
 
+function catalogKeyForUserRole(role: string): string | null {
+  if (["employee", "rsm", "country_head", "retail_manager", "admin", "marketing_manager"].includes(role)) return "users.add_employee";
+  if (role === "distributor") return "users.add_distributor";
+  if (role === "sub_dealer") return "users.add_sub_dealer";
+  if (role === "installer") return "users.add_installer";
+  return null;
+}
+
+// Stage 3 (Role Management): createUserAction/updateUserAction/deleteUserAction
+// previously had NO server-side caller check at all - anyone able to trigger these
+// actions directly (not just through the UI) could create, edit, or delete any
+// account, including admin ones, entirely bypassing what the sidebar hides. This
+// wasn't introduced by Stage 3 - it predates this feature - but adding a real
+// write gate here requires establishing who the caller even is first, so both are
+// fixed together rather than layering a permission check on top of no
+// authentication check at all.
+async function checkUsersWriteAccess(targetRole: string): Promise<{ allowed: boolean; error?: string }> {
+  const caller = await getCallerIdentity();
+  if (!caller) return { allowed: false, error: "Not authenticated" };
+  if (caller.role === "admin") return { allowed: true };
+
+  const key = catalogKeyForUserRole(targetRole);
+  if (!key) return { allowed: false, error: "You don't have permission to manage this type of user" };
+
+  const { canWrite } = await getUsersScopeAndWrite(caller, key);
+  if (!canWrite) return { allowed: false, error: "You don't have write access to manage this type of user" };
+  return { allowed: true };
+}
+
 export async function createUserAction(formData: any): Promise<{ success: boolean; message?: string; error?: string; data?: any }> {
   const supabase = getAdminClient();
   const {
@@ -93,6 +122,9 @@ export async function createUserAction(formData: any): Promise<{ success: boolea
   } = formData;
 
   try {
+    const access = await checkUsersWriteAccess(role);
+    if (!access.allowed) return { success: false, error: access.error };
+
     if (role === "sub_dealer") {
       const validation = await validateSubDealerDistributor(distributorId, region);
       if (!validation.success) return validation;
@@ -274,6 +306,9 @@ export async function updateUserAction(id: string, formData: any): Promise<{ suc
   } = formData;
 
   try {
+    const access = await checkUsersWriteAccess(role);
+    if (!access.allowed) return { success: false, error: access.error };
+
     if (role === "sub_dealer") {
       const validation = await validateSubDealerDistributor(distributorId, region);
       if (!validation.success) return validation;
@@ -362,11 +397,15 @@ export async function updateUserAction(id: string, formData: any): Promise<{ suc
 export async function deleteUserAction(id: string) {
   const supabase = getAdminClient();
   try {
+    const { data: target } = await supabase.from("profiles").select("role").eq("id", id).maybeSingle();
+    const access = await checkUsersWriteAccess(target?.role || "");
+    if (!access.allowed) return { success: false, error: access.error };
+
     const { error } = await supabase.from("profiles").delete().eq("id", id);
     if (error) throw error;
-    
+
     // Attempt to delete auth user as well if permissions allow
-    await supabase.auth.admin.deleteUser(id); 
+    await supabase.auth.admin.deleteUser(id);
 
     return { success: true, message: "User deleted successfully" };
   } catch (err: any) {
@@ -594,6 +633,88 @@ export async function fetchEmailsByIdsAction(ids: string[]) {
     return { success: true, data: map };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch emails", data: {} as Record<string, string> };
+  }
+}
+
+const USERS_SCOPE_KEY_BY_ACTIVE_ROLE: Record<string, string> = {
+  employee: "users.add_employee",
+  distributor: "users.add_distributor",
+  sub_dealer: "users.add_sub_dealer",
+  installer: "users.add_installer",
+};
+
+// Shared local resolver for both the Users list scope (Stage 2) and the write
+// gate on create/edit/delete (Stage 3). Duplicates a small piece of
+// getMyScopeAction's logic locally instead of importing it from
+// app/actions/roles.ts, because roles.ts already imports getCallerIdentity from
+// this file - importing back the other way would create a circular dependency
+// between the two "use server" modules, unlike the one-directional imports
+// orders.ts/products.ts/expenses.ts already use safely.
+async function getUsersScopeAndWrite(caller: { id: string; role: string | null }, scopeKey: string | undefined) {
+  const supabase = getAdminClient();
+  if (caller.role === "admin") return { scope: "everything" as const, callerRegion: null as string | null, canWrite: true };
+  if (!scopeKey) return { scope: "everything" as const, callerRegion: null as string | null, canWrite: true };
+
+  const { data: callerProfile } = await supabase.from("profiles").select("region").eq("id", caller.id).maybeSingle();
+  const callerRegion = callerProfile?.region || null;
+
+  const { data: roleRow } = await supabase.from("roles").select("id").eq("name", caller.role || "").maybeSingle();
+  if (!roleRow) return { scope: "self" as const, callerRegion, canWrite: false };
+
+  const { data: permRow } = await supabase
+    .from("role_permissions")
+    .select("scope_level, granted, can_write")
+    .eq("role_id", roleRow.id)
+    .eq("permission_key", scopeKey)
+    .maybeSingle();
+
+  if (!permRow?.granted) return { scope: "self" as const, callerRegion, canWrite: false };
+  return {
+    scope: (permRow.scope_level as "self" | "region" | "everything") || "self",
+    callerRegion,
+    canWrite: permRow.can_write !== false,
+  };
+}
+
+export async function fetchUsersAction(activeRole: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated", data: [] };
+
+    const supabase = getAdminClient();
+    let query = supabase.from("profiles").select("*");
+    if (activeRole === "employee") {
+      query = query.in("role", ["employee", "rsm", "country_head", "retail_manager", "admin", "marketing_manager"]);
+    } else {
+      query = query.eq("role", activeRole);
+    }
+    const { data: profiles, error } = await query.order("created_at", { ascending: false });
+    if (error) throw error;
+
+    const scopeKey = USERS_SCOPE_KEY_BY_ACTIVE_ROLE[activeRole];
+    const { scope, callerRegion, canWrite } = await getUsersScopeAndWrite(caller, scopeKey);
+
+    let scoped = profiles || [];
+    if (scope === "self") {
+      if (activeRole === "sub_dealer" && caller.role === "distributor") {
+        // A distributor's own connected sub-dealers, not every sub-dealer in the system.
+        scoped = scoped.filter((p: any) => p.distributor_id === caller.id);
+      } else {
+        scoped = scoped.filter((p: any) => p.id === caller.id);
+      }
+    } else if (scope === "region" && callerRegion) {
+      const regionLower = callerRegion.toLowerCase().trim();
+      scoped = scoped.filter((p: any) => p.id === caller.id || (p.region || "").toLowerCase().trim() === regionLower);
+    }
+    // scope === "everything": no filter.
+
+    const emailsRes = await fetchEmailsByIdsAction(scoped.map((p: any) => p.id));
+    const emailMap = emailsRes.success ? emailsRes.data : {};
+    const withEmails = scoped.map((p: any) => ({ ...p, email: emailMap[p.id] || "" }));
+
+    return { success: true, data: withEmails, role: caller.role, canWrite };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch users", data: [], canWrite: false };
   }
 }
 

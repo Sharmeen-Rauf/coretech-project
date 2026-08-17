@@ -14,6 +14,7 @@ import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import OrderStatusModal from "@/components/OrderStatusModal";
 import { fetchRecordsAction } from "@/app/actions/users";
+import { createBuzzcartOrderAction } from "@/app/actions/orders";
 
 interface Product {
   id: string;
@@ -404,30 +405,20 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
         : employees.find(emp => emp.id === selectedEmployeeId);
       const empName = activeEmp ? `${activeEmp.first_name} ${activeEmp.last_name || ""}`.trim() : "";
 
-      // Real columns only - orders has no local_* columns, so those never belong
-      // in the DB insert itself (they used to be included here, which made every
-      // single order insert fail and silently fall back to localStorage - the
-      // order never actually reached the database, so Approve/Review had nothing
-      // real to act on). They're only meaningful for the local-fallback copy,
-      // where there's no profile join available to derive a display name from.
-      const dbPayload = {
-        order_code: orderCode,
-        user_id: isDist ? selectedSubDealerId : isGeneralSubDealer ? selectedSubDealerId : (currentRsm?.id || null),
-        product_id: submittable[0].productId,
-        distributor_id: isDist
-          ? (currentRsm?.id || null)
-          : isGeneralSubDealer
-          ? (activeGeneralSubDealer?.distributor_id || null)
-          : (selectedDistributorId.startsWith("mock_") ? null : selectedDistributorId),
-        sales_coordinator_id: isDist ? (activeUser?.rsm_id || null) : (selectedEmployeeId.startsWith("mock_") ? null : selectedEmployeeId),
-        status: "pending",
-        items: submittable,
-      };
-
-      let finalOrderData = {
-        ...dbPayload,
+      // Real server action now - caller identity (which distributor/employee gets
+      // credited) is re-derived server-side from the session, never trusted from
+      // this client payload, and gated by role_permissions.can_write for
+      // "buzzcart". A local-only display shape is kept here only for the genuine-
+      // failure fallback path below (network error calling the action itself) -
+      // an explicit permission denial must never fall back to local storage, since
+      // that would let a read-only caller "create" an order that never really
+      // reached the database.
+      let finalOrderData: any = {
         id: orderCode,
+        order_code: orderCode,
+        status: "pending",
         created_at: new Date().toISOString(),
+        items: submittable,
         user: activeUser ? { id: activeUser.id, first_name: activeUser.first_name, last_name: activeUser.last_name } : null,
         product: { name: submittable[0].productName },
         distributor: activeDist ? { id: activeDist.id, first_name: activeDist.first_name, last_name: activeDist.last_name } : null,
@@ -435,40 +426,32 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
       };
 
       try {
-        const { data: insertedOrder, error } = await supabase
-          .from("orders")
-          .insert(dbPayload)
-          .select(`
-            id, order_code, status, created_at, items, product_id, user_id, distributor_id,
-            user:profiles!user_id(id, first_name, last_name, contact),
-            product:products(*),
-            distributor:profiles!distributor_id(id, first_name, last_name, contact),
-            coordinator:profiles!sales_coordinator_id(id, first_name, last_name, contact)
-          `)
-          .single();
+        const res = await createBuzzcartOrderAction({
+          buyerType: isGeneralSubDealer ? "sub_dealer" : "distributor",
+          selectedDistributorId: isDist || isGeneralSubDealer ? null : selectedDistributorId,
+          selectedSubDealerId: isDist || isGeneralSubDealer ? selectedSubDealerId : null,
+          selectedEmployeeId: currentRsm?.role === "admin" ? selectedEmployeeId : null,
+          items: submittable,
+        });
 
-        if (error) throw error;
-        if (insertedOrder) finalOrderData = insertedOrder;
-        toast.success(`Order ${orderCode} created successfully!`);
+        if (!res.success) {
+          toast.error(res.error || "Failed to create order");
+          return;
+        }
+        if (res.data) finalOrderData = res.data;
+        toast.success(`Order ${res.data?.order_code || orderCode} created successfully!`);
       } catch (dbErr) {
-        console.warn("Supabase order insert failed. Saving locally.", dbErr);
+        console.warn("createBuzzcartOrderAction failed unexpectedly. Saving locally.", dbErr);
         saveLocalItem("coretech_local_orders", {
-          ...dbPayload,
+          order_code: orderCode,
+          status: "pending",
+          items: submittable,
           local_user_name: userName,
           local_product_name: submittable[0].productName,
           local_distributor_name: distName,
           local_coordinator_name: empName,
         });
         toast.success(`Order ${orderCode} created locally (Database fallback)!`);
-      }
-
-      try {
-        await supabase.from("activity_logs").insert({
-          action: "Create Buzzcart Order",
-          details: `User ${currentRsm?.first_name} created order ${orderCode} assigned to RSM ${empName || "System"}. Total PKR ${totalAmount.toLocaleString()}`,
-        });
-      } catch (logErr) {
-        console.warn("Activity log failed:", logErr);
       }
 
       setCreatedOrder(finalOrderData);
@@ -503,7 +486,7 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
   return (
     <div className="space-y-4 select-none animate-in fade-in duration-300">
       <h2 className="text-sm font-extrabold text-slate-800 uppercase tracking-wider">
-        {currentRsm?.role === "distributor" ? "Create ST-1" : "Create New Order"}
+        Create New Order
       </h2>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -689,17 +672,6 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
               <ChevronDown className="w-4 h-4 text-slate-400" />
             </button>
           </div>
-
-          <div className="md:pt-4">
-            <button
-              type="submit"
-              disabled={isSubmitting || selectedItems.length === 0}
-              className="h-10 px-6 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-slate-100 disabled:text-slate-400 text-white font-extrabold text-xs rounded-[6px] shadow-lg shadow-cyan-100 flex items-center justify-center gap-1.5 transition-all hover:scale-[1.03] duration-200 cursor-pointer"
-            >
-              {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              {currentRsm?.role === "distributor" ? "Create ST-1" : "Create Order"}
-            </button>
-          </div>
         </div>
 
         {selectedProductIds.length > 0 ? (
@@ -878,10 +850,10 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                 <button
                   type="button"
                   disabled={selectedProductIds.length === 0}
-                  onClick={(e) => { setIsProductModalOpen(false); handleSubmit(e); }}
+                  onClick={() => setIsProductModalOpen(false)}
                   className="h-9 px-6 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-slate-100 disabled:text-slate-400 text-white font-extrabold text-xs rounded-[6px] shadow flex items-center justify-center gap-1.5 transition-all hover:scale-[1.03] duration-200 cursor-pointer"
                 >
-                  {currentRsm?.role === "distributor" ? "Create ST-1" : "Create Order"}
+                  Add to Order
                 </button>
               </div>
             </div>

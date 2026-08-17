@@ -6,6 +6,8 @@ import DataTable from "@/components/DataTable";
 import { Loader2, Plus, X, Megaphone } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
+import { createAnnouncementAction } from "@/app/actions/broadcast";
+import { getMyScopeAction } from "@/app/actions/roles";
  
 interface AnnouncementRow {
   id: string;
@@ -22,6 +24,7 @@ export default function BroadcastPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [userRole, setUserRole] = useState<string>("");
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
  
   // Form states
   const [title, setTitle] = useState("");
@@ -45,7 +48,14 @@ export default function BroadcastPage() {
       } catch (roleErr) {
         console.warn("Failed to get profile role. Defaulting to empty.", roleErr);
       }
- 
+
+      try {
+        const writeRes = await getMyScopeAction("broadcast");
+        setCanWrite(writeRes.canWrite);
+      } catch (writeErr) {
+        console.warn("Failed to resolve write access", writeErr);
+      }
+
       // Fetch announcements
       let dbData: any[] = [];
       try {
@@ -82,34 +92,21 @@ export default function BroadcastPage() {
  
     setIsSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No authenticated session found");
- 
-      const payload = {
-        title: title.trim(),
-        content: content.trim(),
-        role_target: roleTarget,
-        created_by: user.id,
-      };
-
+      // Real server action now, gated by role_permissions.can_write for
+      // "broadcast" - an explicit denial must never fall back to local storage.
       try {
-        const { error } = await supabase.from("announcements").insert(payload);
-        if (error) throw error;
+        const res = await createAnnouncementAction({ title, content, roleTarget });
+        if (!res.success) {
+          toast.error(res.error || "Failed to post announcement");
+          return;
+        }
       } catch (dbErr) {
-        console.warn("Database announcement insert failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_announcements", payload);
-      }
- 
-      // Log activity safely
-      try {
-        await supabase.from("activity_logs").insert({
-          action: "Announcement Broadcast",
-          details: `Announcement "${title}" was posted to ${roleTarget} users`,
+        console.warn("createAnnouncementAction failed unexpectedly. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_announcements", {
+          title: title.trim(), content: content.trim(), role_target: roleTarget,
         });
-      } catch (logErr) {
-        console.warn("Activity log failed:", logErr);
       }
- 
+
       toast.success("Notice broadcasted successfully!");
       setIsModalOpen(false);
       setTitle("");
@@ -156,7 +153,7 @@ export default function BroadcastPage() {
           </p>
         </div>
  
-        {userRole === "admin" && (
+        {canWrite && (
           <button
             onClick={() => setIsModalOpen(true)}
             className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"

@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { bulkImportStockAction } from "@/app/actions/products";
 import { getLocalItems, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { fetchRecordsAction } from "@/app/actions/users";
+import { getMyScopeAction } from "@/app/actions/roles";
 
 export default function ImportStockPage() {
   const supabase = createClientComponentClient();
@@ -24,6 +25,7 @@ export default function ImportStockPage() {
   const [importSkipped, setImportSkipped] = useState<{ serial_no?: string; code?: string; reason: string }[]>([]);
   const [warehousesList, setWarehousesList] = useState<string[]>([]);
   const [userRole, setUserRole] = useState("");
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
 
   const [allProductsList, setAllProductsList] = useState<any[]>([]);
   const [selectedProductDetails, setSelectedProductDetails] = useState<any | null>(null);
@@ -47,6 +49,13 @@ export default function ImportStockPage() {
         }
       } catch (err) {
         console.warn("Failed to fetch user role", err);
+      }
+
+      try {
+        const writeRes = await getMyScopeAction("purchase.import_stock");
+        setCanWrite(writeRes.canWrite);
+      } catch (writeErr) {
+        console.warn("Failed to resolve write access", writeErr);
       }
 
       try {
@@ -261,6 +270,21 @@ export default function ImportStockPage() {
       setIsImporting(false);
     }
   };
+
+  if (!canWrite) {
+    return (
+      <div className="space-y-6 select-none max-w-4xl mx-auto">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">
+            {userRole === "distributor" ? "Consignment Import" : "Import Stock"}
+          </h1>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-[12px] p-8 text-center text-sm text-slate-500">
+          You have read-only access to Import Stock.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 select-none max-w-4xl mx-auto">
