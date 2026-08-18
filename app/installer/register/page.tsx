@@ -40,6 +40,9 @@ export default function InstallerRegisterPage() {
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Server-side error that doesn't map to one specific field (e.g. an
+  // unexpected failure) - shown as a banner so it's not missed like a toast can be.
+  const [submitError, setSubmitError] = useState("");
 
   const formatCNIC = (value: string) => {
     // Strip non-numeric
@@ -97,6 +100,7 @@ export default function InstallerRegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError("");
     if (!validate()) {
       toast.error("Please correct errors before submitting");
       return;
@@ -125,13 +129,30 @@ export default function InstallerRegisterPage() {
       });
 
       if (!res.success) {
-        throw new Error(res.error || "Registration failed");
+        const message = res.error || "Registration failed";
+        const lower = message.toLowerCase();
+        // Route the error to the specific field it's about, same visual
+        // treatment as the existing client-side validation errors, so a
+        // server-side rejection (duplicate email, weak password, etc.) is
+        // just as visible as a blank-field mistake. Anything that doesn't
+        // clearly belong to one field falls back to the banner below.
+        if (lower.includes("email")) {
+          setErrors((prev) => ({ ...prev, email: message }));
+        } else if (lower.includes("password")) {
+          setErrors((prev) => ({ ...prev, password: message }));
+        } else {
+          setSubmitError(message);
+        }
+        toast.error(message);
+        return;
       }
 
       setIsSuccess(true);
       toast.success("Registration submitted! Pending owner review.");
     } catch (err: any) {
-      toast.error(err.message || "Registration error occurred");
+      const message = err.message || "Registration error occurred";
+      setSubmitError(message);
+      toast.error(message);
     } finally {
       setIsLoading(false);
     }
@@ -180,6 +201,12 @@ export default function InstallerRegisterPage() {
           <h2 className="text-lg font-bold text-slate-800">Installer Network</h2>
           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">Pakistan Application Form</p>
         </div>
+
+        {submitError && (
+          <div className="bg-rose-50 border border-rose-200 rounded-[10px] p-3 text-xs text-rose-700 font-semibold">
+            {submitError}
+          </div>
+        )}
 
         <form onSubmit={handleRegister} className="space-y-4">
           

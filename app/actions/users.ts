@@ -81,9 +81,21 @@ function catalogKeyForUserRole(role: string): string | null {
 // write gate here requires establishing who the caller even is first, so both are
 // fixed together rather than layering a permission check on top of no
 // authentication check at all.
-async function checkUsersWriteAccess(targetRole: string): Promise<{ allowed: boolean; error?: string }> {
+async function checkUsersWriteAccess(
+  targetRole: string,
+  allowAnonymousInstallerCreate = false
+): Promise<{ allowed: boolean; error?: string }> {
   const caller = await getCallerIdentity();
-  if (!caller) return { allowed: false, error: "Not authenticated" };
+  if (!caller) {
+    // Installer self-registration (/installer/register, opened via QR code) is a
+    // deliberately public, unauthenticated form - anyone can apply, the real gate
+    // is the two-stage approval that happens later, not the submit button. Only
+    // createUserAction passes this flag; updateUserAction/deleteUserAction never
+    // do, so editing or deleting an existing installer's account still requires a
+    // real authenticated, authorized caller.
+    if (allowAnonymousInstallerCreate && targetRole === "installer") return { allowed: true };
+    return { allowed: false, error: "Not authenticated" };
+  }
   if (caller.role === "admin") return { allowed: true };
 
   const key = catalogKeyForUserRole(targetRole);
@@ -122,7 +134,7 @@ export async function createUserAction(formData: any): Promise<{ success: boolea
   } = formData;
 
   try {
-    const access = await checkUsersWriteAccess(role);
+    const access = await checkUsersWriteAccess(role, true);
     if (!access.allowed) return { success: false, error: access.error };
 
     if (role === "sub_dealer") {
