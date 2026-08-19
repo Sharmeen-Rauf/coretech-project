@@ -6,7 +6,7 @@ import DataTable from "@/components/DataTable";
 import { Loader2, Plus, X, Megaphone } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
-import { createAnnouncementAction } from "@/app/actions/broadcast";
+import { createAnnouncementAction, deleteAnnouncementAction } from "@/app/actions/broadcast";
 import { getMyScopeAction } from "@/app/actions/roles";
  
 interface AnnouncementRow {
@@ -120,6 +120,22 @@ export default function BroadcastPage() {
     }
   };
  
+  const handleDeleteAnnouncement = async (row: any) => {
+    if (!window.confirm(`Delete announcement "${row.title}"? This also removes it from the notification bell.`)) return;
+
+    try {
+      const res = await deleteAnnouncementAction(row.id);
+      if (!res.success) {
+        toast.error(res.error || "Failed to delete announcement");
+        return;
+      }
+      toast.success("Announcement deleted");
+      fetchAnnouncements();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete announcement");
+    }
+  };
+
   const columns = [
     { key: "title", label: "Notice Title" },
     {
@@ -174,6 +190,7 @@ export default function BroadcastPage() {
           columns={columns}
           data={paginated}
           isLoading={false}
+          onDeleteClick={canWrite ? handleDeleteAnnouncement : undefined}
           pagination={{
             current: currentPage,
             total: announcements.length,

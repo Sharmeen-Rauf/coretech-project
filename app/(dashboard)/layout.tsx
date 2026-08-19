@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@/lib/supabase";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
+import AnnouncementPopup from "@/components/AnnouncementPopup";
 import { Loader2 } from "lucide-react";
 
 export default function DashboardLayout({
@@ -67,6 +68,8 @@ export default function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
+      <AnnouncementPopup />
+
       {/* Sidebar Navigation */}
       <Sidebar />
 
