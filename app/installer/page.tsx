@@ -552,8 +552,8 @@ export default function WebInstallerPage() {
   const openSubmitForJob = (job: any) => {
     if (!job) return;
     const st = String(job.status || "").trim().toLowerCase();
-    if (st === "completed" || st === "approved") {
-      return; // DO NOTHING ON COMPLETED OR APPROVED JOBS
+    if (st === "approved") {
+      return; // DO NOTHING ON APPROVED JOBS
     }
 
     setSiteFormErrors({});
@@ -591,7 +591,7 @@ export default function WebInstallerPage() {
   // Stats calculation
   const completedCount = jobs.filter((j) => {
     const s = String(j.status || "").toLowerCase();
-    return s === "approved" || s === "completed";
+    return s === "approved";
   }).length;
   const pendingApprovalCount = jobs.filter((j) => {
     const s = String(j.status || "").toLowerCase();
@@ -729,7 +729,7 @@ export default function WebInstallerPage() {
         ) : (
           jobs.map((job) => {
             const st = String(job.status || "").trim().toLowerCase();
-            const isApproved = st === "approved" || st === "completed";
+            const isApproved = st === "approved";
             const isPending = st === "pending_verification" || st === "pending_approval" || st === "pending_installation_approval" || st === "pending";
             const isRejected = st === "rejected" || st === "declined";
 

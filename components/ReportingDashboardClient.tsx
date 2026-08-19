@@ -82,13 +82,13 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, activ
                 activeJobs.map((job) => {
                   const steps = [
                     { label: "Assigned", time: "Step 1", done: true },
-                    { label: "Dispatched", time: "Step 2", done: job.status === "in_progress" || job.status === "completed" || job.status === "pending_installation_approval" },
-                    { label: "In Progress", time: "Step 3", done: job.status === "in_progress" || job.status === "completed" || job.status === "pending_installation_approval" },
-                    { label: "Completed & Verified", time: job.status === "completed" ? "Verified" : "--:--", done: job.status === "completed" },
+                    { label: "Dispatched", time: "Step 2", done: job.status === "in_progress" || job.status === "approved" || job.status === "pending_installation_approval" },
+                    { label: "In Progress", time: "Step 3", done: job.status === "in_progress" || job.status === "approved" || job.status === "pending_installation_approval" },
+                    { label: "Completed & Verified", time: job.status === "approved" ? "Verified" : "--:--", done: job.status === "approved" },
                   ];
 
                   const statusColor = 
-                    job.status === "completed" ? "text-emerald-500 bg-emerald-50 border-emerald-200" :
+                    job.status === "approved" ? "text-emerald-500 bg-emerald-50 border-emerald-200" :
                     job.status === "in_progress" ? "text-blue-500 bg-blue-50 border-blue-200" :
                     job.status === "pending_installation_approval" ? "text-amber-500 bg-amber-50 border-amber-200" :
                     "text-slate-550 bg-slate-50 border-slate-200";
@@ -130,7 +130,7 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, activ
 
                       <div className="flex justify-between items-center border-t border-slate-50 pt-3 text-[10px] text-slate-500 font-semibold">
                         <span>Remarks: {job.remarks || "No remarks"}</span>
-                        {job.status === "completed" ? (
+                        {job.status === "approved" ? (
                           <button
                             onClick={() => handleActivateWarranty(job.id)}
                             disabled={warrantyActivated[job.id]}

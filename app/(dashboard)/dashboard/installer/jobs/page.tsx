@@ -36,6 +36,7 @@ interface JobRow {
   job_title: string;
   address: string;
   installer_name: string;
+  installer_contact: string;
   status: string;
   payment_status: string;
   created_at: string;
@@ -141,8 +142,8 @@ export default function AdminJobsPage() {
           } catch (e) {}
         }
 
-        const instName = row.installer 
-          ? `${row.installer.first_name} ${row.installer.last_name || ""}`.trim() 
+        const instName = row.installer
+          ? `${row.installer.first_name} ${row.installer.last_name || ""}`.trim()
           : "Unassigned";
 
         return {
@@ -150,6 +151,7 @@ export default function AdminJobsPage() {
           job_title: row.job_title || "Site Installation",
           address: row.address || "-",
           installer_name: instName,
+          installer_contact: row.installer?.contact || "-",
           status: row.status || "pending_verification",
           payment_status: row.payment_status || "unpaid",
           created_at: row.created_at
@@ -494,7 +496,7 @@ export default function AdminJobsPage() {
   const totalCount = jobs.length;
   const pendingRmCount = jobs.filter(j => j.status === "pending_verification" || j.status === "assigned" || j.status === "in_progress").length;
   const pendingChCount = jobs.filter(j => j.status === "pending_approval" || j.status === "pending_installation_approval").length;
-  const approvedCount = jobs.filter(j => j.status === "approved" || j.status === "completed").length;
+  const approvedCount = jobs.filter(j => j.status === "approved").length;
 
   const columns = [
     {
@@ -518,6 +520,7 @@ export default function AdminJobsPage() {
       )
     },
     { key: "installer_name", label: "Installer Name" },
+    { key: "installer_contact", label: "Installer Phone" },
     { key: "address", label: "Installation Location" },
     {
       key: "status",
@@ -528,7 +531,7 @@ export default function AdminJobsPage() {
         if (val === "pending_approval" || val === "pending_installation_approval") {
           bgClass = "bg-sky-50 text-sky-700 border-sky-200";
           labelText = "Pending CH";
-        } else if (val === "approved" || val === "completed") {
+        } else if (val === "approved") {
           bgClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
           labelText = "Active Approved";
         } else if (val === "rejected") {
@@ -545,6 +548,7 @@ export default function AdminJobsPage() {
     {
       key: "audit_history",
       label: "Audit History Log",
+      excludeFromExport: true, // computed live from status, no real field to export
       render: (_: any, row: any) => {
         if (row.status === "pending_verification" || row.status === "assigned" || row.status === "in_progress") {
           return (
@@ -582,6 +586,7 @@ export default function AdminJobsPage() {
     {
       key: "audit_logs",
       label: "Audit Logs",
+      excludeFromExport: true, // just an "open review popup" button, no real field to export
       render: (_: any, row: any) => (
         <button
           onClick={() => setSelectedJob(row)}
@@ -605,7 +610,7 @@ export default function AdminJobsPage() {
       return item.status === "pending_approval" || item.status === "pending_installation_approval";
     }
     if (selectedStatusFilter === "approved") {
-      return item.status === "approved" || item.status === "completed";
+      return item.status === "approved";
     }
     if (selectedStatusFilter === "rejected") {
       return item.status === "rejected";
@@ -1199,7 +1204,7 @@ export default function AdminJobsPage() {
                   </span>
                   <div>
                     <p className="font-bold text-slate-800">Stage 1: Retail Manager Verification</p>
-                    {selectedJob.status === "pending_approval" || selectedJob.status === "approved" || selectedJob.status === "completed" ? (
+                    {selectedJob.status === "pending_approval" || selectedJob.status === "approved" ? (
                       <p className="text-[11px] font-semibold text-slate-700">Verified by <span className="font-bold text-slate-900">Shoaib Khan (Retail Manager)</span></p>
                     ) : (
                       <p className="text-[11px] font-medium text-slate-500">Awaiting credentials/site verification audit.</p>
@@ -1214,15 +1219,15 @@ export default function AdminJobsPage() {
                       ? "bg-sky-100 text-sky-700 border border-sky-300 animate-pulse"
                       : selectedJob.status === "rejected"
                       ? "bg-rose-100 text-rose-700 border border-rose-300"
-                      : selectedJob.status === "approved" || selectedJob.status === "completed"
+                      : selectedJob.status === "approved"
                       ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
                       : "bg-slate-100 text-slate-400 border border-slate-200"
                   }`}>
-                    {selectedJob.status === "approved" || selectedJob.status === "completed" ? "✓" : selectedJob.status === "rejected" ? "✗" : "3"}
+                    {selectedJob.status === "approved" ? "✓" : selectedJob.status === "rejected" ? "✗" : "3"}
                   </span>
                   <div>
                     <p className="font-bold text-slate-800">Stage 2: Country Head Approval</p>
-                    {selectedJob.status === "approved" || selectedJob.status === "completed" ? (
+                    {selectedJob.status === "approved" ? (
                       <p className="text-[11px] font-semibold text-slate-700">Approved by <span className="font-bold text-slate-900">Ammar Khan (Country Head)</span></p>
                     ) : selectedJob.status === "rejected" ? (
                       <p className="text-[11px] font-semibold text-rose-600">Rejected during site audit.</p>
@@ -1234,7 +1239,7 @@ export default function AdminJobsPage() {
               </div>
 
               {/* Audit Remarks Textarea */}
-              {(selectedJob.status !== "approved" && selectedJob.status !== "completed" && selectedJob.status !== "rejected") && (
+              {(selectedJob.status !== "approved" && selectedJob.status !== "rejected") && (
                 <div className="space-y-1 mt-4">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Audit Remarks / Notes</label>
                   <textarea

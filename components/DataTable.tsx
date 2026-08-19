@@ -9,6 +9,11 @@ interface Column {
   key: string;
   label: string;
   render?: (value: any, row: any) => React.ReactNode;
+  // For columns that only ever render computed UI (a button, a live status
+  // message) with no real underlying field on the row - CSV export reads raw
+  // row values, not `render()`, so a column like that always exports blank.
+  // Set this instead of letting it export as an empty column.
+  excludeFromExport?: boolean;
 }
 
 interface Filter {
@@ -131,8 +136,9 @@ export default function DataTable({
       return;
     }
 
-    let exportHeaders = columns.map(c => c.label);
-    const keys = columns.map(c => c.key);
+    const exportableColumns = columns.filter(c => !c.excludeFromExport);
+    let exportHeaders = exportableColumns.map(c => c.label);
+    const keys = exportableColumns.map(c => c.key);
     let customExport = false;
     const customRows: string[][] = [];
 
