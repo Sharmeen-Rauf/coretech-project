@@ -69,7 +69,7 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     groupKey: "buzzcart",
     groupLabel: "Buzzcart",
     icon: "ShoppingBag",
-    items: [{ key: "buzzcart", label: "Buzzcart", route: "/dashboard/buzzcart", supportedScopes: ["self", "region", "everything"] }],
+    items: [{ key: "buzzcart", label: "Buzzcart", route: "/dashboard/buzzcart/orders", supportedScopes: ["self", "region", "everything"] }],
   },
   {
     groupKey: "installer",
