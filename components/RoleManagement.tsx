@@ -72,7 +72,17 @@ export default function RoleManagement() {
     setIsModalLoading(true);
     const res = await fetchRolePermissionsAction(role.id);
     if (res.success) {
+      // Start from catalog defaults (same base openCreate uses) so a
+      // permission key added to the catalog after this role's row was last
+      // saved still gets a real, toggleable entry - without this, editing an
+      // existing role could only ever act on keys that already had a
+      // role_permissions row, silently no-opping the checkbox for anything
+      // newer. Fetched rows then override the defaults for whatever this
+      // role actually has saved.
       const map: Record<string, PermRow> = {};
+      PERMISSION_CATALOG.forEach((g) => g.items.forEach((i) => {
+        map[i.key] = { permission_key: i.key, granted: false, locked: false, scope_level: "everything", can_write: true };
+      }));
       (res.data as PermRow[]).forEach((p) => { map[p.permission_key] = p; });
       setModalPerms(map);
     } else {

@@ -202,6 +202,29 @@ export async function updateRolePermissionsAction(
       if (error) throw error;
     }
 
+    // A permission key added to the catalog after this role's row was last
+    // saved has no existing row to update above - without this, granting it
+    // for the first time would silently do nothing. `grants` only ever
+    // contains checked/granted items, so every key here is a real grant, not
+    // a placeholder for something left unchecked.
+    const currentKeys = new Set((currentRows || []).map((r) => r.permission_key));
+    const missingGrantedKeys = grants.map((g) => g.key).filter((key) => !currentKeys.has(key));
+    if (missingGrantedKeys.length > 0) {
+      const inserts = missingGrantedKeys.map((key) => {
+        const g = grantMap.get(key)!;
+        return {
+          role_id: roleId,
+          permission_key: key,
+          granted: true,
+          locked: false,
+          scope_level: g.scope || "everything",
+          can_write: g.canWrite !== false,
+        };
+      });
+      const { error: insertErr } = await supabase.from("role_permissions").insert(inserts);
+      if (insertErr) throw insertErr;
+    }
+
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to update role permissions" };
