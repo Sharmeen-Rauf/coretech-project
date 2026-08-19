@@ -91,7 +91,15 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     groupKey: "resources",
     groupLabel: "Target Management",
     icon: "Download",
-    items: [{ key: "resources", label: "Target Management", route: "/dashboard/resources" }],
+    items: [
+      // Key unchanged from the old single "Target Management" item - every
+      // role that already had access keeps it, unaffected by this split.
+      { key: "resources", label: "Sales Targets & Incentives", route: "/dashboard/resources" },
+      // New capability, starts ungranted for every existing role (only admin
+      // has it by default) - assigning targets to anyone is real power that
+      // shouldn't silently inherit from whoever could see the old fake tab.
+      { key: "resources.create_targets", label: "Create Targets", route: "/dashboard/resources" },
+    ],
   },
   {
     groupKey: "users",
