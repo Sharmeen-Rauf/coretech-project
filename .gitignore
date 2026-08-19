@@ -42,4 +42,8 @@ ARCHITECTURE.md
 ISSUES-TO-FIX.md
 ROLE-MANAGEMENT-PLAN.md
 NEXT-FEATURES-PLAN.md
+ui.md
 whatsup_msg.md
+
+# Claude Code local tool state (not for client repo)
+.claude/
