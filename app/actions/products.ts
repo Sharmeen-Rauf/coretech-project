@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
 import { getMyScopeAction } from "@/app/actions/roles";
+import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -469,7 +470,7 @@ export async function rejectJobStage2Action(jobId: string, serialNumber: string,
 export async function fetchSellOutAction() {
   const supabase = getAdminClient();
   try {
-    const { scope, callerId, canWrite } = await getMyScopeAction("sales.sellout");
+    const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("sales.sellout");
 
     let query = supabase
       .from("stock")
@@ -494,14 +495,32 @@ export async function fetchSellOutAction() {
       query = query.or(`distributor_id.eq.${callerId},sub_dealer_id.eq.${callerId}`);
     }
 
-    const { data, error } = await query.order("sold_out_at", { ascending: false });
+    let { data, error } = await query.order("sold_out_at", { ascending: false });
 
     if (error) throw error;
+    let rows = data || [];
+
+    // Region scope: Sell Out has no "two sides" the way ST2/Return/Transfer do -
+    // the unit was sold by whichever of sub_dealer/distributor/warehouse held it,
+    // to a walk-in consumer (no id, no region). Same shared resolver as the
+    // ledger, just against `stock`'s own columns instead of `sales`'
+    // source_type/source_id pair. See lib/regionScope.ts.
+    if (scope === "region" && callerRegion) {
+      const parties: PartyRef[] = rows.map((r: any) =>
+        r.sub_dealer_id
+          ? { type: "sub_dealer", id: r.sub_dealer_id }
+          : r.distributor_id
+          ? { type: "distributor", id: r.distributor_id }
+          : { type: "warehouse", warehouseName: r.warehouse_name }
+      );
+      const regionMap = await buildPartyRegionMap(supabase, parties);
+      rows = rows.filter((_r: any, idx: number) => regionsMatch(regionForParty(regionMap, parties[idx]), callerRegion));
+    }
 
     // A manually-sold-out unit has no installer job, but does have a matching
     // sales/sale_items row (type='sellout') carrying the consumer's details -
     // enrich each stock row with that, where it exists.
-    const stockIds = (data || []).map((r: any) => r.id);
+    const stockIds = rows.map((r: any) => r.id);
     const consumerMap = new Map<string, { consumer_name: string; consumer_phone: string; site_address: string | null }>();
     if (stockIds.length > 0) {
       const { data: items } = await supabase.from("sale_items").select("stock_id, sale_id").in("stock_id", stockIds);
@@ -520,7 +539,7 @@ export async function fetchSellOutAction() {
       }
     }
 
-    const enriched = (data || []).map((row: any) => ({ ...row, consumer: consumerMap.get(row.id) || null }));
+    const enriched = rows.map((row: any) => ({ ...row, consumer: consumerMap.get(row.id) || null }));
     return { success: true, data: enriched, canWrite };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch sell out stock", data: [], canWrite: false };

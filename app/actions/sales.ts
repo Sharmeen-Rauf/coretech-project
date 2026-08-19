@@ -3,6 +3,7 @@
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
 import { getMyScopeAction } from "@/app/actions/roles";
+import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -632,20 +633,37 @@ export async function fetchSalesLedgerAction(type: string) {
       ST1: "sales.st1", ST2: "sales.st2", return: "sales.return", transfer: "sales.transfer",
     };
     const scopeKey = scopeKeyByType[type];
-    const { scope, callerId } = scopeKey
+    const { scope, callerId, callerRegion } = scopeKey
       ? await getMyScopeAction(scopeKey)
-      : { scope: "everything" as const, callerId: caller.id };
+      : { scope: "everything" as const, callerId: caller.id, callerRegion: null };
 
     const supabase = getAdminClient();
     let query = supabase.from("sales").select("*").eq("type", type);
     if (scope === "self" && callerId) {
       query = query.or(`source_id.eq.${callerId},destination_id.eq.${callerId}`);
     }
-    // scope === "region"/"everything": no filter (region not yet meaningful for this ledger - no region column, and the transacting parties' own regions can differ from each other within one row).
+    // scope === "region": resolved below, post-fetch - a party's region takes a
+    // lookup (warehouse->regions, or distributor/sub_dealer->profiles.region),
+    // not something a single SQL filter on `sales` can express directly.
 
     const { data, error } = await query.order("created_at", { ascending: false });
     if (error) throw error;
-    return { success: true, data: data || [], role: caller.role };
+    let rows = data || [];
+
+    if (scope === "region" && callerRegion) {
+      const parties: PartyRef[] = rows.flatMap((r: any) => [
+        { type: r.source_type, id: r.source_id },
+        { type: r.destination_type, id: r.destination_id },
+      ]);
+      const regionMap = await buildPartyRegionMap(supabase, parties);
+      rows = rows.filter((r: any) => {
+        const sourceRegion = regionForParty(regionMap, { type: r.source_type, id: r.source_id });
+        const destRegion = regionForParty(regionMap, { type: r.destination_type, id: r.destination_id });
+        return regionsMatch(sourceRegion, callerRegion) || regionsMatch(destRegion, callerRegion);
+      });
+    }
+
+    return { success: true, data: rows, role: caller.role };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch sales ledger", data: [], role: null };
   }

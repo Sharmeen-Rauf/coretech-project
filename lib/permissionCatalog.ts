@@ -58,11 +58,11 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     groupLabel: "Sales Management",
     icon: "TrendingUp",
     items: [
-      { key: "sales.st1", label: "ST-1", route: "/dashboard/sales/st1" },
-      { key: "sales.st2", label: "ST-2", route: "/dashboard/sales/st2", supportedScopes: ["self", "everything"] },
-      { key: "sales.return", label: "Return", route: "/dashboard/sales/return", supportedScopes: ["self", "everything"] },
-      { key: "sales.transfer", label: "Transfer", route: "/dashboard/sales/transfer", supportedScopes: ["self", "everything"] },
-      { key: "sales.sellout", label: "Sell Out", route: "/dashboard/sales/sellout", supportedScopes: ["self", "everything"] },
+      { key: "sales.st1", label: "ST-1", route: "/dashboard/sales/st1", supportedScopes: ["self", "region", "everything"] },
+      { key: "sales.st2", label: "ST-2", route: "/dashboard/sales/st2", supportedScopes: ["self", "region", "everything"] },
+      { key: "sales.return", label: "Return", route: "/dashboard/sales/return", supportedScopes: ["self", "region", "everything"] },
+      { key: "sales.transfer", label: "Transfer", route: "/dashboard/sales/transfer", supportedScopes: ["self", "region", "everything"] },
+      { key: "sales.sellout", label: "Sell Out", route: "/dashboard/sales/sellout", supportedScopes: ["self", "region", "everything"] },
     ],
   },
   {
