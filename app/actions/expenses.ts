@@ -108,24 +108,6 @@ export async function submitExpenseAction(params: {
   }
 }
 
-export async function updateExpenseStatusAction(id: string, newStatus: "approved" | "rejected") {
-  try {
-    const caller = await getCallerIdentity();
-    if (!caller) return { success: false, error: "Not authenticated" };
-
-    const { canWrite } = await getMyScopeAction("expenses");
-    if (!canWrite) return { success: false, error: "You have read-only access to Expenses" };
-
-    const supabase = getAdminClient();
-    const { error } = await supabase.from("expenses").update({ status: newStatus }).eq("id", id);
-    if (error) throw error;
-
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message || "Failed to update expense status" };
-  }
-}
-
 export async function deleteExpenseAction(id: string) {
   try {
     const caller = await getCallerIdentity();

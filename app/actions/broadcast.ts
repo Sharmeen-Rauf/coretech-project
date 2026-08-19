@@ -48,6 +48,20 @@ export async function createAnnouncementAction(params: {
       .single();
     if (error) throw error;
 
+    // Also surface it in the notification bell - `announcement_id` links back
+    // so deleting the announcement (below) cascades to remove this row too,
+    // rather than leaving a stale bell entry pointing at nothing.
+    try {
+      await supabase.from("notifications").insert({
+        title: params.title.trim(),
+        message: params.content.trim(),
+        target_role: params.roleTarget,
+        announcement_id: data.id,
+      });
+    } catch (notifErr) {
+      console.warn("Failed to create notification for announcement:", notifErr);
+    }
+
     try {
       await supabase.from("activity_logs").insert({
         action: "Announcement Broadcast",
@@ -60,5 +74,90 @@ export async function createAnnouncementAction(params: {
     return { success: true, data };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to post announcement" };
+  }
+}
+
+// Deletes an announcement and, via the FK's ON DELETE CASCADE, its matching
+// notifications row along with it - so removing a notice here also clears it
+// out of the bell immediately rather than leaving a stale entry behind.
+export async function deleteAnnouncementAction(id: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated" };
+
+    const { canWrite } = await getMyScopeAction("broadcast");
+    if (!canWrite) return { success: false, error: "You have read-only access to Broadcast Notice" };
+
+    const supabase = getAdminClient();
+    const { error } = await supabase.from("announcements").delete().eq("id", id);
+    if (error) throw error;
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete announcement" };
+  }
+}
+
+// Powers the "popup on first login after a new announcement" behavior: returns
+// the latest announcement actually addressed to this caller (their own role,
+// or "all"), plus whether it's newer than the last one they've dismissed.
+export async function fetchLatestAnnouncementForCallerAction(): Promise<{
+  success: boolean;
+  announcement: { id: string; title: string; content: string; created_at: string } | null;
+  isUnseen: boolean;
+  error?: string;
+}> {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, announcement: null, isUnseen: false, error: "Not authenticated" };
+
+    const supabase = getAdminClient();
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("last_seen_announcement_at")
+      .eq("id", caller.id)
+      .maybeSingle();
+
+    const { data: latest, error } = await supabase
+      .from("announcements")
+      .select("id, title, content, created_at, role_target")
+      .in("role_target", ["all", caller.role])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+
+    if (!latest) return { success: true, announcement: null, isUnseen: false };
+
+    const lastSeen = profile?.last_seen_announcement_at ? new Date(profile.last_seen_announcement_at).getTime() : 0;
+    const isUnseen = new Date(latest.created_at).getTime() > lastSeen;
+
+    return {
+      success: true,
+      announcement: { id: latest.id, title: latest.title, content: latest.content, created_at: latest.created_at },
+      isUnseen,
+    };
+  } catch (err: any) {
+    return { success: false, announcement: null, isUnseen: false, error: err.message || "Failed to fetch latest announcement" };
+  }
+}
+
+// Marks the current moment as "seen" - called when the popup is dismissed, so
+// it won't reappear until a genuinely newer announcement is posted.
+export async function markAnnouncementSeenAction() {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated" };
+
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("profiles")
+      .update({ last_seen_announcement_at: new Date().toISOString() })
+      .eq("id", caller.id);
+    if (error) throw error;
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to mark announcement as seen" };
   }
 }

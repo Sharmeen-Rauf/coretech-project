@@ -64,11 +64,26 @@ export default function Topbar() {
 
   // Fetch initial notifications
   useEffect(() => {
+    // Instant cache check for zero delay rendering
+    try {
+      const cached = sessionStorage.getItem("coretech_user_profile");
+      if (cached) setProfile(JSON.parse(cached));
+    } catch (e) {}
+
+    // Notifications carry `target_role` ("all" or one specific role) - resolve
+    // the caller's own role first so both the initial fetch and the realtime
+    // subscription below only ever surface notifications actually addressed to
+    // them, not everyone's. `callerRole` is captured once here and closed over
+    // by the realtime handler rather than read from React state, so it can't go
+    // stale across renders.
+    let callerRole = "";
+
     const fetchNotifications = async () => {
       try {
         const { data, error } = await supabase
           .from("notifications")
           .select("*")
+          .in("target_role", ["all", callerRole])
           .order("created_at", { ascending: false })
           .limit(20);
 
@@ -80,17 +95,11 @@ export default function Topbar() {
       }
     };
 
-    // Instant cache check for zero delay rendering
-    try {
-      const cached = sessionStorage.getItem("coretech_user_profile");
-      if (cached) setProfile(JSON.parse(cached));
-    } catch (e) {}
-
     const fetchUserProfile = async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
-        
+
         const { data, error } = await supabase
           .from("profiles")
           .select("*")
@@ -103,14 +112,18 @@ export default function Topbar() {
           email: session.user.email,
         };
         setProfile(fullProf);
+        callerRole = data.role || "";
         try { sessionStorage.setItem("coretech_user_profile", JSON.stringify(fullProf)); } catch (e) {}
       } catch (err: any) {
         console.warn("Failed to fetch user profile in Topbar", err.message);
       }
     };
 
-    fetchNotifications();
-    fetchUserProfile();
+    (async () => {
+      // Role must resolve before the notifications query can filter by it.
+      await fetchUserProfile();
+      await fetchNotifications();
+    })();
 
     // Subscribe to realtime changes
     const channel = supabase
@@ -120,6 +133,7 @@ export default function Topbar() {
         { event: "INSERT", schema: "public", table: "notifications" },
         (payload: any) => {
           const newNotif = payload.new as NotificationItem;
+          if (newNotif.target_role !== "all" && newNotif.target_role !== callerRole) return;
           setNotifications((prev: any) => [newNotif, ...prev]);
           setUnreadCount((prev) => prev + 1);
           toast((t) => (

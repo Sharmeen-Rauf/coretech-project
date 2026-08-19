@@ -3,9 +3,9 @@
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
-import { Loader2, Plus, X, Check, FileText, Trash2 } from "lucide-react";
+import { Loader2, Plus, X, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
-import { fetchExpensesAction, submitExpenseAction, updateExpenseStatusAction, deleteExpenseAction } from "@/app/actions/expenses";
+import { fetchExpensesAction, submitExpenseAction, deleteExpenseAction } from "@/app/actions/expenses";
 
 interface ExpenseRow {
   id: string;
@@ -14,7 +14,6 @@ interface ExpenseRow {
   amount: number;
   category: string;
   date: string;
-  status: string;
   description: string;
 }
 
@@ -22,7 +21,6 @@ export default function ExpensesPage() {
   const supabase = createClientComponentClient();
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [userRole, setUserRole] = useState<string>("");
   const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
 
   // Modal states
@@ -48,7 +46,6 @@ export default function ExpensesPage() {
         const res = await fetchExpensesAction();
         if (!res.success) throw new Error(res.error);
         dbData = res.data || [];
-        if (res.role) setUserRole(res.role);
         setCanWrite(!!res.canWrite);
       } catch (dbErr) {
         console.warn("Failed to fetch expenses from Supabase. Using local fallback.", dbErr);
@@ -64,7 +61,6 @@ export default function ExpensesPage() {
         amount: Number(row.amount),
         category: row.category,
         date: row.date ? new Date(row.date).toLocaleDateString() : "-",
-        status: row.status,
         description: row.description || "-",
       }));
  
@@ -124,32 +120,6 @@ export default function ExpensesPage() {
     }
   };
 
-  const handleUpdateStatus = async (id: string, newStatus: string) => {
-    try {
-      const res = await updateExpenseStatusAction(id, newStatus as "approved" | "rejected");
-      if (!res.success) {
-        toast.error(res.error || "Failed to update expense status");
-        return;
-      }
-
-      // Log activity safely
-      try {
-        const target = expenses.find((e) => e.id === id);
-        await supabase.from("activity_logs").insert({
-          action: "Expense Audit Update",
-          details: `Expense claim "${target?.title}" was ${newStatus}d`,
-        });
-      } catch (logErr) {
-        console.warn("Activity log insert failed:", logErr);
-      }
- 
-      toast.success(`Expense successfully ${newStatus}d!`);
-      fetchExpenses();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to update expense status");
-    }
-  };
-
   const handleDeleteExpense = async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this expense entry? This cannot be undone.")) return;
 
@@ -184,56 +154,23 @@ export default function ExpensesPage() {
       render: (val: string) => <span className="capitalize">{val}</span>,
     },
     { key: "date", label: "Date" },
-    {
-      key: "status",
-      label: "Status",
-      render: (val: string) => (
-        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-          val === "approved" ? "bg-emerald-50 text-emerald-600 border border-emerald-200" :
-          val === "rejected" ? "bg-rose-50 text-rose-600 border border-rose-200" :
-          "bg-amber-50 text-amber-600 border border-amber-200"
-        }`}>
-          {val}
-        </span>
-      ),
-    },
   ];
 
-  const columns = (userRole === "employee" || !canWrite) ? baseColumns : [
+  // Expenses is a log, not an approval workflow - Delete is the only action left,
+  // shown to anyone with real write access (not tied to a specific role).
+  const columns = !canWrite ? baseColumns : [
     ...baseColumns,
     {
       key: "id",
-      label: "Audit",
-      render: (val: string, row: any) => (
-        <div className="flex gap-2 items-center">
-          {row.status === "pending" ? (
-            <>
-              <button
-                onClick={() => handleUpdateStatus(val, "approved")}
-                className="p-1 hover:bg-emerald-50 text-emerald-600 rounded border border-emerald-100 transition-colors"
-                title="Approve Claim"
-              >
-                <Check className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => handleUpdateStatus(val, "rejected")}
-                className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
-                title="Reject Claim"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </>
-          ) : (
-            <span className="text-slate-400 text-xs">Reviewed</span>
-          )}
-          <button
-            onClick={() => handleDeleteExpense(val)}
-            className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
-            title="Delete Entry"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
+      label: "Actions",
+      render: (val: string) => (
+        <button
+          onClick={() => handleDeleteExpense(val)}
+          className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
+          title="Delete Entry"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
       ),
     },
   ];
