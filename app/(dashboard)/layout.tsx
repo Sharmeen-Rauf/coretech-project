@@ -37,12 +37,20 @@ export default function DashboardLayout({
           .eq("id", session.user.id)
           .single();
 
-        if (prof) {
-          document.cookie = `user_role=${prof.role}; path=/; max-age=2592000; SameSite=Lax`;
-          document.cookie = `user_status=${prof.status || "active"}; path=/; max-age=2592000; SameSite=Lax`;
+        if (!prof?.role) {
+          // No session gets rejected above, and installer gets redirected
+          // below - a session whose profile is missing or has no role must
+          // not silently fall into the "authorized" branch and render the
+          // full dashboard shell either.
+          console.error("DashboardLayout: session has no profile role", session.user.id);
+          router.replace("/login");
+          return;
         }
 
-        if (prof?.role === "installer") {
+        document.cookie = `user_role=${prof.role}; path=/; max-age=2592000; SameSite=Lax`;
+        document.cookie = `user_status=${prof.status || "active"}; path=/; max-age=2592000; SameSite=Lax`;
+
+        if (prof.role === "installer") {
           // Immediately redirect installer to their portal
           router.replace("/installer");
         } else {

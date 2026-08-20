@@ -816,13 +816,13 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                     return (
                       <tr key={p.id} className={`hover:bg-slate-50/30 transition-colors ${isChecked ? "bg-slate-50/10" : ""}`}>
                         <td className="px-4 py-3 text-center">
-                          <input type="checkbox" checked={isChecked} onChange={() => handleToggleCheckbox(p.id)} className="w-4 h-4 rounded border-slate-350 text-[#00B4D8] focus:ring-[#00B4D8] cursor-pointer" />
+                          <input type="checkbox" checked={isChecked} onChange={() => handleToggleCheckbox(p.id)} className="w-4 h-4 rounded border-slate-300 text-[#00B4D8] focus:ring-[#00B4D8] cursor-pointer" />
                         </td>
                         <td className="px-4 py-3 font-bold text-slate-800">
                           {p.name}
                           <p className="text-[10px] text-slate-400 font-normal">{p.model || "Generic"}</p>
                         </td>
-                        <td className="px-4 py-3 text-center font-semibold text-slate-650">{availableQty}</td>
+                        <td className="px-4 py-3 text-center font-semibold text-slate-700">{availableQty}</td>
                         <td className="px-4 py-3 text-center">
                           <div className="inline-flex items-center border border-slate-200 rounded-[6px] overflow-hidden bg-white">
                             <button type="button" onClick={() => handleQtyDecrement(p.id)} className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold border-r border-slate-200 transition-colors">-</button>

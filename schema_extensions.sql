@@ -176,4 +176,9 @@ create table if not exists public.notification_reads (
 alter table public.notification_reads enable row level security;
 create policy "Allow all" on public.notification_reads for all using (true) with check (true);
 
+-- 12. UI consistency pass (2026-08-21): a profile with no role was silently
+-- treated as an authorized dashboard user. Confirmed zero null/empty-role
+-- rows across all 339 profiles before applying - safe to lock down.
+alter table public.profiles alter column role set not null;
+
 

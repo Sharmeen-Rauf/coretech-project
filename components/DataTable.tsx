@@ -47,6 +47,11 @@ interface DataTableProps {
   pagination: Pagination;
   onEditClick?: (row: any) => void;
   onDeleteClick?: (row: any) => void;
+  // Overrides the row-action button's label/tooltip and the bulk-action
+  // button's text for pages where onDeleteClick doesn't actually delete the
+  // row (e.g. Dealer Assignment's unassign action) - defaults to "Delete"
+  // everywhere else, unaffected.
+  deleteLabel?: string;
   onRowClick?: (row: any) => void;
   onBulkDelete?: (selectedIds: string[]) => void;
   onImportCSV?: (file: File) => void;
@@ -66,6 +71,7 @@ export default function DataTable({
   pagination,
   onEditClick,
   onDeleteClick,
+  deleteLabel = "Delete",
   onRowClick,
   onBulkDelete,
   onImportCSV,
@@ -344,8 +350,8 @@ export default function DataTable({
         await onBulkDelete(selectedIds);
         setSelectedRows({});
       } else if (onDeleteClick) {
-        if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected items?`)) return;
-        
+        if (!window.confirm(`${deleteLabel} the ${selectedIds.length} selected items? This cannot be undone.`)) return;
+
         let successCount = 0;
         for (const id of selectedIds) {
           const row = data.find((r, idx) => (r.id || `row-${idx}`) === id);
@@ -359,7 +365,7 @@ export default function DataTable({
           }
         }
         if (successCount > 0) {
-          toast.success(`Successfully deleted ${successCount} items!`);
+          toast.success(`${successCount} items processed successfully!`);
         }
         setSelectedRows({});
       }
@@ -394,7 +400,7 @@ export default function DataTable({
               className="h-9 px-3 text-xs font-semibold text-white bg-rose-500 hover:bg-rose-600 disabled:bg-rose-300 rounded-[6px] shadow transition-colors flex items-center justify-center gap-1.5"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>{isDeletingSelected ? "Deleting..." : "Delete Selected"}</span>
+              <span>{isDeletingSelected ? "Processing..." : `${deleteLabel} Selected`}</span>
             </button>
           )}
 
@@ -607,7 +613,7 @@ export default function DataTable({
                           <button
                             onClick={() => onDeleteClick(row)}
                             className="p-1.5 hover:bg-slate-100 text-slate-400 hover:text-rose-500 rounded-[6px] transition-colors"
-                            title="Delete"
+                            title={deleteLabel}
                           >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

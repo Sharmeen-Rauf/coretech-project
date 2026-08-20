@@ -170,6 +170,7 @@ export default function DealerAssignment() {
         actionButton={{ label: "New Assignment", onClick: openNewAssignment }}
         onEditClick={(row) => openEditAssignment(row as AssignmentRow)}
         onDeleteClick={(row) => handleUnassign(row as AssignmentRow)}
+        deleteLabel="Unassign"
         pagination={{
           current: currentPage,
           total: assignments.length,

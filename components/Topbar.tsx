@@ -6,11 +6,7 @@ import Link from "next/link";
 import { createClientComponentClient } from "@/lib/supabase";
 import {
   Bell,
-  Search,
   Settings,
-  History,
-  Grid,
-  Calendar,
   X,
   User,
   CheckCircle2,
@@ -60,9 +56,12 @@ export default function Topbar({ profile }: TopbarProps) {
   // Parse path to breadcrumbs
   const getBreadcrumbs = () => {
     const segments = pathname.split("/").filter((x) => x);
-    return segments.map((seg, idx) => {
+    // First segment is always "dashboard" - already shown as the static
+    // "Dashboard" link rendered before this list, so it's skipped here to
+    // avoid rendering it a second time as its own breadcrumb.
+    return segments.slice(1).map((seg, idx) => {
       const label = seg.charAt(0).toUpperCase() + seg.slice(1).replace("-", " ");
-      const url = "/" + segments.slice(0, idx + 1).join("/");
+      const url = "/" + segments.slice(0, idx + 2).join("/");
       return { label, url };
     });
   };
@@ -265,46 +264,17 @@ export default function Topbar({ profile }: TopbarProps) {
             )}
           </div>
 
-          {/* Today Dropdown Filter */}
-          <div className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer transition-colors bg-white">
-            <Calendar className="w-3.5 h-3.5 text-[#00B4D8]" />
-            <span>Today</span>
-          </div>
-
-          {/* Search Bar */}
-          <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search..."
-              className="h-9 w-48 pl-9 pr-4 rounded-[6px] border border-slate-200 text-xs text-slate-800 placeholder-slate-400 bg-[#F8FAFC] focus:outline-none focus:border-[#00B4D8] focus:bg-white transition-all duration-200"
-            />
-          </div>
-
-          {/* Actions Icons */}
-          <button className="p-2 text-slate-500 hover:text-[#00B4D8] hover:bg-slate-50 rounded-full transition-colors">
-            <Settings className="w-4.5 h-4.5" />
-          </button>
-          <button className="p-2 text-slate-500 hover:text-[#00B4D8] hover:bg-slate-50 rounded-full transition-colors">
-            <History className="w-4.5 h-4.5" />
-          </button>
-
           {/* Notifications Bell */}
           <button
             onClick={() => setIsDrawerOpen(true)}
             className="p-2 text-slate-500 hover:text-[#00B4D8] hover:bg-slate-50 rounded-full relative transition-colors"
           >
-            <Bell className="w-4.5 h-4.5" />
+            <Bell className="w-4 h-4" />
             {unreadCount > 0 && (
               <span className="absolute top-1.5 right-1.5 w-3.5 h-3.5 bg-rose-500 text-white font-bold text-[8px] flex items-center justify-center rounded-full border border-white">
                 {unreadCount}
               </span>
             )}
-          </button>
-
-          {/* Grid Layout Icon */}
-          <button className="p-2 text-slate-500 hover:text-[#00B4D8] hover:bg-slate-50 rounded-full transition-colors">
-            <Grid className="w-4.5 h-4.5" />
           </button>
 
           <div className="w-px h-6 bg-slate-200 my-auto"></div>
@@ -345,9 +315,9 @@ export default function Topbar({ profile }: TopbarProps) {
                     <Link
                       href="/dashboard/account"
                       onClick={() => setIsProfileOpen(false)}
-                      className="flex items-center px-4 py-2 text-xs font-semibold text-slate-650 hover:bg-slate-50 transition-colors"
+                      className="flex items-center px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
                     >
-                      <Settings className="w-3.5 h-3.5 mr-2 text-slate-450" />
+                      <Settings className="w-3.5 h-3.5 mr-2 text-slate-400" />
                       Account Settings
                     </Link>
                   </div>
@@ -387,7 +357,7 @@ export default function Topbar({ profile }: TopbarProps) {
             {/* Header */}
             <div className="p-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Bell className="w-4.5 h-4.5 text-[#00B4D8]" />
+                <Bell className="w-4 h-4 text-[#00B4D8]" />
                 <span className="font-bold text-slate-800 text-sm">
                   Notifications
                 </span>
@@ -401,7 +371,7 @@ export default function Topbar({ profile }: TopbarProps) {
                 onClick={() => setIsDrawerOpen(false)}
                 className="p-1 hover:bg-slate-50 rounded-full text-slate-400 hover:text-slate-600 transition-colors"
               >
-                <X className="w-4.5 h-4.5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
