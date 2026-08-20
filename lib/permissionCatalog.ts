@@ -124,6 +124,15 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     icon: "HelpCircle",
     items: [{ key: "broadcast", label: "Broadcast Notice", route: "/dashboard/broadcast" }],
   },
+  {
+    groupKey: "sn_lookup",
+    groupLabel: "SN Lookup",
+    icon: "Search",
+    // Plain grant/no-grant, no self/region/everything filter - per the
+    // client's decision this only ever goes to roles who should see a serial
+    // number's full chain of custody, not a partial/scoped view of it.
+    items: [{ key: "sn_lookup", label: "SN Lookup", route: "/dashboard/sn-lookup" }],
+  },
 ];
 
 export const ALL_PERMISSION_KEYS: string[] = PERMISSION_CATALOG.flatMap((g) => g.items.map((i) => i.key));

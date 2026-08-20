@@ -18,6 +18,7 @@ import {
   FileText,
   Download,
   HelpCircle,
+  Search,
 } from "lucide-react";
 import { createClientComponentClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
@@ -25,7 +26,7 @@ import { getMyPermissionKeysAction } from "@/app/actions/roles";
 import { PERMISSION_CATALOG } from "@/lib/permissionCatalog";
 
 const ICONS: Record<string, any> = {
-  Box, ShoppingCart, MapPin, TrendingUp, ShoppingBag, Wrench, FileText, Download, Users, HelpCircle,
+  Box, ShoppingCart, MapPin, TrendingUp, ShoppingBag, Wrench, FileText, Download, Users, HelpCircle, Search,
 };
 
 // Sub-items that link to the same /dashboard/users route via a query param, and how
