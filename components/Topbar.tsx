@@ -193,7 +193,7 @@ export default function Topbar({ profile }: TopbarProps) {
 
   return (
     <>
-      <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 fixed top-0 right-0 left-56 z-20 select-none">
+      <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 fixed top-0 right-0 left-56 z-40 select-none">
         {/* Left Side: Breadcrumb */}
         <div className="flex items-center gap-2">
           <Link href="/dashboard" className="text-slate-400 hover:text-slate-600 text-xs">
