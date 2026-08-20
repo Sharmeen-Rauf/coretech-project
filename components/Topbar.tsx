@@ -193,7 +193,7 @@ export default function Topbar({ profile }: TopbarProps) {
 
   return (
     <>
-      <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 fixed top-0 right-0 left-56 z-20 select-none">
+      <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 fixed top-0 right-0 left-56 z-40 select-none">
         {/* Left Side: Breadcrumb */}
         <div className="flex items-center gap-2">
           <Link href="/dashboard" className="text-slate-400 hover:text-slate-600 text-xs">
@@ -412,11 +412,6 @@ export default function Topbar({ profile }: TopbarProps) {
                     <p className="text-slate-500 mt-1 leading-relaxed">
                       {notif.message}
                     </p>
-                    {notif.target_role && (
-                      <span className="inline-block mt-2 px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[9px] font-bold uppercase rounded-[4px]">
-                        {notif.target_role}
-                      </span>
-                    )}
                   </div>
                 ))
               )}
