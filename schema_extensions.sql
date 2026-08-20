@@ -146,4 +146,34 @@ alter table public.profiles add column if not exists rsm_id uuid references publ
 -- 10. Extend Orders Table for Model-wise Items JSON
 alter table public.orders add column if not exists items jsonb;
 
+-- 11. Round 2 client feedback (2026-08-20): Target edit tracking, Expense receipt
+-- uploads, and Announcements multi-role targeting + real per-user read state.
+alter table public.targets add column if not exists updated_by uuid references public.profiles(id);
+
+alter table public.expenses add column if not exists receipt_urls text[] default '{}';
+
+-- role_target/target_role moved from a single text value to text[] so an
+-- announcement can target multiple roles at once (was 'all'|<one role>, now
+-- e.g. ARRAY['rsm','distributor'] or ARRAY['all']). Matching code must switch
+-- from equality/`.in()` checks to array-overlap checks (`.overlaps(...)`).
+alter table public.announcements alter column role_target drop default;
+alter table public.announcements alter column role_target type text[] using array[role_target];
+alter table public.announcements alter column role_target set default array['all']::text[];
+
+alter table public.notifications alter column target_role type text[]
+  using case when target_role is null then array['all']::text[] else array[target_role] end;
+
+-- Replaces the old single shared `notifications.read` boolean, which let one
+-- user's "mark all as read" silently mark a notification read for every other
+-- user it was targeted at. `read` is left in place but no longer read/written
+-- by the app - this table is now the source of truth for per-user read state.
+create table if not exists public.notification_reads (
+  notification_id uuid references public.notifications(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete cascade,
+  read_at timestamptz default now(),
+  primary key (notification_id, user_id)
+);
+alter table public.notification_reads enable row level security;
+create policy "Allow all" on public.notification_reads for all using (true) with check (true);
+
 

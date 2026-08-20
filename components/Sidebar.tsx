@@ -18,6 +18,7 @@ import {
   FileText,
   Download,
   HelpCircle,
+  Search,
 } from "lucide-react";
 import { createClientComponentClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
@@ -25,7 +26,7 @@ import { getMyPermissionKeysAction } from "@/app/actions/roles";
 import { PERMISSION_CATALOG } from "@/lib/permissionCatalog";
 
 const ICONS: Record<string, any> = {
-  Box, ShoppingCart, MapPin, TrendingUp, ShoppingBag, Wrench, FileText, Download, Users, HelpCircle,
+  Box, ShoppingCart, MapPin, TrendingUp, ShoppingBag, Wrench, FileText, Download, Users, HelpCircle, Search,
 };
 
 // Sub-items that link to the same /dashboard/users route via a query param, and how
@@ -42,37 +43,27 @@ const USER_SUBVIEWS: { key: string; label: string; roleParam: string }[] = [
   { key: "users.role_management", label: "Role Management", roleParam: "role_management" },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  profile?: { role?: string } | null;
+}
+
+export default function Sidebar({ profile }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
   const supabase = createClientComponentClient();
 
-  const [userRole, setUserRole] = useState<string>("");
   const [grantedKeys, setGrantedKeys] = useState<Set<string>>(new Set());
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
 
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({});
 
+  // Role now comes from DashboardLayout (one shared fetch instead of Sidebar
+  // and Topbar each independently re-fetching the same session + profile).
+  const userRole = profile?.role || "";
+
   useEffect(() => {
-    try {
-      const cached = sessionStorage.getItem("coretech_user_role");
-      if (cached) setUserRole(cached);
-    } catch (e) {}
-
     const load = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-        const { data: profile } = await supabase.from("profiles").select("role").eq("id", session.user.id).single();
-        if (profile?.role) {
-          setUserRole(profile.role);
-          try { sessionStorage.setItem("coretech_user_role", profile.role); } catch (e) {}
-        }
-      } catch (err) {
-        console.warn("Failed to fetch sidebar user role", err);
-      }
-
       try {
         const res = await getMyPermissionKeysAction();
         setGrantedKeys(new Set(res.keys));

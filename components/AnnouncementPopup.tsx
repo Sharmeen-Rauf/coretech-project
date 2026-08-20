@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { X, Megaphone } from "lucide-react";
-import { fetchLatestAnnouncementForCallerAction, markAnnouncementSeenAction } from "@/app/actions/broadcast";
+import { fetchLatestAnnouncementForCallerAction } from "@/app/actions/broadcast";
 
-// Shows the latest announcement addressed to the current user, once, the
-// first time they load the dashboard after it was posted - then never again
-// for that same announcement (dismissing marks it seen), until a genuinely
-// newer one is created. Separate from the notification bell (Topbar.tsx),
-// which keeps showing it until the announcement itself is deleted.
+// Simplified per client request: no "seen" tracking at all - just shows the
+// latest announcement addressed to the current user every time the dashboard
+// layout mounts fresh, which in practice means every login (client-side
+// navigation within the dashboard doesn't remount this). Separate from the
+// notification bell (Topbar.tsx), which keeps listing every announcement
+// until it's deleted, not just the latest one.
 export default function AnnouncementPopup() {
   const [announcement, setAnnouncement] = useState<{ id: string; title: string; content: string } | null>(null);
 
@@ -16,7 +17,7 @@ export default function AnnouncementPopup() {
     const check = async () => {
       try {
         const res = await fetchLatestAnnouncementForCallerAction();
-        if (res.success && res.isUnseen && res.announcement) {
+        if (res.success && res.announcement) {
           setAnnouncement(res.announcement);
         }
       } catch (err) {
@@ -26,13 +27,8 @@ export default function AnnouncementPopup() {
     check();
   }, []);
 
-  const dismiss = async () => {
+  const dismiss = () => {
     setAnnouncement(null);
-    try {
-      await markAnnouncementSeenAction();
-    } catch (err) {
-      console.warn("Failed to mark announcement as seen", err);
-    }
   };
 
   if (!announcement) return null;

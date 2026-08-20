@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
  
   // MFA states
   const [step, setStep] = useState<"login" | "mfa">("login");
@@ -22,6 +23,7 @@ export default function LoginPage() {
  
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoginError("");
     if (!email || !password) {
       toast.error("Please fill in all fields");
       return;
@@ -35,7 +37,7 @@ export default function LoginPage() {
       });
  
       if (error) {
-        toast.error(error.message);
+        setLoginError(error.message || "Invalid email or password. Please try again.");
         setIsLoading(false);
         return;
       }
@@ -53,7 +55,7 @@ export default function LoginPage() {
 
       const userRole = profile?.role || "";
       if (!userRole) {
-        toast.error("Profile role not found. Please contact administrator.");
+        setLoginError("Profile role not found. Please contact administrator.");
         setIsLoading(false);
         return;
       }
@@ -134,7 +136,7 @@ export default function LoginPage() {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); setLoginError(""); }}
                   placeholder="name@coretechsolar.pk"
                   className="w-full h-9 px-3 bg-white border border-[#00B4D8]/30 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
                   required
@@ -148,12 +150,18 @@ export default function LoginPage() {
                 <input
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => { setPassword(e.target.value); setLoginError(""); }}
                   placeholder="••••••••"
                   className="w-full h-9 px-3 bg-white border border-[#00B4D8]/30 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
                   required
                 />
               </div>
+
+              {loginError && (
+                <div className="bg-rose-50 border border-rose-200 rounded-[6px] px-3 py-2 text-xs font-semibold text-rose-600">
+                  {loginError}
+                </div>
+              )}
 
               <button
                 type="submit"

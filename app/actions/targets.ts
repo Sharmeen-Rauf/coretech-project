@@ -78,7 +78,12 @@ export async function fetchAllTargetsAction() {
     const supabase = getAdminClient();
     const { data: targets, error } = await supabase
       .from("targets")
-      .select("*, assignee:profiles!assignee_id(id, first_name, last_name, role)")
+      .select(`
+        *,
+        assignee:profiles!assignee_id(id, first_name, last_name, role),
+        creator:profiles!created_by(id, first_name, last_name),
+        updater:profiles!updated_by(id, first_name, last_name)
+      `)
       .order("created_at", { ascending: false });
     if (error) throw error;
 
@@ -104,8 +109,9 @@ export async function fetchAllTargetsAction() {
   }
 }
 
-// Every user a target could be assigned to - "anyone", per the client's
-// confirmed scope, so this is every profile regardless of role.
+// Every user a target could be assigned to - "anyone" except installer, per
+// the client's confirmed scope (installers don't have a Buzzcart/ST-2/Sell Out
+// activity path a target could realistically be measured against).
 export async function fetchAssignableUsersAction() {
   try {
     const caller = await getCallerIdentity();
@@ -120,12 +126,33 @@ export async function fetchAssignableUsersAction() {
     const { data, error } = await supabase
       .from("profiles")
       .select("id, first_name, last_name, role")
+      .neq("role", "installer")
       .order("first_name");
     if (error) throw error;
 
     return { success: true, data: data || [] };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch users", data: [] };
+  }
+}
+
+export async function deleteTargetAction(targetId: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated" };
+
+    const { canWrite } = await getMyScopeAction("resources.create_targets");
+    if (caller.role !== "admin" && !canWrite) {
+      return { success: false, error: "You don't have access to Create Targets" };
+    }
+
+    const supabase = getAdminClient();
+    const { error } = await supabase.from("targets").delete().eq("id", targetId);
+    if (error) throw error;
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete target" };
   }
 }
 
@@ -151,8 +178,9 @@ export async function createOrUpdateTargetAction(params: {
     if (params.periodEnd < params.periodStart) return { success: false, error: "Period end must be on or after period start" };
 
     const supabase = getAdminClient();
-    const { data: assignee } = await supabase.from("profiles").select("id").eq("id", params.assigneeId).maybeSingle();
+    const { data: assignee } = await supabase.from("profiles").select("id, role").eq("id", params.assigneeId).maybeSingle();
     if (!assignee) return { success: false, error: "Selected assignee is invalid" };
+    if (assignee.role === "installer") return { success: false, error: "Targets cannot be assigned to the installer role" };
 
     if (params.targetId) {
       const { error } = await supabase
@@ -162,6 +190,7 @@ export async function createOrUpdateTargetAction(params: {
           period_start: params.periodStart,
           period_end: params.periodEnd,
           updated_at: new Date().toISOString(),
+          updated_by: caller.id,
         })
         .eq("id", params.targetId);
       if (error) throw error;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { createClientComponentClient } from "@/lib/supabase";
@@ -26,27 +26,36 @@ interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  target_role: string;
+  target_role: string[];
   read: boolean;
   created_at: string;
 }
 
-export default function Topbar() {
+interface TopbarProps {
+  // Fetched once by DashboardLayout and passed down, instead of Topbar
+  // independently re-running the same auth.getSession() + profiles fetch
+  // Sidebar and the layout itself were also each doing.
+  profile?: {
+    id?: string;
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    role?: string;
+  } | null;
+}
+
+export default function Topbar({ profile }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClientComponentClient();
-  
+
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
-  const [profile, setProfile] = useState<any>({
-    first_name: "",
-    last_name: "",
-    email: "",
-    role: "",
-  });
+  const callerIdRef = useRef("");
+  const safeProfile = profile || { first_name: "", last_name: "", email: "", role: "" };
 
   // Parse path to breadcrumbs
   const getBreadcrumbs = () => {
@@ -62,68 +71,54 @@ export default function Topbar() {
   const currentPageName =
     breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length - 1].label : "Home";
 
-  // Fetch initial notifications
+  // Fetch initial notifications - profile arrives as a prop already resolved
+  // by DashboardLayout (which gates rendering Sidebar/Topbar at all until
+  // it's loaded), so there's no async profile fetch of our own to do here.
   useEffect(() => {
-    // Instant cache check for zero delay rendering
-    try {
-      const cached = sessionStorage.getItem("coretech_user_profile");
-      if (cached) setProfile(JSON.parse(cached));
-    } catch (e) {}
+    if (!profile?.id) return;
 
-    // Notifications carry `target_role` ("all" or one specific role) - resolve
-    // the caller's own role first so both the initial fetch and the realtime
-    // subscription below only ever surface notifications actually addressed to
-    // them, not everyone's. `callerRole` is captured once here and closed over
-    // by the realtime handler rather than read from React state, so it can't go
-    // stale across renders.
-    let callerRole = "";
+    // Captured once per profile change and closed over by the realtime
+    // handler rather than read from React state, so it can't go stale
+    // across renders. Notifications carry `target_role` (an array containing
+    // "all" and/or one or more specific roles).
+    const callerRole = profile.role || "";
+    const callerId = profile.id;
+    callerIdRef.current = callerId;
 
     const fetchNotifications = async () => {
       try {
         const { data, error } = await supabase
           .from("notifications")
           .select("*")
-          .in("target_role", ["all", callerRole])
+          .overlaps("target_role", ["all", callerRole])
           .order("created_at", { ascending: false })
           .limit(20);
 
         if (error) throw error;
-        setNotifications(data || []);
-        setUnreadCount((data || []).filter((n: NotificationItem) => !n.read).length);
+        const rows = data || [];
+
+        // Read state is per-user (notification_reads), not a single shared
+        // flag on the notification itself - a prior "mark all as read" from
+        // one user must never make it look already-read for anyone else.
+        let readIds = new Set<string>();
+        if (callerId && rows.length > 0) {
+          const { data: reads } = await supabase
+            .from("notification_reads")
+            .select("notification_id")
+            .eq("user_id", callerId)
+            .in("notification_id", rows.map((r: any) => r.id));
+          readIds = new Set((reads || []).map((r: any) => r.notification_id));
+        }
+
+        const withReadState = rows.map((r: any) => ({ ...r, read: readIds.has(r.id) }));
+        setNotifications(withReadState);
+        setUnreadCount(withReadState.filter((n: NotificationItem) => !n.read).length);
       } catch (err: any) {
         console.error("Error fetching notifications:", err.message);
       }
     };
 
-    const fetchUserProfile = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single();
-
-        if (error) throw error;
-        const fullProf = {
-          ...data,
-          email: session.user.email,
-        };
-        setProfile(fullProf);
-        callerRole = data.role || "";
-        try { sessionStorage.setItem("coretech_user_profile", JSON.stringify(fullProf)); } catch (e) {}
-      } catch (err: any) {
-        console.warn("Failed to fetch user profile in Topbar", err.message);
-      }
-    };
-
-    (async () => {
-      // Role must resolve before the notifications query can filter by it.
-      await fetchUserProfile();
-      await fetchNotifications();
-    })();
+    fetchNotifications();
 
     // Subscribe to realtime changes
     const channel = supabase
@@ -133,8 +128,9 @@ export default function Topbar() {
         { event: "INSERT", schema: "public", table: "notifications" },
         (payload: any) => {
           const newNotif = payload.new as NotificationItem;
-          if (newNotif.target_role !== "all" && newNotif.target_role !== callerRole) return;
-          setNotifications((prev: any) => [newNotif, ...prev]);
+          const targets = newNotif.target_role || [];
+          if (!targets.includes("all") && !targets.includes(callerRole)) return;
+          setNotifications((prev: any) => [{ ...newNotif, read: false }, ...prev]);
           setUnreadCount((prev) => prev + 1);
           toast((t) => (
             <div className="flex items-start gap-2 text-xs">
@@ -152,16 +148,23 @@ export default function Topbar() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [supabase]);
+  }, [supabase, profile?.id, profile?.role]);
 
   const markAllAsRead = async () => {
     try {
-      const { error } = await supabase
-        .from("notifications")
-        .update({ read: true })
-        .eq("read", false);
+      const callerId = callerIdRef.current;
+      if (!callerId) return;
 
-      if (error) throw error;
+      const unreadIds = notifications.filter((n) => !n.read).map((n) => n.id);
+      if (unreadIds.length > 0) {
+        const { error } = await supabase
+          .from("notification_reads")
+          .upsert(
+            unreadIds.map((notification_id) => ({ notification_id, user_id: callerId })),
+            { onConflict: "notification_id,user_id" }
+          );
+        if (error) throw error;
+      }
 
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadCount(0);
@@ -327,14 +330,14 @@ export default function Topbar() {
                 <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-100 rounded-[12px] shadow-xl py-2 z-40 animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="px-4 py-2.5 border-b border-slate-50 flex flex-col">
                     <span className="font-bold text-slate-800 text-xs">
-                      {profile.first_name ? `${profile.first_name} ${profile.last_name || ""}`.trim() : "CoreTECH User"}
+                      {safeProfile.first_name ? `${safeProfile.first_name} ${safeProfile.last_name || ""}`.trim() : "CoreTECH User"}
                     </span>
                     <span className="text-[10px] text-slate-400 truncate mt-0.5">
-                      {profile.email}
+                      {safeProfile.email}
                     </span>
                     <span className="inline-flex items-center gap-1 mt-1.5 self-start px-2 py-0.5 bg-[#F0FAFE] text-[#00B4D8] text-[9px] font-bold uppercase rounded-full">
                       <Shield className="w-2.5 h-2.5" />
-                      {profile.role || "User"}
+                      {safeProfile.role || "User"}
                     </span>
                   </div>
                   

@@ -1,19 +1,23 @@
 // Shared "units achieved" resolver for Target Management. A target can be
-// assigned to any role, but Buzzcart orders attribute a person via a
-// different column depending on which role they actually are:
-// - distributor -> orders.distributor_id
-// - sub_dealer  -> orders.user_id (the buyer)
+// assigned to any role except installer, and different roles get credited
+// from different real activity:
+// - distributor -> their own outgoing ST-2 units (sales.source_type =
+//   'distributor') plus any units they personally Sell Out (stock.distributor_id)
+// - sub_dealer  -> their own incoming ST-2 units (sales.destination_type =
+//   'sub_dealer') plus any units they personally Sell Out (stock.sub_dealer_id)
 // - everyone else (employee, rsm, or any other role that can end up
-//   coordinating an order - see createBuzzcartOrderAction) -> orders.sales_coordinator_id
+//   coordinating a Buzzcart order - see createBuzzcartOrderAction) ->
+//   orders.sales_coordinator_id
 //
-// Some roles (installer, and most pure-management roles) never appear in any
-// of these columns at all - a target assigned to one of those will always
-// resolve to 0 achieved units. That's expected, not a bug: there's simply no
-// Buzzcart activity to attribute to them today.
+// Buzzcart order volume doesn't reflect how distributor/sub_dealer actually
+// move product (that's ST-2 + Sell Out), so those two roles are resolved
+// entirely differently from everyone else - see computeAchievedUnitsForTargets.
 //
 // An order counts once it's `approved` and stays counted permanently as it
 // matures through invoice_generated/delivered - never once it's declined.
-// Matched against the target's period using the order's created_at.
+// ST-2/Sell Out units count as soon as they're recorded (both are terminal,
+// one-way actions with no pending/rejected state of their own).
+// Matched against the target's period using the relevant activity's own date.
 
 const COUNTED_STATUSES = ["approved", "invoice_generated", "delivered"];
 
@@ -25,69 +29,123 @@ export interface TargetPeriodRef {
   periodEnd: string; // date, "YYYY-MM-DD"
 }
 
-function columnForRole(role: string): "distributor_id" | "user_id" | "sales_coordinator_id" {
-  if (role === "distributor") return "distributor_id";
-  if (role === "sub_dealer") return "user_id";
-  return "sales_coordinator_id";
-}
-
 function sumItemQuantities(items: any): number {
   if (!Array.isArray(items)) return 0;
   return items.reduce((sum: number, item: any) => sum + (Number(item?.quantity) || 0), 0);
 }
 
-function withinPeriod(createdAt: string, periodStart: string, periodEnd: string): boolean {
-  const t = new Date(createdAt).getTime();
+function withinPeriod(dateVal: string, periodStart: string, periodEnd: string): boolean {
+  if (!dateVal) return false;
+  const t = new Date(dateVal).getTime();
   const start = new Date(`${periodStart}T00:00:00`).getTime();
   const end = new Date(`${periodEnd}T23:59:59.999`).getTime();
   return t >= start && t <= end;
 }
 
-// Batch-resolves achieved units for a set of targets in at most 3 queries
-// total (one per attribution column actually needed), rather than one query
-// per target - each target keeps its own period, so the date filtering
-// happens in-memory per target after the broader per-column fetch.
-export async function computeAchievedUnitsForTargets(
+// distributor + sub_dealer: ST-2 units (as the actual sender/receiver) + Sell
+// Out units they personally sold, both counted directly from their respective
+// source tables rather than Buzzcart's `orders`.
+async function computeDistributorSubDealerAchieved(
   supabase: any,
   targets: TargetPeriodRef[]
 ): Promise<Map<string, number>> {
   const result = new Map<string, number>();
   if (targets.length === 0) return result;
 
-  const idsByColumn: Record<string, Set<string>> = {
-    distributor_id: new Set(),
-    user_id: new Set(),
-    sales_coordinator_id: new Set(),
-  };
+  const distributorIds = Array.from(new Set(targets.filter((t) => t.assigneeRole === "distributor").map((t) => t.assigneeId)));
+  const subDealerIds = Array.from(new Set(targets.filter((t) => t.assigneeRole === "sub_dealer").map((t) => t.assigneeId)));
+
+  const [distSalesRes, subSalesRes] = await Promise.all([
+    distributorIds.length > 0
+      ? supabase.from("sales").select("id, source_id, date").eq("type", "ST2").eq("source_type", "distributor").in("source_id", distributorIds)
+      : Promise.resolve({ data: [] }),
+    subDealerIds.length > 0
+      ? supabase.from("sales").select("id, destination_id, date").eq("type", "ST2").eq("destination_type", "sub_dealer").in("destination_id", subDealerIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const distSales = distSalesRes.data || [];
+  const subSales = subSalesRes.data || [];
+
+  const allSaleIds = [...distSales.map((s: any) => s.id), ...subSales.map((s: any) => s.id)];
+  const { data: itemsData } =
+    allSaleIds.length > 0 ? await supabase.from("sale_items").select("sale_id").in("sale_id", allSaleIds) : { data: [] };
+  const itemCountBySale = new Map<string, number>();
+  (itemsData || []).forEach((it: any) => itemCountBySale.set(it.sale_id, (itemCountBySale.get(it.sale_id) || 0) + 1));
+
+  const [distSelloutRes, subSelloutRes] = await Promise.all([
+    distributorIds.length > 0
+      ? supabase.from("stock").select("distributor_id, sold_out_at").eq("status", "sold_out").in("distributor_id", distributorIds)
+      : Promise.resolve({ data: [] }),
+    subDealerIds.length > 0
+      ? supabase.from("stock").select("sub_dealer_id, sold_out_at").eq("status", "sold_out").in("sub_dealer_id", subDealerIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const distSellouts = distSelloutRes.data || [];
+  const subSellouts = subSelloutRes.data || [];
+
   targets.forEach((t) => {
-    idsByColumn[columnForRole(t.assigneeRole)].add(t.assigneeId);
+    let achieved = 0;
+    if (t.assigneeRole === "distributor") {
+      achieved += distSales
+        .filter((s: any) => s.source_id === t.assigneeId && withinPeriod(s.date, t.periodStart, t.periodEnd))
+        .reduce((sum: number, s: any) => sum + (itemCountBySale.get(s.id) || 0), 0);
+      achieved += distSellouts.filter(
+        (r: any) => r.distributor_id === t.assigneeId && withinPeriod(r.sold_out_at, t.periodStart, t.periodEnd)
+      ).length;
+    } else if (t.assigneeRole === "sub_dealer") {
+      achieved += subSales
+        .filter((s: any) => s.destination_id === t.assigneeId && withinPeriod(s.date, t.periodStart, t.periodEnd))
+        .reduce((sum: number, s: any) => sum + (itemCountBySale.get(s.id) || 0), 0);
+      achieved += subSellouts.filter(
+        (r: any) => r.sub_dealer_id === t.assigneeId && withinPeriod(r.sold_out_at, t.periodStart, t.periodEnd)
+      ).length;
+    }
+    result.set(t.id, achieved);
   });
 
-  const ordersByColumn: Record<string, any[]> = {};
-  await Promise.all(
-    (Object.keys(idsByColumn) as Array<keyof typeof idsByColumn>).map(async (col) => {
-      const ids = Array.from(idsByColumn[col]);
-      if (ids.length === 0) {
-        ordersByColumn[col] = [];
-        return;
-      }
-      const { data } = await supabase
-        .from("orders")
-        .select(`${col}, items, created_at, status`)
-        .in(col, ids)
-        .in("status", COUNTED_STATUSES);
-      ordersByColumn[col] = data || [];
-    })
-  );
+  return result;
+}
+
+// Everyone else (not distributor/sub_dealer): Buzzcart order volume attributed
+// via orders.sales_coordinator_id, same as before.
+async function computeOrderBasedAchieved(supabase: any, targets: TargetPeriodRef[]): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (targets.length === 0) return result;
+
+  const ids = Array.from(new Set(targets.map((t) => t.assigneeId)));
+  const { data } = await supabase
+    .from("orders")
+    .select("sales_coordinator_id, items, created_at, status")
+    .in("sales_coordinator_id", ids)
+    .in("status", COUNTED_STATUSES);
+  const orders = data || [];
 
   targets.forEach((t) => {
-    const col = columnForRole(t.assigneeRole);
-    const orders = ordersByColumn[col] || [];
     const achieved = orders
-      .filter((o: any) => o[col] === t.assigneeId && withinPeriod(o.created_at, t.periodStart, t.periodEnd))
+      .filter((o: any) => o.sales_coordinator_id === t.assigneeId && withinPeriod(o.created_at, t.periodStart, t.periodEnd))
       .reduce((sum: number, o: any) => sum + sumItemQuantities(o.items), 0);
     result.set(t.id, achieved);
   });
 
+  return result;
+}
+
+export async function computeAchievedUnitsForTargets(
+  supabase: any,
+  targets: TargetPeriodRef[]
+): Promise<Map<string, number>> {
+  if (targets.length === 0) return new Map();
+
+  const distSubTargets = targets.filter((t) => t.assigneeRole === "distributor" || t.assigneeRole === "sub_dealer");
+  const otherTargets = targets.filter((t) => t.assigneeRole !== "distributor" && t.assigneeRole !== "sub_dealer");
+
+  const [distSubMap, otherMap] = await Promise.all([
+    computeDistributorSubDealerAchieved(supabase, distSubTargets),
+    computeOrderBasedAchieved(supabase, otherTargets),
+  ]);
+
+  const result = new Map<string, number>();
+  distSubMap.forEach((v, k) => result.set(k, v));
+  otherMap.forEach((v, k) => result.set(k, v));
   return result;
 }

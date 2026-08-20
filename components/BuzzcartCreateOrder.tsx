@@ -163,9 +163,7 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
           setSelectedEmployeeId(activeProfile.id);
         }
 
-        const emps = profiles.filter(
-          p => p.role === "employee" || p.role === "rsm" || p.role === "admin" || p.role === "country_head"
-        );
+        const emps = profiles.filter(p => p.role !== "installer");
         setEmployees(emps);
 
         const isRsmUser = activeProfile && (activeProfile.role === "rsm" || (activeProfile as any).group_name === "rsm");

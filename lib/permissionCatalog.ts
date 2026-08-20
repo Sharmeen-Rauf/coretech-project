@@ -98,7 +98,10 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
       // New capability, starts ungranted for every existing role (only admin
       // has it by default) - assigning targets to anyone is real power that
       // shouldn't silently inherit from whoever could see the old fake tab.
-      { key: "resources.create_targets", label: "Create Targets", route: "/dashboard/resources" },
+      // Own real route now (was sharing /dashboard/resources with the item
+      // above, which is why the two used to render as buttons inside one page
+      // instead of two independent sidebar entries like every other section).
+      { key: "resources.create_targets", label: "Create Targets", route: "/dashboard/resources/create-targets" },
     ],
   },
   {
@@ -120,6 +123,15 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     groupLabel: "Broadcast Notice",
     icon: "HelpCircle",
     items: [{ key: "broadcast", label: "Broadcast Notice", route: "/dashboard/broadcast" }],
+  },
+  {
+    groupKey: "sn_lookup",
+    groupLabel: "SN Lookup",
+    icon: "Search",
+    // Plain grant/no-grant, no self/region/everything filter - per the
+    // client's decision this only ever goes to roles who should see a serial
+    // number's full chain of custody, not a partial/scoped view of it.
+    items: [{ key: "sn_lookup", label: "SN Lookup", route: "/dashboard/sn-lookup" }],
   },
 ];
 

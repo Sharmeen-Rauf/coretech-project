@@ -19,10 +19,13 @@ function getAdminClient() {
 // another role through Role Management would have had no effect here, because
 // the button would still never appear for anyone but admin. Replaced with the
 // real can_write check so the two systems can't drift out of sync again.
+//
+// role_target/target_role moved from a single value to an array so one
+// announcement can target multiple roles at once.
 export async function createAnnouncementAction(params: {
   title: string;
   content: string;
-  roleTarget: string;
+  roleTargets: string[];
 }) {
   try {
     const caller = await getCallerIdentity();
@@ -34,6 +37,9 @@ export async function createAnnouncementAction(params: {
     if (!params.title?.trim() || !params.content?.trim()) {
       return { success: false, error: "Title and content are required" };
     }
+    if (!params.roleTargets || params.roleTargets.length === 0) {
+      return { success: false, error: "Select at least one target role" };
+    }
 
     const supabase = getAdminClient();
     const { data, error } = await supabase
@@ -41,7 +47,7 @@ export async function createAnnouncementAction(params: {
       .insert({
         title: params.title.trim(),
         content: params.content.trim(),
-        role_target: params.roleTarget,
+        role_target: params.roleTargets,
         created_by: caller.id,
       })
       .select("id, title")
@@ -55,7 +61,7 @@ export async function createAnnouncementAction(params: {
       await supabase.from("notifications").insert({
         title: params.title.trim(),
         message: params.content.trim(),
-        target_role: params.roleTarget,
+        target_role: params.roleTargets,
         announcement_id: data.id,
       });
     } catch (notifErr) {
@@ -65,7 +71,7 @@ export async function createAnnouncementAction(params: {
     try {
       await supabase.from("activity_logs").insert({
         action: "Announcement Broadcast",
-        details: `Announcement "${params.title}" was posted to ${params.roleTarget} users`,
+        details: `Announcement "${params.title}" was posted to ${params.roleTargets.join(", ")} users`,
       });
     } catch {
       // Non-critical.
@@ -74,6 +80,57 @@ export async function createAnnouncementAction(params: {
     return { success: true, data };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to post announcement" };
+  }
+}
+
+export async function updateAnnouncementAction(params: {
+  id: string;
+  title: string;
+  content: string;
+  roleTargets: string[];
+}) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated" };
+
+    const { canWrite } = await getMyScopeAction("broadcast");
+    if (!canWrite) return { success: false, error: "You have read-only access to Broadcast Notice" };
+
+    if (!params.title?.trim() || !params.content?.trim()) {
+      return { success: false, error: "Title and content are required" };
+    }
+    if (!params.roleTargets || params.roleTargets.length === 0) {
+      return { success: false, error: "Select at least one target role" };
+    }
+
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("announcements")
+      .update({
+        title: params.title.trim(),
+        content: params.content.trim(),
+        role_target: params.roleTargets,
+      })
+      .eq("id", params.id);
+    if (error) throw error;
+
+    // Keep the linked bell notification in sync with the edited content/roles.
+    try {
+      await supabase
+        .from("notifications")
+        .update({
+          title: params.title.trim(),
+          message: params.content.trim(),
+          target_role: params.roleTargets,
+        })
+        .eq("announcement_id", params.id);
+    } catch (notifErr) {
+      console.warn("Failed to update linked notification for announcement:", notifErr);
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to update announcement" };
   }
 }
 
@@ -98,66 +155,36 @@ export async function deleteAnnouncementAction(id: string) {
   }
 }
 
-// Powers the "popup on first login after a new announcement" behavior: returns
-// the latest announcement actually addressed to this caller (their own role,
-// or "all"), plus whether it's newer than the last one they've dismissed.
+// Simplified per the client's request: no more "seen until a newer one
+// arrives" tracking - just the latest announcement addressed to this caller
+// (their own role, or "all"), shown every time they log in (the popup itself
+// decides "once per login" simply by mounting once per fresh dashboard load).
 export async function fetchLatestAnnouncementForCallerAction(): Promise<{
   success: boolean;
   announcement: { id: string; title: string; content: string; created_at: string } | null;
-  isUnseen: boolean;
   error?: string;
 }> {
   try {
     const caller = await getCallerIdentity();
-    if (!caller) return { success: false, announcement: null, isUnseen: false, error: "Not authenticated" };
+    if (!caller) return { success: false, announcement: null, error: "Not authenticated" };
 
     const supabase = getAdminClient();
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("last_seen_announcement_at")
-      .eq("id", caller.id)
-      .maybeSingle();
-
     const { data: latest, error } = await supabase
       .from("announcements")
       .select("id, title, content, created_at, role_target")
-      .in("role_target", ["all", caller.role])
+      .overlaps("role_target", ["all", caller.role])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (error) throw error;
 
-    if (!latest) return { success: true, announcement: null, isUnseen: false };
-
-    const lastSeen = profile?.last_seen_announcement_at ? new Date(profile.last_seen_announcement_at).getTime() : 0;
-    const isUnseen = new Date(latest.created_at).getTime() > lastSeen;
+    if (!latest) return { success: true, announcement: null };
 
     return {
       success: true,
       announcement: { id: latest.id, title: latest.title, content: latest.content, created_at: latest.created_at },
-      isUnseen,
     };
   } catch (err: any) {
-    return { success: false, announcement: null, isUnseen: false, error: err.message || "Failed to fetch latest announcement" };
-  }
-}
-
-// Marks the current moment as "seen" - called when the popup is dismissed, so
-// it won't reappear until a genuinely newer announcement is posted.
-export async function markAnnouncementSeenAction() {
-  try {
-    const caller = await getCallerIdentity();
-    if (!caller) return { success: false, error: "Not authenticated" };
-
-    const supabase = getAdminClient();
-    const { error } = await supabase
-      .from("profiles")
-      .update({ last_seen_announcement_at: new Date().toISOString() })
-      .eq("id", caller.id);
-    if (error) throw error;
-
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message || "Failed to mark announcement as seen" };
+    return { success: false, announcement: null, error: err.message || "Failed to fetch latest announcement" };
   }
 }
