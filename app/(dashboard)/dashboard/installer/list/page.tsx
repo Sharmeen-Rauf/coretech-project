@@ -434,7 +434,7 @@ export default function InstallerListPage() {
             cleanText = row.marital_status ? `Installer (${row.marital_status})` : val;
           }
         }
-        return <span className="text-slate-650 font-semibold">{cleanText}</span>;
+        return <span className="text-slate-600 font-semibold">{cleanText}</span>;
       }
     },
     { key: "contact", label: "Contact Phone" },
@@ -527,7 +527,7 @@ export default function InstallerListPage() {
       render: (_: string, row: any) => (
         <button
           onClick={() => setSelectedInstaller(row)}
-          className="flex items-center gap-1.5 px-3 py-1 hover:bg-[#F0FAFE] hover:text-[#00B4D8] border border-slate-200 text-slate-650 rounded-[4px] text-[11px] font-bold transition-all"
+          className="flex items-center gap-1.5 px-3 py-1 hover:bg-[#F0FAFE] hover:text-[#00B4D8] border border-slate-200 text-slate-600 rounded-[6px] text-[11px] font-bold transition-all"
         >
           <UserCheck className="w-3.5 h-3.5" />
           Audit Trail
@@ -570,7 +570,7 @@ export default function InstallerListPage() {
     <div className="space-y-6 select-none">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Installers</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Verify Installer</h1>
           <p className="text-xs text-slate-500">
             Monitor registration, designation and active status for installation field staff.
           </p>
@@ -580,7 +580,7 @@ export default function InstallerListPage() {
         {/* Installer Registration QR Code trigger */}
         <button
           onClick={() => setIsQrModalOpen(true)}
-          className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-[8px] text-xs font-bold shadow-sm transition-all"
+          className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-[6px] text-xs font-bold shadow-sm transition-all"
         >
           <QrCode className="w-4 h-4 text-[#00B4D8]" />
           Installer QR Code
@@ -590,7 +590,7 @@ export default function InstallerListPage() {
         <div className="relative shrink-0">
           <button
             onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
-            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-[8px] text-xs font-bold shadow-sm transition-all"
+            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-[6px] text-xs font-bold shadow-sm transition-all"
           >
             <Calendar className="w-4 h-4 text-slate-500" />
             <span>
@@ -688,7 +688,7 @@ export default function InstallerListPage() {
             <Clock className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 1: Pending RM</p>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 1: Pending Retail Manager</p>
             <p className="text-base font-extrabold text-slate-800">{pendingRmCount} Installer(s)</p>
           </div>
         </div>
@@ -702,7 +702,7 @@ export default function InstallerListPage() {
             <UserCheck className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 2: Pending CH</p>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 2: Pending Country Head</p>
             <p className="text-base font-extrabold text-slate-800">{pendingChCount} Installer(s)</p>
           </div>
         </div>
@@ -786,7 +786,7 @@ export default function InstallerListPage() {
               </div>
               <button
                 onClick={() => setSelectedInstaller(null)}
-                className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-655 rounded-full"
+                className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-600 rounded-full"
               >
                 <X className="w-4 h-4" />
               </button>

@@ -7,8 +7,7 @@ import Link from "next/link";
 import OrderStatusModal from "@/components/OrderStatusModal";
 import BuzzcartCreateOrder from "@/components/BuzzcartCreateOrder";
 import toast from "react-hot-toast";
-import { deleteRecordAction } from "@/app/actions/users";
-import { fetchOrdersAction } from "@/app/actions/orders";
+import { fetchOrdersAction, deleteOrderAction } from "@/app/actions/orders";
 import { Eye } from "lucide-react";
  
 interface OrderRow {
@@ -121,16 +120,19 @@ export default function BuzzcartOrdersPage() {
     if (!window.confirm(`Are you sure you want to delete order ${row.order_code}?`)) return;
 
     try {
+      // Real server-side admin check now - an explicit denial must never
+      // fall back to a local-only delete that then reports success anyway.
       if (row.id) {
-        const res = await deleteRecordAction("orders", row.id);
+        const res = await deleteOrderAction(row.id);
         if (!res.success) {
-          console.warn("DB delete failed, attempting local delete", res.error);
+          toast.error(res.error || "Failed to delete order");
+          return;
         }
       }
-      
+
       const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
       deleteLocalItem("coretech_local_orders", row.id || row.order_code, row.id ? "id" : "order_code");
-      
+
       toast.success(`Order deleted successfully!`);
       fetchOrders();
     } catch (err: any) {
@@ -210,8 +212,11 @@ export default function BuzzcartOrdersPage() {
                   normalized === "invoice_generated" ? "Gatepass Created" :
                   normalized === "payment_logged" ? "Payment Logged" : "DO Created";
         } else if (normalized === "approved") {
-          dotColor = "bg-[#0284C7]"; // blue
-          textColor = "text-[#0284C7]";
+          // Distinct from "pending" (also blue below) - a user approving
+          // orders needs to tell "still pending" and "already approved"
+          // apart at a glance, not just by re-reading the label text.
+          dotColor = "bg-[#00B4D8]";
+          textColor = "text-[#00B4D8]";
           label = "Approved";
         } else {
           dotColor = "bg-[#0284C7]"; // blue
@@ -258,7 +263,7 @@ export default function BuzzcartOrdersPage() {
   return (
     <div className="space-y-6 select-none">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Buzzcart-Orders</h1>
+        <h1 className="text-2xl font-bold text-slate-800">Buzzcart Orders</h1>
         <p className="text-xs text-slate-500">
           Track customer product orders, invoice status, and distribution agents.
         </p>
@@ -308,7 +313,7 @@ export default function BuzzcartOrdersPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
-        onDeleteClick={handleDeleteOrder}
+        onDeleteClick={userRole === "admin" ? handleDeleteOrder : undefined}
       />
 
       {selectedStatusOrder && (

@@ -275,9 +275,10 @@ export default function ImportStockPage() {
     return (
       <div className="space-y-6 select-none max-w-4xl mx-auto">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">
-            {userRole === "distributor" ? "Consignment Import" : "Import Stock"}
-          </h1>
+          <h1 className="text-2xl font-bold text-slate-800">Import Stock</h1>
+          <p className="text-xs text-slate-500">
+            Upload products CSV inventory files and associate them to warehouses.
+          </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-[12px] p-8 text-center text-sm text-slate-500">
           You have read-only access to Import Stock.
@@ -289,13 +290,9 @@ export default function ImportStockPage() {
   return (
     <div className="space-y-6 select-none max-w-4xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">
-          {userRole === "distributor" ? "Consignment Import" : "Import Stock"}
-        </h1>
+        <h1 className="text-2xl font-bold text-slate-800">Import Stock</h1>
         <p className="text-xs text-slate-500">
-          {userRole === "distributor" 
-            ? "Upload consignment CSV inventory files and associate them to warehouses."
-            : "Upload products CSV inventory files and associate them to warehouses."}
+          Upload products CSV inventory files and associate them to warehouses.
         </p>
       </div>
 

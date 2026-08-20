@@ -134,6 +134,8 @@ export async function createUserAction(formData: any): Promise<{ success: boolea
   } = formData;
 
   try {
+    if (!role) return { success: false, error: "Role is required" };
+
     const access = await checkUsersWriteAccess(role, true);
     if (!access.allowed) return { success: false, error: access.error };
 
@@ -318,6 +320,11 @@ export async function updateUserAction(id: string, formData: any): Promise<{ suc
   } = formData;
 
   try {
+    // A profile must never lose its role on edit - previously this fell
+    // through to `role || null`, silently nulling it out if the field was
+    // ever empty on submit instead of rejecting the save.
+    if (!role) return { success: false, error: "Role is required" };
+
     const access = await checkUsersWriteAccess(role);
     if (!access.allowed) return { success: false, error: access.error };
 
@@ -331,7 +338,7 @@ export async function updateUserAction(id: string, formData: any): Promise<{ suc
       last_name: lastName,
       designation,
       contact,
-      role: role || null,
+      role,
       group_name: group,
       status,
       state: state || null,
@@ -380,7 +387,7 @@ export async function updateUserAction(id: string, formData: any): Promise<{ suc
         last_name: lastName,
         designation: `[DISTRIBUTOR_METADATA]${JSON.stringify(metadata)}`,
         contact,
-        role: role || null,
+        role,
         group_name: group,
         status,
       };

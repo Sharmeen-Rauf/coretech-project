@@ -81,6 +81,24 @@ export default function Sidebar({ profile }: SidebarProps) {
     setOpenMenus((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  // Which group (if any) the current page belongs to - used both to
+  // auto-expand that group on load/navigation (refresh, deep link, or a
+  // Topbar "Quick Add" shortcut previously landed you inside a collapsed
+  // section with no visual indication) and to highlight its header even
+  // while collapsed.
+  const activeGroupKey = (() => {
+    if (pathname === "/dashboard/users") return "users";
+    const group = PERMISSION_CATALOG.find((g) => g.items.some((item) => pathname.startsWith(item.route)));
+    return group?.groupKey || null;
+  })();
+
+  useEffect(() => {
+    if (activeGroupKey && !openMenus[activeGroupKey]) {
+      setOpenMenus((prev) => ({ ...prev, [activeGroupKey]: true }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGroupKey]);
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push("/login");
@@ -140,7 +158,9 @@ export default function Sidebar({ profile }: SidebarProps) {
                       <div key={group.groupKey}>
                         <button
                           onClick={() => toggleMenu(group.groupKey)}
-                          className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
+                          className={`w-full flex items-center justify-between px-4 py-2 text-xs font-semibold rounded-md transition-colors ${
+                            activeGroupKey === group.groupKey ? "text-[#00B4D8]" : "text-slate-600 hover:bg-slate-50"
+                          }`}
                         >
                           <div className="flex items-center">
                             <Icon className="w-4 h-4 mr-3" />
@@ -184,7 +204,9 @@ export default function Sidebar({ profile }: SidebarProps) {
                     <div key={group.groupKey}>
                       <button
                         onClick={() => toggleMenu(group.groupKey)}
-                        className="w-full flex items-center justify-between px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
+                        className={`w-full flex items-center justify-between px-4 py-2 text-xs font-semibold rounded-md transition-colors ${
+                          activeGroupKey === group.groupKey ? "text-[#00B4D8]" : "text-slate-600 hover:bg-slate-50"
+                        }`}
                       >
                         <div className="flex items-center">
                           <Icon className="w-4 h-4 mr-3" />

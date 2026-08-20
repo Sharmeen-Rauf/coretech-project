@@ -118,7 +118,7 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="space-y-8 select-none max-w-4xl">
+    <div className="space-y-6 select-none max-w-4xl">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Account Settings</h1>
         <p className="text-xs text-slate-500">
@@ -277,7 +277,7 @@ export default function AccountPage() {
                 <button
                   type="submit"
                   disabled={changingPassword}
-                  className="h-9 px-4 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors disabled:opacity-55"
+                  className="h-9 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors disabled:opacity-55"
                 >
                   {changingPassword ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />

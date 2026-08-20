@@ -634,7 +634,7 @@ export default function AdminJobsPage() {
       {!isCreating ? (
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Installations</h1>
+            <h1 className="text-2xl font-bold text-slate-800">Verify Installation</h1>
             <p className="text-xs text-slate-500">
               Monitor site verification, installation audit history, and active approval status.
             </p>
@@ -671,7 +671,7 @@ export default function AdminJobsPage() {
       {/* Top Summary KPI Cards matching Installer Register */}
       {!isCreating && !isLoading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in duration-300">
-          <div className="bg-white p-5 rounded-[10px] border border-[#00B4D8]/30 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-[12px] border border-[#00B4D8]/30 shadow-sm flex items-center gap-4">
             <div className="p-3 bg-[#E0F7FA] text-[#00B4D8] rounded-full">
               <Wrench className="w-5 h-5" />
             </div>
@@ -681,7 +681,7 @@ export default function AdminJobsPage() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-[10px] border border-amber-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-[12px] border border-amber-200 shadow-sm flex items-center gap-4">
             <div className="p-3 bg-amber-50 text-amber-600 rounded-full">
               <AlertCircle className="w-5 h-5" />
             </div>
@@ -691,7 +691,7 @@ export default function AdminJobsPage() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-[10px] border border-sky-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-[12px] border border-sky-200 shadow-sm flex items-center gap-4">
             <div className="p-3 bg-sky-50 text-sky-600 rounded-full">
               <TrendingUp className="w-5 h-5" />
             </div>
@@ -701,7 +701,7 @@ export default function AdminJobsPage() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-[10px] border border-emerald-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-[12px] border border-emerald-200 shadow-sm flex items-center gap-4">
             <div className="p-3 bg-emerald-50 text-emerald-600 rounded-full">
               <FileText className="w-5 h-5" />
             </div>

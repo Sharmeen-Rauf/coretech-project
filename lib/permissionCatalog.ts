@@ -33,9 +33,9 @@ export interface PermissionGroup {
 export const PERMISSION_CATALOG: PermissionGroup[] = [
   {
     groupKey: "product",
-    groupLabel: "Product Management",
+    groupLabel: "Product Catalog",
     icon: "Box",
-    items: [{ key: "product", label: "Product Management", route: "/dashboard/product" }],
+    items: [{ key: "product", label: "Product Catalog", route: "/dashboard/product" }],
   },
   {
     groupKey: "purchase",
@@ -44,7 +44,7 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     items: [
       { key: "purchase.import_stock", label: "Import Stock", route: "/dashboard/purchase/import-stock" },
       { key: "purchase.inventory", label: "Inventory", route: "/dashboard/purchase/inventory", supportedScopes: ["self", "region", "everything"] },
-      { key: "purchase.warehouse", label: "Warehouse", route: "/dashboard/purchase/warehouse" },
+      { key: "purchase.warehouse", label: "Warehouses", route: "/dashboard/purchase/warehouse" },
     ],
   },
   {

@@ -144,7 +144,7 @@ async function DashboardStats() {
         subtitle="Secondary Transfers"
       />
       <StatsCard
-        title="Total SO (Sell-Out)"
+        title="Total Sell Out"
         value={soVal.toLocaleString()}
         change="+6.7%"
         isPositive={true}
@@ -790,7 +790,7 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 select-none">
       {/* Page Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Home</h1>

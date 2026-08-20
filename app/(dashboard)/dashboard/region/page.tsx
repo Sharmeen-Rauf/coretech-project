@@ -277,7 +277,7 @@ export default function RegionPage() {
           <div className="relative bg-white w-full max-w-sm border border-slate-100 rounded-[12px] shadow-2xl p-6 flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-4 bg-slate-50/50 -m-6 p-6 rounded-t-[12px]">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                Add Region Hub
+                Add Region
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}

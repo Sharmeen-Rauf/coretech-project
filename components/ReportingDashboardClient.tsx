@@ -91,7 +91,7 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, activ
                     job.status === "approved" ? "text-emerald-500 bg-emerald-50 border-emerald-200" :
                     job.status === "in_progress" ? "text-blue-500 bg-blue-50 border-blue-200" :
                     job.status === "pending_installation_approval" ? "text-amber-500 bg-amber-50 border-amber-200" :
-                    "text-slate-550 bg-slate-50 border-slate-200";
+                    "text-slate-500 bg-slate-50 border-slate-200";
 
                   return (
                     <div key={job.id} className="border border-slate-100 rounded-[10px] p-4 space-y-4 hover:border-slate-200 transition-colors">
@@ -123,7 +123,7 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, activ
                               {step.done ? "✓" : idx + 1}
                             </div>
                             <span className={`text-[9px] font-bold mt-1.5 ${step.done ? "text-slate-700" : "text-slate-400"}`}>{step.label}</span>
-                            <span className="text-[8px] text-slate-450">{step.time}</span>
+                            <span className="text-[8px] text-slate-400">{step.time}</span>
                           </div>
                         ))}
                       </div>

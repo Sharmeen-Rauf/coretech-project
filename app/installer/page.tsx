@@ -792,7 +792,7 @@ export default function WebInstallerPage() {
                   </div>
                 )}
 
-                <div className="mt-3 flex items-center justify-between text-[9px] text-slate-450 font-bold border-t border-slate-50 pt-2">
+                <div className="mt-3 flex items-center justify-between text-[9px] text-slate-400 font-bold border-t border-slate-50 pt-2">
                   <span className="capitalize text-slate-500">
                     Incentive: <span className="text-emerald-600 font-bold">Rs. {Number(job.incentive || 0).toLocaleString()}</span>
                   </span>
@@ -831,7 +831,7 @@ export default function WebInstallerPage() {
               </div>
               <button
                 onClick={() => setIsSiteFormOpen(false)}
-                className="p-1 hover:bg-slate-100 text-slate-450 hover:text-slate-600 rounded-full transition-colors"
+                className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1077,7 +1077,7 @@ export default function WebInstallerPage() {
                     siteFormErrors.photos ? "border-rose-400 text-rose-500" : "border-slate-200 text-slate-500"
                   }`}
                 >
-                  <Camera className="w-3.5 h-3.5 text-slate-450" />
+                  <Camera className="w-3.5 h-3.5 text-slate-400" />
                   <span>Select Images ({photoPreviews.length}/{MIN_PHOTOS} minimum)</span>
                 </button>
                 {siteFormErrors.photos && <p className="text-[9px] text-rose-500 mt-1 font-bold">{siteFormErrors.photos}</p>}
