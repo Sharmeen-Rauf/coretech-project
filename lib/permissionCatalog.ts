@@ -98,7 +98,10 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
       // New capability, starts ungranted for every existing role (only admin
       // has it by default) - assigning targets to anyone is real power that
       // shouldn't silently inherit from whoever could see the old fake tab.
-      { key: "resources.create_targets", label: "Create Targets", route: "/dashboard/resources" },
+      // Own real route now (was sharing /dashboard/resources with the item
+      // above, which is why the two used to render as buttons inside one page
+      // instead of two independent sidebar entries like every other section).
+      { key: "resources.create_targets", label: "Create Targets", route: "/dashboard/resources/create-targets" },
     ],
   },
   {
