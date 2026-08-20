@@ -146,7 +146,7 @@ export default function PerformancePage() {
   return (
     <div className="space-y-6 select-none">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Performance logs</h1>
+        <h1 className="text-2xl font-bold text-slate-800">Performance Logs</h1>
         <p className="text-xs text-slate-500">
           Track field technician task completions, rate benchmarks, and payout claims.
         </p>
@@ -185,16 +185,11 @@ export default function PerformancePage() {
         </div>
       </div>
  
-      {isLoading ? (
-        <div className="min-h-[40vh] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-[#00B4D8] animate-spin" />
-        </div>
-      ) : (
-        <DataTable allData={data}
+      <DataTable allData={data}
           title="Technician Performance Audit"
           columns={columns}
           data={paginated}
-          isLoading={false}
+          isLoading={isLoading}
           searchPlaceholder="Search Technician Name..."
           pagination={{
             current: currentPage,
@@ -203,7 +198,6 @@ export default function PerformancePage() {
             onChange: (page) => setCurrentPage(page),
           }}
         />
-      )}
     </div>
   );
 }

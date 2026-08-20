@@ -570,7 +570,7 @@ export default function InstallerListPage() {
     <div className="space-y-6 select-none">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Installers</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Verify Installer</h1>
           <p className="text-xs text-slate-500">
             Monitor registration, designation and active status for installation field staff.
           </p>
@@ -688,7 +688,7 @@ export default function InstallerListPage() {
             <Clock className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 1: Pending RM</p>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 1: Pending Retail Manager</p>
             <p className="text-base font-extrabold text-slate-800">{pendingRmCount} Installer(s)</p>
           </div>
         </div>
@@ -702,7 +702,7 @@ export default function InstallerListPage() {
             <UserCheck className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 2: Pending CH</p>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 2: Pending Country Head</p>
             <p className="text-base font-extrabold text-slate-800">{pendingChCount} Installer(s)</p>
           </div>
         </div>

@@ -339,25 +339,19 @@ export default function ExpensesPage() {
         )}
       </div>
 
-      {isLoading ? (
-        <div className="min-h-[40vh] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-[#00B4D8] animate-spin" />
-        </div>
-      ) : (
-        <DataTable allData={expenses}
-          title="Expenses Ledger"
-          columns={columns}
-          data={paginated}
-          isLoading={false}
-          searchPlaceholder="Search Expenses..."
-          pagination={{
-            current: currentPage,
-            total: expenses.length,
-            perPage: perPage,
-            onChange: (page) => setCurrentPage(page),
-          }}
-        />
-      )}
+      <DataTable allData={expenses}
+        title="Expenses Ledger"
+        columns={columns}
+        data={paginated}
+        isLoading={isLoading}
+        searchPlaceholder="Search Expenses..."
+        pagination={{
+          current: currentPage,
+          total: expenses.length,
+          perPage: perPage,
+          onChange: (page) => setCurrentPage(page),
+        }}
+      />
 
       {/* Expense Submission Modal */}
       {isModalOpen && (

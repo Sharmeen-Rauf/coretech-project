@@ -98,26 +98,26 @@ export default function OrderStatusModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop with Glassmorphism */}
+      {/* Backdrop */}
       <div
         onClick={onClose}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300"
+        className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm"
       ></div>
 
       {/* Modal Card */}
       <div className="relative bg-white w-full max-w-lg border border-slate-100 rounded-[12px] shadow-2xl p-7 flex flex-col animate-in fade-in zoom-in-95 duration-200">
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
-
-        {/* Title */}
-        <h3 className="text-center text-slate-800 font-extrabold text-lg mb-8 tracking-tight">
-          Order{order.order_code ? `#${order.order_code.replace("#", "")}` : ""} Status
-        </h3>
+        {/* Header - same bleed-bar structure used by the other modals */}
+        <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-6 bg-slate-50/50 -m-7 p-7 rounded-t-[12px]">
+          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+            Order{order.order_code ? `#${order.order_code.replace("#", "")}` : ""} Status
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
 
         {/* Vertical Timeline */}
         <div className="relative pl-12 pr-4 py-2 space-y-8 select-none">
@@ -182,7 +182,7 @@ export default function OrderStatusModal({
                   : "bg-white border-slate-200 border-dashed text-slate-300"
               }`}
             >
-              {isInvoiceCreated ? <Check className="w-3.5 h-3.5" /> : <span className={`w-1.5 h-1.5 rounded-full ${isApproved ? "bg-slate-450" : "bg-slate-200"}`}></span>}
+              {isInvoiceCreated ? <Check className="w-3.5 h-3.5" /> : <span className={`w-1.5 h-1.5 rounded-full ${isApproved ? "bg-slate-400" : "bg-slate-200"}`}></span>}
             </div>
             <div className="flex items-center justify-between w-full">
               <div className={isApproved ? "" : "opacity-40"}>
@@ -216,7 +216,7 @@ export default function OrderStatusModal({
                   : "bg-white border-slate-200 border-dashed text-slate-300"
               }`}
             >
-              {isGatepassCreated ? <Check className="w-3.5 h-3.5" /> : <span className={`w-1.5 h-1.5 rounded-full ${isInvoiceCreated ? "bg-slate-450" : "bg-slate-200"}`}></span>}
+              {isGatepassCreated ? <Check className="w-3.5 h-3.5" /> : <span className={`w-1.5 h-1.5 rounded-full ${isInvoiceCreated ? "bg-slate-400" : "bg-slate-200"}`}></span>}
             </div>
             <div className="flex items-center justify-between w-full">
               <div className={isInvoiceCreated ? "" : "opacity-40"}>

@@ -207,26 +207,20 @@ export default function BroadcastPage() {
         )}
       </div>
 
-      {isLoading ? (
-        <div className="min-h-[40vh] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-[#00B4D8] animate-spin" />
-        </div>
-      ) : (
-        <DataTable allData={announcements}
-          title="Broadcasted Notices"
-          columns={columns}
-          data={paginated}
-          isLoading={false}
-          onEditClick={canWrite ? handleEditClick : undefined}
-          onDeleteClick={canWrite ? handleDeleteAnnouncement : undefined}
-          pagination={{
-            current: currentPage,
-            total: announcements.length,
-            perPage: perPage,
-            onChange: (page) => setCurrentPage(page),
-          }}
-        />
-      )}
+      <DataTable allData={announcements}
+        title="Broadcasted Notices"
+        columns={columns}
+        data={paginated}
+        isLoading={isLoading}
+        onEditClick={canWrite ? handleEditClick : undefined}
+        onDeleteClick={canWrite ? handleDeleteAnnouncement : undefined}
+        pagination={{
+          current: currentPage,
+          total: announcements.length,
+          perPage: perPage,
+          onChange: (page) => setCurrentPage(page),
+        }}
+      />
 
       {/* Broadcast Modal */}
       {isModalOpen && (

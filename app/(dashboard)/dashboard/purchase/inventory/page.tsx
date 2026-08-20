@@ -308,7 +308,7 @@ export default function InventoryPage() {
           <button
             onClick={syncLocalStock}
             disabled={isSyncing}
-            className="h-9 px-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white text-xs font-bold rounded-[6px] shadow flex items-center gap-1.5 transition-all"
+            className="h-9 px-4 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/60 text-white text-xs font-bold rounded-[6px] shadow flex items-center gap-1.5 transition-all"
           >
             {isSyncing ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />

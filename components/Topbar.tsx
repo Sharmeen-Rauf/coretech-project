@@ -250,7 +250,7 @@ export default function Topbar({ profile }: TopbarProps) {
                     onClick={() => setIsQuickAddOpen(false)}
                     className="flex items-center px-4 py-2 hover:bg-slate-50 text-slate-700 font-medium transition-colors"
                   >
-                    Register Installer
+                    Verify Installer
                   </Link>
                   <Link
                     href="/dashboard/purchase/warehouse"

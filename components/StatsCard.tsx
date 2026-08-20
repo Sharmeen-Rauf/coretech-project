@@ -13,7 +13,7 @@ interface StatsCardProps {
 
 export default function StatsCard({ title, value, change, isPositive, subtitle }: StatsCardProps) {
   return (
-    <div className="bg-white border border-slate-150 rounded-[8px] p-6 flex flex-col justify-between shadow-sm relative overflow-hidden group hover:border-[#00B4D8] transition-all duration-200">
+    <div className="bg-white border border-slate-150 rounded-[12px] p-6 flex flex-col justify-between shadow-sm relative overflow-hidden group hover:border-[#00B4D8] transition-all duration-200">
       {/* Title */}
       <div>
         <p className="text-xs font-bold uppercase tracking-wider text-[#00B4D8] mb-1">
