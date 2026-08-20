@@ -17,6 +17,10 @@ export default function DashboardLayout({
   const supabase = createClientComponentClient();
   const [isValidated, setIsValidated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  // Fetched once here and passed down to Sidebar/Topbar, instead of each of
+  // those independently re-running the same auth.getSession() + profiles
+  // fetch this layout already has to do to gate the page in the first place.
+  const [profile, setProfile] = useState<any>(null);
 
   useEffect(() => {
     const verifyRole = async () => {
@@ -27,22 +31,23 @@ export default function DashboardLayout({
           return;
         }
 
-        const { data: profile } = await supabase
+        const { data: prof } = await supabase
           .from("profiles")
-          .select("role, status")
+          .select("*")
           .eq("id", session.user.id)
           .single();
 
-        if (profile) {
-          document.cookie = `user_role=${profile.role}; path=/; max-age=2592000; SameSite=Lax`;
-          document.cookie = `user_status=${profile.status || "active"}; path=/; max-age=2592000; SameSite=Lax`;
+        if (prof) {
+          document.cookie = `user_role=${prof.role}; path=/; max-age=2592000; SameSite=Lax`;
+          document.cookie = `user_status=${prof.status || "active"}; path=/; max-age=2592000; SameSite=Lax`;
         }
 
-        if (profile?.role === "installer") {
+        if (prof?.role === "installer") {
           // Immediately redirect installer to their portal
           router.replace("/installer");
         } else {
           // Authorized user (admin, distributor, sub_dealer, etc.)
+          setProfile({ ...prof, email: session.user.email });
           setIsValidated(true);
           setIsLoading(false);
         }
@@ -71,12 +76,12 @@ export default function DashboardLayout({
       <AnnouncementPopup />
 
       {/* Sidebar Navigation */}
-      <Sidebar />
+      <Sidebar profile={profile} />
 
       {/* Main Content Area */}
       <div className="pl-56 flex flex-col min-h-screen">
         {/* Topbar Actions */}
-        <Topbar />
+        <Topbar profile={profile} />
 
         {/* Dashboard Pages */}
         <main className="flex-1 pt-16 p-6 overflow-x-hidden">

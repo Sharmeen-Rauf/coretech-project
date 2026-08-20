@@ -191,25 +191,21 @@ export async function middleware(request: NextRequest) {
           auth: { persistSession: false, autoRefreshToken: false },
         });
 
-        const { data: roleRow } = await supabaseAdmin
-          .from('roles')
-          .select('id')
-          .eq('name', role)
-          .maybeSingle();
+        // Single round trip instead of two sequential ones (role lookup, then
+        // permissions lookup) - this runs on every dashboard navigation for
+        // every non-admin role, so the extra round trip was real added
+        // latency on effectively every click. Same result as before, just
+        // resolved via one embedded-filter query instead of two awaits.
+        const { data: perms } = await supabaseAdmin
+          .from('role_permissions')
+          .select('permission_key, roles!inner(name)')
+          .eq('roles.name', role)
+          .eq('granted', true);
 
-        let allowedRoutes: string[] = [];
-        if (roleRow) {
-          const { data: perms } = await supabaseAdmin
-            .from('role_permissions')
-            .select('permission_key')
-            .eq('role_id', roleRow.id)
-            .eq('granted', true);
-
-          const grantedKeys = new Set((perms || []).map((p) => p.permission_key));
-          allowedRoutes = PERMISSION_CATALOG.flatMap((g) => g.items)
-            .filter((item) => grantedKeys.has(item.key))
-            .map((item) => item.route);
-        }
+        const grantedKeys = new Set((perms || []).map((p) => p.permission_key));
+        const allowedRoutes = PERMISSION_CATALOG.flatMap((g) => g.items)
+          .filter((item) => grantedKeys.has(item.key))
+          .map((item) => item.route);
 
         const isAllowed = allowedRoutes.some((route) => pathname.startsWith(route));
         if (!isAllowed) {

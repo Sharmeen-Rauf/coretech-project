@@ -31,23 +31,31 @@ interface NotificationItem {
   created_at: string;
 }
 
-export default function Topbar() {
+interface TopbarProps {
+  // Fetched once by DashboardLayout and passed down, instead of Topbar
+  // independently re-running the same auth.getSession() + profiles fetch
+  // Sidebar and the layout itself were also each doing.
+  profile?: {
+    id?: string;
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    role?: string;
+  } | null;
+}
+
+export default function Topbar({ profile }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClientComponentClient();
-  
+
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
   const callerIdRef = useRef("");
-  const [profile, setProfile] = useState<any>({
-    first_name: "",
-    last_name: "",
-    email: "",
-    role: "",
-  });
+  const safeProfile = profile || { first_name: "", last_name: "", email: "", role: "" };
 
   // Parse path to breadcrumbs
   const getBreadcrumbs = () => {
@@ -63,23 +71,19 @@ export default function Topbar() {
   const currentPageName =
     breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length - 1].label : "Home";
 
-  // Fetch initial notifications
+  // Fetch initial notifications - profile arrives as a prop already resolved
+  // by DashboardLayout (which gates rendering Sidebar/Topbar at all until
+  // it's loaded), so there's no async profile fetch of our own to do here.
   useEffect(() => {
-    // Instant cache check for zero delay rendering
-    try {
-      const cached = sessionStorage.getItem("coretech_user_profile");
-      if (cached) setProfile(JSON.parse(cached));
-    } catch (e) {}
+    if (!profile?.id) return;
 
-    // Notifications carry `target_role` (an array containing "all" and/or one
-    // or more specific roles) - resolve the caller's own role/id first so both
-    // the initial fetch and the realtime subscription below only ever surface
-    // notifications actually addressed to them, not everyone's. `callerRole`/
-    // `callerId` are captured once here and closed over by the realtime
-    // handler rather than read from React state, so they can't go stale
-    // across renders.
-    let callerRole = "";
-    let callerId = "";
+    // Captured once per profile change and closed over by the realtime
+    // handler rather than read from React state, so it can't go stale
+    // across renders. Notifications carry `target_role` (an array containing
+    // "all" and/or one or more specific roles).
+    const callerRole = profile.role || "";
+    const callerId = profile.id;
+    callerIdRef.current = callerId;
 
     const fetchNotifications = async () => {
       try {
@@ -114,37 +118,7 @@ export default function Topbar() {
       }
     };
 
-    const fetchUserProfile = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", session.user.id)
-          .single();
-
-        if (error) throw error;
-        const fullProf = {
-          ...data,
-          email: session.user.email,
-        };
-        setProfile(fullProf);
-        callerRole = data.role || "";
-        callerId = session.user.id;
-        callerIdRef.current = session.user.id;
-        try { sessionStorage.setItem("coretech_user_profile", JSON.stringify(fullProf)); } catch (e) {}
-      } catch (err: any) {
-        console.warn("Failed to fetch user profile in Topbar", err.message);
-      }
-    };
-
-    (async () => {
-      // Role must resolve before the notifications query can filter by it.
-      await fetchUserProfile();
-      await fetchNotifications();
-    })();
+    fetchNotifications();
 
     // Subscribe to realtime changes
     const channel = supabase
@@ -174,7 +148,7 @@ export default function Topbar() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [supabase]);
+  }, [supabase, profile?.id, profile?.role]);
 
   const markAllAsRead = async () => {
     try {
@@ -356,14 +330,14 @@ export default function Topbar() {
                 <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-100 rounded-[12px] shadow-xl py-2 z-40 animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="px-4 py-2.5 border-b border-slate-50 flex flex-col">
                     <span className="font-bold text-slate-800 text-xs">
-                      {profile.first_name ? `${profile.first_name} ${profile.last_name || ""}`.trim() : "CoreTECH User"}
+                      {safeProfile.first_name ? `${safeProfile.first_name} ${safeProfile.last_name || ""}`.trim() : "CoreTECH User"}
                     </span>
                     <span className="text-[10px] text-slate-400 truncate mt-0.5">
-                      {profile.email}
+                      {safeProfile.email}
                     </span>
                     <span className="inline-flex items-center gap-1 mt-1.5 self-start px-2 py-0.5 bg-[#F0FAFE] text-[#00B4D8] text-[9px] font-bold uppercase rounded-full">
                       <Shield className="w-2.5 h-2.5" />
-                      {profile.role || "User"}
+                      {safeProfile.role || "User"}
                     </span>
                   </div>
                   

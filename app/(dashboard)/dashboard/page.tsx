@@ -385,8 +385,12 @@ async function TopSellingProductsTable() {
   );
 }
 
-import SubDealerDashboardHome from "@/components/SubDealerDashboardHome";
-import DistributorDashboardHome from "@/components/DistributorDashboardHome";
+import dynamic from "next/dynamic";
+// Code-split: these two role-specific dashboards are large client components
+// that only ever render for sub_dealer/distributor - dynamic-importing them
+// keeps their JS out of the bundle every other role has to download for /dashboard.
+const SubDealerDashboardHome = dynamic(() => import("@/components/SubDealerDashboardHome"));
+const DistributorDashboardHome = dynamic(() => import("@/components/DistributorDashboardHome"));
 
 export default async function DashboardPage() {
   const supabase = getAdminClient();
