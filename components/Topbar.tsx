@@ -412,11 +412,6 @@ export default function Topbar({ profile }: TopbarProps) {
                     <p className="text-slate-500 mt-1 leading-relaxed">
                       {notif.message}
                     </p>
-                    {notif.target_role && (
-                      <span className="inline-block mt-2 px-1.5 py-0.5 bg-slate-100 text-slate-600 text-[9px] font-bold uppercase rounded-[4px]">
-                        {notif.target_role}
-                      </span>
-                    )}
                   </div>
                 ))
               )}
