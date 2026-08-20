@@ -39,6 +39,7 @@ export async function fetchExpensesAction() {
         date,
         status,
         description,
+        receipt_urls,
         user_id,
         profile:profiles!user_id(first_name, last_name)
       `);
@@ -75,6 +76,8 @@ export async function submitExpenseAction(params: {
   category: string;
   date: string;
   description?: string;
+  receiptUrls?: string[];
+  onBehalfOfUserId?: string;
 }) {
   try {
     const caller = await getCallerIdentity();
@@ -86,16 +89,22 @@ export async function submitExpenseAction(params: {
     if (!params.title?.trim()) return { success: false, error: "Title is required" };
     if (!params.amount || params.amount <= 0) return { success: false, error: "A valid amount is required" };
 
+    // Only admin may file an expense under someone else's name - everyone else's
+    // submissions are always attributed to themselves, server-side, regardless
+    // of what the client sends.
+    const filedForUserId = caller.role === "admin" && params.onBehalfOfUserId ? params.onBehalfOfUserId : caller.id;
+
     const supabase = getAdminClient();
     const { data, error } = await supabase
       .from("expenses")
       .insert({
-        user_id: caller.id,
+        user_id: filedForUserId,
         title: params.title.trim(),
         amount: params.amount,
         category: params.category,
         date: params.date,
         description: params.description || null,
+        receipt_urls: params.receiptUrls || [],
         status: "pending",
       })
       .select("id")
@@ -105,6 +114,48 @@ export async function submitExpenseAction(params: {
     return { success: true, id: data.id };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to submit expense" };
+  }
+}
+
+// Approve/Reject - reuses the same "expenses" can_write flag as Submit/Delete
+// (Role Management doesn't split this feature into finer-grained sub-permissions
+// today), so anyone granted read/write access to Expense Management can action
+// a claim, not just admin.
+export async function updateExpenseStatusAction(id: string, status: "approved" | "rejected") {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated" };
+
+    const { canWrite } = await getMyScopeAction("expenses");
+    if (!canWrite) return { success: false, error: "You have read-only access to Expenses" };
+
+    const supabase = getAdminClient();
+    const { error } = await supabase.from("expenses").update({ status }).eq("id", id);
+    if (error) throw error;
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to update expense status" };
+  }
+}
+
+// Admin-only: who an expense can be filed on behalf of, for the Create Expense
+// popup's employee-picker.
+export async function fetchExpenseSubmittersAction() {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || caller.role !== "admin") return { success: false, error: "Admin access required", data: [] };
+
+    const supabase = getAdminClient();
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, first_name, last_name, role")
+      .order("first_name");
+    if (error) throw error;
+
+    return { success: true, data: data || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch users", data: [] };
   }
 }
 

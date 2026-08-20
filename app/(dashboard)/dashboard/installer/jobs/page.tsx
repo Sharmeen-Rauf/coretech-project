@@ -37,6 +37,8 @@ interface JobRow {
   address: string;
   installer_name: string;
   installer_contact: string;
+  installer_bank_type: string;
+  installer_bank_account: string;
   status: string;
   payment_status: string;
   created_at: string;
@@ -100,7 +102,7 @@ export default function AdminJobsPage() {
             serial_number,
             remarks,
             incentive,
-            installer:profiles!installer_id(first_name, last_name, contact)
+            installer:profiles!installer_id(first_name, last_name, contact, payment_provider, payment_account_no)
           `)
           .order("created_at", { ascending: false }),
         supabase
@@ -152,6 +154,8 @@ export default function AdminJobsPage() {
           address: row.address || "-",
           installer_name: instName,
           installer_contact: row.installer?.contact || "-",
+          installer_bank_type: row.installer?.payment_provider || "-",
+          installer_bank_account: row.installer?.payment_account_no || "-",
           status: row.status || "pending_verification",
           payment_status: row.payment_status || "unpaid",
           created_at: row.created_at
@@ -521,6 +525,8 @@ export default function AdminJobsPage() {
     },
     { key: "installer_name", label: "Installer Name" },
     { key: "installer_contact", label: "Installer Phone" },
+    { key: "installer_bank_type", label: "Bank Account Type" },
+    { key: "installer_bank_account", label: "Bank Account Number" },
     { key: "address", label: "Installation Location" },
     {
       key: "status",

@@ -3,9 +3,15 @@
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
-import { Loader2, Plus, X, Trash2 } from "lucide-react";
+import { Loader2, Plus, X, Trash2, Check, ImagePlus } from "lucide-react";
 import toast from "react-hot-toast";
-import { fetchExpensesAction, submitExpenseAction, deleteExpenseAction } from "@/app/actions/expenses";
+import {
+  fetchExpensesAction,
+  submitExpenseAction,
+  deleteExpenseAction,
+  updateExpenseStatusAction,
+  fetchExpenseSubmittersAction,
+} from "@/app/actions/expenses";
 
 interface ExpenseRow {
   id: string;
@@ -15,6 +21,15 @@ interface ExpenseRow {
   category: string;
   date: string;
   description: string;
+  status: string;
+  receipt_urls: string[];
+}
+
+interface SubmitterOption {
+  id: string;
+  first_name: string;
+  last_name: string | null;
+  role: string;
 }
 
 export default function ExpensesPage() {
@@ -22,6 +37,7 @@ export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
+  const [userRole, setUserRole] = useState("");
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -31,6 +47,10 @@ export default function ExpensesPage() {
   const [date, setDate] = useState(() => new Date().toLocaleDateString('en-CA'));
   const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [receiptFiles, setReceiptFiles] = useState<File[]>([]);
+  const [isUploadingReceipts, setIsUploadingReceipts] = useState(false);
+  const [submitters, setSubmitters] = useState<SubmitterOption[]>([]);
+  const [onBehalfOfUserId, setOnBehalfOfUserId] = useState("");
 
   const fetchExpenses = async () => {
     setIsLoading(true);
@@ -47,6 +67,12 @@ export default function ExpensesPage() {
         if (!res.success) throw new Error(res.error);
         dbData = res.data || [];
         setCanWrite(!!res.canWrite);
+        setUserRole(res.role || "");
+
+        if (res.role === "admin") {
+          const subRes = await fetchExpenseSubmittersAction();
+          if (subRes.success) setSubmitters(subRes.data);
+        }
       } catch (dbErr) {
         console.warn("Failed to fetch expenses from Supabase. Using local fallback.", dbErr);
       }
@@ -62,6 +88,8 @@ export default function ExpensesPage() {
         category: row.category,
         date: row.date ? new Date(row.date).toLocaleDateString() : "-",
         description: row.description || "-",
+        status: row.status || "pending",
+        receipt_urls: Array.isArray(row.receipt_urls) ? row.receipt_urls : [],
       }));
  
       setExpenses(formatted);
@@ -85,11 +113,34 @@ export default function ExpensesPage() {
  
     setIsSubmitting(true);
     try {
+      let receiptUrls: string[] = [];
+      if (receiptFiles.length > 0) {
+        setIsUploadingReceipts(true);
+        try {
+          for (const file of receiptFiles) {
+            const fileExt = file.name.split(".").pop();
+            const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+            const filePath = `expense-receipts/${fileName}`;
+            const { error: uploadErr } = await supabase.storage.from("job-photos").upload(filePath, file);
+            if (uploadErr) throw uploadErr;
+            const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
+            receiptUrls.push(pUrl.publicUrl);
+          }
+        } catch (uploadErr) {
+          console.error("Receipt upload failed:", uploadErr);
+          toast.error("Failed to upload one or more receipt images");
+        } finally {
+          setIsUploadingReceipts(false);
+        }
+      }
+
       // Real server action now, gated by role_permissions.can_write for "expenses" -
       // an explicit denial must never fall back to local storage, since that would
       // let a read-only user "submit" locally as if the write actually went through.
       const res = await submitExpenseAction({
         title, amount: parseFloat(amount), category, date, description,
+        receiptUrls,
+        onBehalfOfUserId: userRole === "admin" ? onBehalfOfUserId : undefined,
       });
       if (!res.success) {
         toast.error(res.error || "Failed to submit expense");
@@ -100,6 +151,8 @@ export default function ExpensesPage() {
       setTitle("");
       setAmount("");
       setDescription("");
+      setReceiptFiles([]);
+      setOnBehalfOfUserId("");
       fetchExpenses();
     } catch (err: any) {
       // Genuine unexpected failure (network, etc.), not a permission denial - the
@@ -114,6 +167,8 @@ export default function ExpensesPage() {
       setTitle("");
       setAmount("");
       setDescription("");
+      setReceiptFiles([]);
+      setOnBehalfOfUserId("");
       fetchExpenses();
     } finally {
       setIsSubmitting(false);
@@ -140,6 +195,20 @@ export default function ExpensesPage() {
     }
   };
 
+  const handleUpdateStatus = async (id: string, status: "approved" | "rejected") => {
+    try {
+      const res = await updateExpenseStatusAction(id, status);
+      if (!res.success) {
+        toast.error(res.error || "Failed to update expense status");
+        return;
+      }
+      toast.success(`Expense ${status}`);
+      fetchExpenses();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update expense status");
+    }
+  };
+
   const baseColumns = [
     { key: "user_name", label: "Employee" },
     { key: "title", label: "Title" },
@@ -154,23 +223,85 @@ export default function ExpensesPage() {
       render: (val: string) => <span className="capitalize">{val}</span>,
     },
     { key: "date", label: "Date" },
+    { key: "description", label: "Description" },
+    {
+      key: "receipt_urls",
+      label: "Receipts",
+      excludeFromExport: true,
+      render: (val: string[]) =>
+        val && val.length > 0 ? (
+          <div className="flex gap-1">
+            {val.map((url, idx) => (
+              <a
+                key={idx}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1 hover:bg-sky-50 text-sky-600 rounded border border-sky-100 transition-colors"
+                title="View receipt"
+              >
+                <ImagePlus className="w-4 h-4" />
+              </a>
+            ))}
+          </div>
+        ) : (
+          <span className="text-slate-300">-</span>
+        ),
+    },
+    {
+      key: "status",
+      label: "Status",
+      render: (val: string) => (
+        <span
+          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+            val === "approved"
+              ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+              : val === "rejected"
+              ? "bg-rose-50 text-rose-500 border-rose-100"
+              : "bg-amber-50 text-amber-500 border-amber-100"
+          }`}
+        >
+          {val}
+        </span>
+      ),
+    },
   ];
 
-  // Expenses is a log, not an approval workflow - Delete is the only action left,
-  // shown to anyone with real write access (not tied to a specific role).
+  // Delete is available to anyone with real write access; Approve/Reject reuse
+  // the same flag and only make sense while a claim is still pending.
   const columns = !canWrite ? baseColumns : [
     ...baseColumns,
     {
       key: "id",
       label: "Actions",
-      render: (val: string) => (
-        <button
-          onClick={() => handleDeleteExpense(val)}
-          className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
-          title="Delete Entry"
-        >
-          <Trash2 className="w-4 h-4" />
-        </button>
+      render: (val: string, row: any) => (
+        <div className="flex items-center gap-1.5">
+          {row.status === "pending" && (
+            <>
+              <button
+                onClick={() => handleUpdateStatus(val, "approved")}
+                className="p-1 hover:bg-emerald-50 text-emerald-600 rounded border border-emerald-100 transition-colors"
+                title="Approve"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleUpdateStatus(val, "rejected")}
+                className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
+                title="Reject"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => handleDeleteExpense(val)}
+            className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
+            title="Delete Entry"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       ),
     },
   ];
@@ -250,6 +381,26 @@ export default function ExpensesPage() {
             </div>
 
             <form onSubmit={handleCreateExpense} className="space-y-4">
+              {userRole === "admin" && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    File On Behalf Of
+                  </label>
+                  <select
+                    value={onBehalfOfUserId}
+                    onChange={(e) => setOnBehalfOfUserId(e.target.value)}
+                    className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
+                  >
+                    <option value="">Myself</option>
+                    {submitters.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.first_name} {s.last_name || ""} ({s.role})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                   Title*
@@ -322,6 +473,22 @@ export default function ExpensesPage() {
                 />
               </div>
 
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Receipt Images
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => setReceiptFiles(Array.from(e.target.files || []))}
+                  className="w-full text-xs text-slate-600 file:mr-3 file:h-8 file:px-3 file:rounded-[6px] file:border-0 file:bg-[#F0FAFE] file:text-[#00B4D8] file:text-xs file:font-semibold"
+                />
+                {receiptFiles.length > 0 && (
+                  <p className="text-[10px] text-slate-500 mt-1">{receiptFiles.length} file(s) selected</p>
+                )}
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100 mt-6">
                 <button
                   type="button"
@@ -332,7 +499,7 @@ export default function ExpensesPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isUploadingReceipts}
                   className="h-9 px-4 text-xs font-semibold text-white bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/60 rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
                 >
                   {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

@@ -439,6 +439,16 @@ export default function InstallerListPage() {
     },
     { key: "contact", label: "Contact Phone" },
     {
+      key: "payment_provider",
+      label: "Bank Account Type",
+      render: (val: string) => <span>{val || "-"}</span>,
+    },
+    {
+      key: "payment_account_no",
+      label: "Bank Account Number",
+      render: (val: string) => <span>{val || "-"}</span>,
+    },
+    {
       key: "status",
       label: "Status",
       render: (status: string, row: any) => (
