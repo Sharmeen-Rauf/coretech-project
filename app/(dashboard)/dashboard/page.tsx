@@ -131,28 +131,28 @@ async function DashboardStats() {
       />
       <StatsCard
         title="Total ST-1"
-        value={st1Val > 0 ? st1Val.toLocaleString() : "14"}
+        value={st1Val.toLocaleString()}
         change="+14.2%"
         isPositive={true}
         subtitle="Primary Transfers"
       />
       <StatsCard
         title="Total ST-2"
-        value={st2Val > 0 ? st2Val.toLocaleString() : "8"}
+        value={st2Val.toLocaleString()}
         change="+9.5%"
         isPositive={true}
         subtitle="Secondary Transfers"
       />
       <StatsCard
         title="Total SO (Sell-Out)"
-        value={soVal > 0 ? soVal.toLocaleString() : "12"}
+        value={soVal.toLocaleString()}
         change="+6.7%"
         isPositive={true}
         subtitle="Active Deployments"
       />
       <StatsCard
         title="Completed Jobs"
-        value={installationsVal > 0 ? installationsVal.toLocaleString() : "5"}
+        value={installationsVal.toLocaleString()}
         change="+18.4%"
         isPositive={true}
         subtitle="Installation Projects"
@@ -439,13 +439,13 @@ export default async function DashboardPage() {
       ];
     }
 
-    const formattedRev = revTotal > 0 ? (revTotal >= 1000000 ? `Rs. ${(revTotal / 1000000).toFixed(1)}M` : `Rs. ${revTotal.toLocaleString()}`) : "$695";
+    const formattedRev = revTotal >= 1000000 ? `Rs. ${(revTotal / 1000000).toFixed(1)}M` : `Rs. ${revTotal.toLocaleString()}`;
 
     if (userRole === "sub_dealer") {
       return (
         <SubDealerDashboardHome
-          customersCount={custCount || 3781}
-          ordersCount={ordCount || 1219}
+          customersCount={custCount}
+          ordersCount={ordCount}
           revenueVal={formattedRev}
           transfers={liveTransfers}
           locationStats={liveLocations}
@@ -455,8 +455,8 @@ export default async function DashboardPage() {
 
     return (
       <DistributorDashboardHome
-        customersCount={custCount || 3781}
-        ordersCount={ordCount || 1219}
+        customersCount={custCount}
+        ordersCount={ordCount}
         revenueVal={formattedRev}
         transfers={liveTransfers}
         locationStats={liveLocations}
@@ -654,63 +654,132 @@ export default async function DashboardPage() {
     console.warn("Error calculating aging stock:", e);
   }
 
-  // 6. Top Performers Register
+  // 6. Top Performers Register - ranked by real activity volume, not just
+  // whichever row happened to come back first.
   let topProduct = "No Sales Yet";
   let topProductQty = 0;
   let topEmployee = "No Employee Standings";
+  let topEmployeeVol = 0;
   let topDistributor = "No Distributor Standings";
+  let topDistributorVol = 0;
   let topSubDealer = "No Sub Dealer Standings";
+  let topSubDealerVol = 0;
   let topInstaller = "No Installer Standings";
+  let topInstallerVol = 0;
+
+  function topByCount(counts: Map<string, number>): { id: string; count: number } | null {
+    let best: { id: string; count: number } | null = null;
+    counts.forEach((count, id) => {
+      if (!best || count > best.count) best = { id, count };
+    });
+    return best;
+  }
 
   try {
-    const { data: topProds } = await supabase
-      .from("stock")
-      .select("quantity, products(name)")
-      .limit(1);
-    if (topProds && topProds.length > 0) {
-      const prodData: any = topProds[0].products;
-      const prod = Array.isArray(prodData) ? prodData[0] : prodData;
-      if (prod?.name) {
-        topProduct = prod.name;
-        topProductQty = topProds[0].quantity || 0;
+    const [stockRes, ordersRes, distSalesRes, subSalesRes, subSelloutRes, jobsRes] = await Promise.all([
+      supabase.from("stock").select("quantity, products(name)"),
+      supabase.from("orders").select("sales_coordinator_id, items").in("status", ["approved", "invoice_generated", "delivered"]),
+      supabase.from("sales").select("id, source_id").eq("type", "ST2").eq("source_type", "distributor"),
+      supabase.from("sales").select("id, destination_id").eq("type", "ST2").eq("destination_type", "sub_dealer"),
+      supabase.from("stock").select("sub_dealer_id").eq("status", "sold_out").not("sub_dealer_id", "is", null),
+      supabase.from("installer_jobs").select("installer_id").eq("status", "approved"),
+    ]);
+
+    // Top Product: real aggregate quantity per product, same aggregation the
+    // Top Selling Products table already uses.
+    if (stockRes.data && stockRes.data.length > 0) {
+      const prodQty = new Map<string, number>();
+      stockRes.data.forEach((s: any) => {
+        const prodData: any = s.products;
+        const prod = Array.isArray(prodData) ? prodData[0] : prodData;
+        const name = prod?.name;
+        if (!name) return;
+        prodQty.set(name, (prodQty.get(name) || 0) + (Number(s.quantity) || 1));
+      });
+      const best = topByCount(prodQty);
+      if (best) {
+        topProduct = best.id;
+        topProductQty = best.count;
       }
     }
 
-    const { data: employees } = await supabase
-      .from("profiles")
-      .select("first_name, last_name")
-      .in("role", ["employee", "rsm", "country_head", "retail_manager", "marketing_manager"])
-      .limit(1);
-    if (employees && employees.length > 0) {
-      topEmployee = `${employees[0].first_name} ${employees[0].last_name || ""}`.trim();
+    // Top Employee: real Buzzcart order volume attributed to each coordinator.
+    if (ordersRes.data && ordersRes.data.length > 0) {
+      const empUnits = new Map<string, number>();
+      ordersRes.data.forEach((o: any) => {
+        if (!o.sales_coordinator_id) return;
+        const qty = Array.isArray(o.items) ? o.items.reduce((s: number, it: any) => s + (Number(it?.quantity) || 0), 0) : 0;
+        empUnits.set(o.sales_coordinator_id, (empUnits.get(o.sales_coordinator_id) || 0) + qty);
+      });
+      const best = topByCount(empUnits);
+      if (best) {
+        const { data: emp } = await supabase.from("profiles").select("first_name, last_name").eq("id", best.id).maybeSingle();
+        if (emp) {
+          topEmployee = `${emp.first_name} ${emp.last_name || ""}`.trim();
+          topEmployeeVol = best.count;
+        }
+      }
     }
 
-    const { data: distributors } = await supabase
-      .from("profiles")
-      .select("first_name, last_name")
-      .eq("role", "distributor")
-      .limit(1);
-    if (distributors && distributors.length > 0) {
-      topDistributor = `${distributors[0].first_name} ${distributors[0].last_name || ""}`.trim();
+    // Top Distributor: real outgoing ST-2 unit volume.
+    const distSaleIds = (distSalesRes.data || []).map((s: any) => s.id);
+    const subSaleIds = (subSalesRes.data || []).map((s: any) => s.id);
+    const { data: itemsData } =
+      distSaleIds.length + subSaleIds.length > 0
+        ? await supabase.from("sale_items").select("sale_id").in("sale_id", [...distSaleIds, ...subSaleIds])
+        : { data: [] };
+    const itemCountBySale = new Map<string, number>();
+    (itemsData || []).forEach((it: any) => itemCountBySale.set(it.sale_id, (itemCountBySale.get(it.sale_id) || 0) + 1));
+
+    if (distSalesRes.data && distSalesRes.data.length > 0) {
+      const distUnits = new Map<string, number>();
+      distSalesRes.data.forEach((s: any) => {
+        distUnits.set(s.source_id, (distUnits.get(s.source_id) || 0) + (itemCountBySale.get(s.id) || 0));
+      });
+      const best = topByCount(distUnits);
+      if (best) {
+        const { data: dist } = await supabase.from("profiles").select("first_name, last_name").eq("id", best.id).maybeSingle();
+        if (dist) {
+          topDistributor = `${dist.first_name} ${dist.last_name || ""}`.trim();
+          topDistributorVol = best.count;
+        }
+      }
     }
 
-    const { data: subdealers } = await supabase
-      .from("profiles")
-      .select("first_name, last_name")
-      .eq("role", "sub_dealer")
-      .limit(1);
-    if (subdealers && subdealers.length > 0) {
-      topSubDealer = `${subdealers[0].first_name} ${subdealers[0].last_name || ""}`.trim();
+    // Top Sub Dealer: real incoming ST-2 volume + Sell Out volume combined.
+    const subUnits = new Map<string, number>();
+    (subSalesRes.data || []).forEach((s: any) => {
+      subUnits.set(s.destination_id, (subUnits.get(s.destination_id) || 0) + (itemCountBySale.get(s.id) || 0));
+    });
+    (subSelloutRes.data || []).forEach((r: any) => {
+      subUnits.set(r.sub_dealer_id, (subUnits.get(r.sub_dealer_id) || 0) + 1);
+    });
+    if (subUnits.size > 0) {
+      const best = topByCount(subUnits);
+      if (best) {
+        const { data: sub } = await supabase.from("profiles").select("first_name, last_name").eq("id", best.id).maybeSingle();
+        if (sub) {
+          topSubDealer = `${sub.first_name} ${sub.last_name || ""}`.trim();
+          topSubDealerVol = best.count;
+        }
+      }
     }
 
-    const { data: installers } = await supabase
-      .from("profiles")
-      .select("first_name, last_name")
-      .eq("role", "installer")
-      .eq("status", "active")
-      .limit(1);
-    if (installers && installers.length > 0) {
-      topInstaller = `${installers[0].first_name} ${installers[0].last_name || ""}`.trim();
+    // Top Installer: real completed job count.
+    if (jobsRes.data && jobsRes.data.length > 0) {
+      const jobCounts = new Map<string, number>();
+      jobsRes.data.forEach((j: any) => {
+        if (!j.installer_id) return;
+        jobCounts.set(j.installer_id, (jobCounts.get(j.installer_id) || 0) + 1);
+      });
+      const best = topByCount(jobCounts);
+      if (best) {
+        const { data: inst } = await supabase.from("profiles").select("first_name, last_name").eq("id", best.id).maybeSingle();
+        if (inst) {
+          topInstaller = `${inst.first_name} ${inst.last_name || ""}`.trim();
+          topInstallerVol = best.count;
+        }
+      }
     }
   } catch (e) {
     console.warn("Error calculating top performers:", e);
@@ -860,8 +929,8 @@ export default async function DashboardPage() {
                     Top Employee
                   </td>
                   <td className="px-5 py-3.5 font-bold text-slate-800">{topEmployee}</td>
-                  <td className="px-5 py-3.5 text-slate-500">Active Resolver Standings</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-indigo-600">Active</td>
+                  <td className="px-5 py-3.5 text-slate-500">Buzzcart units coordinated</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-indigo-600">{topEmployeeVol} Units</td>
                 </tr>
                 <tr className="hover:bg-slate-50/30 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-400 uppercase tracking-wider text-[9px] flex items-center gap-1.5">
@@ -869,8 +938,8 @@ export default async function DashboardPage() {
                     Top Distributor
                   </td>
                   <td className="px-5 py-3.5 font-bold text-slate-800">{topDistributor}</td>
-                  <td className="px-5 py-3.5 text-slate-500">Distribution Hub Champion</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-emerald-600">Active</td>
+                  <td className="px-5 py-3.5 text-slate-500">ST-2 units sent</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-emerald-600">{topDistributorVol} Units</td>
                 </tr>
                 <tr className="hover:bg-slate-50/30 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-400 uppercase tracking-wider text-[9px] flex items-center gap-1.5">
@@ -878,8 +947,8 @@ export default async function DashboardPage() {
                     Top Sub Dealer
                   </td>
                   <td className="px-5 py-3.5 font-bold text-slate-800">{topSubDealer}</td>
-                  <td className="px-5 py-3.5 text-slate-500">Retail Sales Lead</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-amber-600">Active</td>
+                  <td className="px-5 py-3.5 text-slate-500">ST-2 received + Sell Out units</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-amber-600">{topSubDealerVol} Units</td>
                 </tr>
                 <tr className="hover:bg-slate-50/30 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-400 uppercase tracking-wider text-[9px] flex items-center gap-1.5">
@@ -887,8 +956,8 @@ export default async function DashboardPage() {
                     Top Installer
                   </td>
                   <td className="px-5 py-3.5 font-bold text-slate-800">{topInstaller}</td>
-                  <td className="px-5 py-3.5 text-slate-500">Field Deployment Champion</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-rose-600">Active</td>
+                  <td className="px-5 py-3.5 text-slate-500">Completed installation jobs</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-rose-600">{topInstallerVol} Jobs</td>
                 </tr>
               </tbody>
             </table>

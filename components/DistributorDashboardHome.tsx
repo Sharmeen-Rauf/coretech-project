@@ -94,21 +94,21 @@ export default function DistributorDashboardHome({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <StatsCard
           title="Customers"
-          value={customersCount ? customersCount.toLocaleString() : "3,781"}
+          value={customersCount.toLocaleString()}
           change="+11.01%"
           isPositive={true}
           subtitle="Distributor Network Accounts"
         />
         <StatsCard
           title="Orders"
-          value={ordersCount ? ordersCount.toLocaleString() : "1,219"}
+          value={ordersCount.toLocaleString()}
           change="-0.03%"
           isPositive={false}
           subtitle="Total Completed Orders"
         />
         <StatsCard
           title="Revenue"
-          value={revenueVal || "$695"}
+          value={revenueVal}
           change="+15.03%"
           isPositive={true}
           subtitle="Distributor Sales Revenue"
