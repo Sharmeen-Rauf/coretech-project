@@ -27,25 +27,46 @@ async function assertGranted() {
   return { ok: true as const };
 }
 
-// Resolves a party (warehouse/distributor/sub_dealer/employee/etc./consumer)
-// to a human-readable name, given the loose source_type/source_id (or
-// destination_type/destination_id) pair every sales row carries.
-async function resolvePartyName(
+// Resolves parties (warehouse/distributor/sub_dealer/employee/etc./consumer)
+// to human-readable names, given the loose source_type/source_id (or
+// destination_type/destination_id) pairs each sales row carries. Batched -
+// two queries total (one per name-bearing table) instead of one query per
+// party per chain step, which used to run 2x the chain length in queries.
+async function resolvePartyNames(
   supabase: any,
+  parties: { type: string | null; id: string | null }[]
+): Promise<Map<string, string>> {
+  const warehouseIds = Array.from(new Set(parties.filter((p) => p.type === "warehouse" && p.id).map((p) => p.id!)));
+  const profileIds = Array.from(
+    new Set(parties.filter((p) => p.type && p.type !== "warehouse" && p.type !== "consumer" && p.id).map((p) => p.id!))
+  );
+
+  const nameById = new Map<string, string>();
+
+  const [warehouseRes, profileRes] = await Promise.all([
+    warehouseIds.length > 0
+      ? supabase.from("warehouses").select("id, name").in("id", warehouseIds)
+      : Promise.resolve({ data: [] }),
+    profileIds.length > 0
+      ? supabase.from("profiles").select("id, first_name, last_name").in("id", profileIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  (warehouseRes.data || []).forEach((w: any) => nameById.set(w.id, w.name || "Unknown Warehouse"));
+  (profileRes.data || []).forEach((p: any) => nameById.set(p.id, `${p.first_name} ${p.last_name || ""}`.trim()));
+
+  return nameById;
+}
+
+function partyDisplayName(
+  nameById: Map<string, string>,
   type: string | null,
   id: string | null,
   consumerName: string | null
-): Promise<string> {
+): string {
   if (type === "consumer") return consumerName || "Consumer";
   if (!id) return type ? type.replace("_", " ") : "Unknown";
-
-  if (type === "warehouse") {
-    const { data } = await supabase.from("warehouses").select("name").eq("id", id).maybeSingle();
-    return data?.name || "Unknown Warehouse";
-  }
-
-  const { data } = await supabase.from("profiles").select("first_name, last_name").eq("id", id).maybeSingle();
-  return data ? `${data.first_name} ${data.last_name || ""}`.trim() : "Unknown";
+  return nameById.get(id) || "Unknown";
 }
 
 export async function fetchSnLookupAction(serialNo: string) {
@@ -79,18 +100,22 @@ export async function fetchSnLookupAction(serialNo: string) {
     const salesRows = (items || []).map((i: any) => i.sales).filter(Boolean);
     salesRows.sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    const chain = await Promise.all(
-      salesRows.map(async (s: any) => ({
-        id: s.id,
-        type: s.type,
-        date: s.date,
-        stId: s.st_id,
-        from: await resolvePartyName(supabase, s.source_type, s.source_id, s.consumer_name),
-        to: await resolvePartyName(supabase, s.destination_type, s.destination_id, s.consumer_name),
-        consumerPhone: s.destination_type === "consumer" ? s.consumer_phone : null,
-        siteAddress: s.destination_type === "consumer" ? s.site_address : null,
-      }))
-    );
+    const partiesToResolve = salesRows.flatMap((s: any) => [
+      { type: s.source_type, id: s.source_id },
+      { type: s.destination_type, id: s.destination_id },
+    ]);
+    const nameById = await resolvePartyNames(supabase, partiesToResolve);
+
+    const chain = salesRows.map((s: any) => ({
+      id: s.id,
+      type: s.type,
+      date: s.date,
+      stId: s.st_id,
+      from: partyDisplayName(nameById, s.source_type, s.source_id, s.consumer_name),
+      to: partyDisplayName(nameById, s.destination_type, s.destination_id, s.consumer_name),
+      consumerPhone: s.destination_type === "consumer" ? s.consumer_phone : null,
+      siteAddress: s.destination_type === "consumer" ? s.site_address : null,
+    }));
 
     // Every installer job submission tied to this SN - approved, rejected, or
     // pending, including resubmissions - not just whichever one is "current".

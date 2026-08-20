@@ -51,10 +51,12 @@ async function DashboardStats() {
   let activeInstallersCount = 0;
 
   try {
-    // Execute all 8 statistical database queries concurrently via Promise.all for maximum speed
+    // Execute all 7 statistical database queries concurrently via Promise.all for maximum speed.
+    // (Was 8 - the old separate "quantity only" stock query was a strict subset
+    // of the "quantity + product price" one below, so ordersVal is now derived
+    // from that same result instead of running a second full-table query.)
     const [
       profRes,
-      stockQtyRes,
       st1Res,
       st2Res,
       soRes,
@@ -63,7 +65,6 @@ async function DashboardStats() {
       actInstRes
     ] = await Promise.all([
       supabase.from("profiles").select("id", { count: "exact", head: true }),
-      supabase.from("stock").select("quantity"),
       supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST1"),
       supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST2"),
       supabase.from("stock").select("id", { count: "exact", head: true }).eq("status", "sold_out"),
@@ -73,8 +74,8 @@ async function DashboardStats() {
     ]);
 
     if (profRes.count !== null && profRes.count > 0) customersVal = profRes.count;
-    if (stockQtyRes.data && stockQtyRes.data.length > 0) {
-      ordersVal = stockQtyRes.data.reduce((sum, s) => sum + (s.quantity || 1), 0);
+    if (stockPricesRes.data && stockPricesRes.data.length > 0) {
+      ordersVal = stockPricesRes.data.reduce((sum, s) => sum + (s.quantity || 1), 0);
     }
     if (st1Res.count !== null && st1Res.count > 0) st1Val = st1Res.count;
     if (st2Res.count !== null && st2Res.count > 0) st2Val = st2Res.count;
@@ -708,6 +709,7 @@ export default async function DashboardPage() {
     }
 
     // Top Employee: real Buzzcart order volume attributed to each coordinator.
+    let bestEmployee: { id: string; count: number } | null = null;
     if (ordersRes.data && ordersRes.data.length > 0) {
       const empUnits = new Map<string, number>();
       ordersRes.data.forEach((o: any) => {
@@ -715,14 +717,7 @@ export default async function DashboardPage() {
         const qty = Array.isArray(o.items) ? o.items.reduce((s: number, it: any) => s + (Number(it?.quantity) || 0), 0) : 0;
         empUnits.set(o.sales_coordinator_id, (empUnits.get(o.sales_coordinator_id) || 0) + qty);
       });
-      const best = topByCount(empUnits);
-      if (best) {
-        const { data: emp } = await supabase.from("profiles").select("first_name, last_name").eq("id", best.id).maybeSingle();
-        if (emp) {
-          topEmployee = `${emp.first_name} ${emp.last_name || ""}`.trim();
-          topEmployeeVol = best.count;
-        }
-      }
+      bestEmployee = topByCount(empUnits);
     }
 
     // Top Distributor: real outgoing ST-2 unit volume.
@@ -735,19 +730,13 @@ export default async function DashboardPage() {
     const itemCountBySale = new Map<string, number>();
     (itemsData || []).forEach((it: any) => itemCountBySale.set(it.sale_id, (itemCountBySale.get(it.sale_id) || 0) + 1));
 
+    let bestDistributor: { id: string; count: number } | null = null;
     if (distSalesRes.data && distSalesRes.data.length > 0) {
       const distUnits = new Map<string, number>();
       distSalesRes.data.forEach((s: any) => {
         distUnits.set(s.source_id, (distUnits.get(s.source_id) || 0) + (itemCountBySale.get(s.id) || 0));
       });
-      const best = topByCount(distUnits);
-      if (best) {
-        const { data: dist } = await supabase.from("profiles").select("first_name, last_name").eq("id", best.id).maybeSingle();
-        if (dist) {
-          topDistributor = `${dist.first_name} ${dist.last_name || ""}`.trim();
-          topDistributorVol = best.count;
-        }
-      }
+      bestDistributor = topByCount(distUnits);
     }
 
     // Top Sub Dealer: real incoming ST-2 volume + Sell Out volume combined.
@@ -758,32 +747,45 @@ export default async function DashboardPage() {
     (subSelloutRes.data || []).forEach((r: any) => {
       subUnits.set(r.sub_dealer_id, (subUnits.get(r.sub_dealer_id) || 0) + 1);
     });
-    if (subUnits.size > 0) {
-      const best = topByCount(subUnits);
-      if (best) {
-        const { data: sub } = await supabase.from("profiles").select("first_name, last_name").eq("id", best.id).maybeSingle();
-        if (sub) {
-          topSubDealer = `${sub.first_name} ${sub.last_name || ""}`.trim();
-          topSubDealerVol = best.count;
-        }
-      }
-    }
+    const bestSubDealer = subUnits.size > 0 ? topByCount(subUnits) : null;
 
     // Top Installer: real completed job count.
+    let bestInstaller: { id: string; count: number } | null = null;
     if (jobsRes.data && jobsRes.data.length > 0) {
       const jobCounts = new Map<string, number>();
       jobsRes.data.forEach((j: any) => {
         if (!j.installer_id) return;
         jobCounts.set(j.installer_id, (jobCounts.get(j.installer_id) || 0) + 1);
       });
-      const best = topByCount(jobCounts);
-      if (best) {
-        const { data: inst } = await supabase.from("profiles").select("first_name, last_name").eq("id", best.id).maybeSingle();
-        if (inst) {
-          topInstaller = `${inst.first_name} ${inst.last_name || ""}`.trim();
-          topInstallerVol = best.count;
-        }
-      }
+      bestInstaller = topByCount(jobCounts);
+    }
+
+    // One batched name lookup for all four "best" ids instead of four
+    // separate sequential single-row queries.
+    const bestIds = [bestEmployee?.id, bestDistributor?.id, bestSubDealer?.id, bestInstaller?.id].filter(
+      (id): id is string => !!id
+    );
+    const nameById = new Map<string, string>();
+    if (bestIds.length > 0) {
+      const { data: bestProfiles } = await supabase.from("profiles").select("id, first_name, last_name").in("id", bestIds);
+      (bestProfiles || []).forEach((p: any) => nameById.set(p.id, `${p.first_name} ${p.last_name || ""}`.trim()));
+    }
+
+    if (bestEmployee && nameById.has(bestEmployee.id)) {
+      topEmployee = nameById.get(bestEmployee.id)!;
+      topEmployeeVol = bestEmployee.count;
+    }
+    if (bestDistributor && nameById.has(bestDistributor.id)) {
+      topDistributor = nameById.get(bestDistributor.id)!;
+      topDistributorVol = bestDistributor.count;
+    }
+    if (bestSubDealer && nameById.has(bestSubDealer.id)) {
+      topSubDealer = nameById.get(bestSubDealer.id)!;
+      topSubDealerVol = bestSubDealer.count;
+    }
+    if (bestInstaller && nameById.has(bestInstaller.id)) {
+      topInstaller = nameById.get(bestInstaller.id)!;
+      topInstallerVol = bestInstaller.count;
     }
   } catch (e) {
     console.warn("Error calculating top performers:", e);

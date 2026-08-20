@@ -6,6 +6,16 @@ import { PERMISSION_CATALOG } from '@/lib/permissionCatalog';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
+// Short-lived cache for the granted-routes-per-role lookup below. Safe to
+// share across every caller on the same role, because role_permissions
+// grants are per-ROLE, not per-user - the exact same allowed-routes list is
+// correct for every user of that role at once. Lives only as long as this
+// edge isolate stays warm (best-effort, not guaranteed across cold starts),
+// and a miss just falls through to the same DB query as before, so there's
+// no correctness risk from missing the cache - only a lost speedup.
+const ROUTE_CACHE_TTL_MS = 45_000;
+const routeCacheByRole = new Map<string, { routes: string[]; expiresAt: number }>();
+
 // Helper to decode JWT claims locally on the edge to avoid database querying timeouts
 interface SessionDetails {
   userId: string;
@@ -179,33 +189,43 @@ export async function middleware(request: NextRequest) {
     // C. Sub-route validation, data-driven from Role Management (roles/role_permissions).
     // Admin is structurally unrestricted - never depends on table data being correct.
     // Home and Account are universal for every active role, never gated by permissions.
-    // Permission changes apply on the very next request by design - this reads fresh
-    // from the database every time rather than caching the granted-route list, since
-    // that was the explicit tradeoff accepted over a stale, login-cached permission set.
+    // Permission changes now apply within ROUTE_CACHE_TTL_MS (45s) rather than
+    // the very next request - a deliberate trade against real, measured CPU
+    // pressure from this query firing on literally every navigation, for
+    // every non-admin role. A short staleness window was judged worth it
+    // over that cost.
     const isExactDashboard = pathname === '/dashboard';
     const isAccountRoute = pathname.startsWith('/dashboard/account');
 
     if (role !== 'admin' && !isExactDashboard && !isAccountRoute) {
       try {
-        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
-          auth: { persistSession: false, autoRefreshToken: false },
-        });
+        let allowedRoutes: string[] | null = null;
+        const cached = routeCacheByRole.get(role);
+        if (cached && cached.expiresAt > Date.now()) {
+          allowedRoutes = cached.routes;
+        }
 
-        // Single round trip instead of two sequential ones (role lookup, then
-        // permissions lookup) - this runs on every dashboard navigation for
-        // every non-admin role, so the extra round trip was real added
-        // latency on effectively every click. Same result as before, just
-        // resolved via one embedded-filter query instead of two awaits.
-        const { data: perms } = await supabaseAdmin
-          .from('role_permissions')
-          .select('permission_key, roles!inner(name)')
-          .eq('roles.name', role)
-          .eq('granted', true);
+        if (!allowedRoutes) {
+          const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+            auth: { persistSession: false, autoRefreshToken: false },
+          });
 
-        const grantedKeys = new Set((perms || []).map((p) => p.permission_key));
-        const allowedRoutes = PERMISSION_CATALOG.flatMap((g) => g.items)
-          .filter((item) => grantedKeys.has(item.key))
-          .map((item) => item.route);
+          // Single round trip instead of two sequential ones (role lookup, then
+          // permissions lookup) - resolved via one embedded-filter query
+          // instead of two awaits.
+          const { data: perms } = await supabaseAdmin
+            .from('role_permissions')
+            .select('permission_key, roles!inner(name)')
+            .eq('roles.name', role)
+            .eq('granted', true);
+
+          const grantedKeys = new Set((perms || []).map((p) => p.permission_key));
+          allowedRoutes = PERMISSION_CATALOG.flatMap((g) => g.items)
+            .filter((item) => grantedKeys.has(item.key))
+            .map((item) => item.route);
+
+          routeCacheByRole.set(role, { routes: allowedRoutes, expiresAt: Date.now() + ROUTE_CACHE_TTL_MS });
+        }
 
         const isAllowed = allowedRoutes.some((route) => pathname.startsWith(route));
         if (!isAllowed) {
