@@ -335,3 +335,26 @@ export async function revertOrderStageAction(orderId: string, toStatus: "pending
     return { success: false, error: err.message || "Failed to revert order stage" };
   }
 }
+
+// Deleting an order was previously routed through the generic, unauthenticated
+// deleteRecordAction (app/actions/users.ts) - no caller check at all, and the
+// Delete button itself wasn't even gated on write access, so any Buzzcart
+// viewer (including read-only) could see and successfully use it. Client
+// wants this admin-only specifically, not just "has write access" like the
+// rest of Buzzcart - a real, stricter rule than can_write.
+export async function deleteOrderAction(orderId: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || caller.role !== "admin") {
+      return { success: false, error: "Only Admin can delete orders" };
+    }
+
+    const supabase = getAdminClient();
+    const { error } = await supabase.from("orders").delete().eq("id", orderId);
+    if (error) throw error;
+
+    return { success: true, message: "Order deleted successfully" };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete order" };
+  }
+}

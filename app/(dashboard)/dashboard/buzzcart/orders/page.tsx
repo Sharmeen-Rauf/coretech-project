@@ -7,8 +7,7 @@ import Link from "next/link";
 import OrderStatusModal from "@/components/OrderStatusModal";
 import BuzzcartCreateOrder from "@/components/BuzzcartCreateOrder";
 import toast from "react-hot-toast";
-import { deleteRecordAction } from "@/app/actions/users";
-import { fetchOrdersAction } from "@/app/actions/orders";
+import { fetchOrdersAction, deleteOrderAction } from "@/app/actions/orders";
 import { Eye } from "lucide-react";
  
 interface OrderRow {
@@ -121,16 +120,19 @@ export default function BuzzcartOrdersPage() {
     if (!window.confirm(`Are you sure you want to delete order ${row.order_code}?`)) return;
 
     try {
+      // Real server-side admin check now - an explicit denial must never
+      // fall back to a local-only delete that then reports success anyway.
       if (row.id) {
-        const res = await deleteRecordAction("orders", row.id);
+        const res = await deleteOrderAction(row.id);
         if (!res.success) {
-          console.warn("DB delete failed, attempting local delete", res.error);
+          toast.error(res.error || "Failed to delete order");
+          return;
         }
       }
-      
+
       const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
       deleteLocalItem("coretech_local_orders", row.id || row.order_code, row.id ? "id" : "order_code");
-      
+
       toast.success(`Order deleted successfully!`);
       fetchOrders();
     } catch (err: any) {
@@ -311,7 +313,7 @@ export default function BuzzcartOrdersPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
-        onDeleteClick={handleDeleteOrder}
+        onDeleteClick={userRole === "admin" ? handleDeleteOrder : undefined}
       />
 
       {selectedStatusOrder && (

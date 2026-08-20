@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import { Loader2, Plus, X, Trash2, Check, ImagePlus } from "lucide-react";
@@ -50,6 +50,7 @@ export default function ExpensesPage() {
   const [receiptFiles, setReceiptFiles] = useState<File[]>([]);
   const [isUploadingReceipts, setIsUploadingReceipts] = useState(false);
   const [submitters, setSubmitters] = useState<SubmitterOption[]>([]);
+  const [onBehalfOfRole, setOnBehalfOfRole] = useState("");
   const [onBehalfOfUserId, setOnBehalfOfUserId] = useState("");
 
   const fetchExpenses = async () => {
@@ -152,7 +153,7 @@ export default function ExpensesPage() {
       setAmount("");
       setDescription("");
       setReceiptFiles([]);
-      setOnBehalfOfUserId("");
+      setOnBehalfOfRole(""); setOnBehalfOfUserId("");
       fetchExpenses();
     } catch (err: any) {
       // Genuine unexpected failure (network, etc.), not a permission denial - the
@@ -168,7 +169,7 @@ export default function ExpensesPage() {
       setAmount("");
       setDescription("");
       setReceiptFiles([]);
-      setOnBehalfOfUserId("");
+      setOnBehalfOfRole(""); setOnBehalfOfUserId("");
       fetchExpenses();
     } finally {
       setIsSubmitting(false);
@@ -208,6 +209,15 @@ export default function ExpensesPage() {
       toast.error(err.message || "Failed to update expense status");
     }
   };
+
+  const availableSubmitterRoles = useMemo(
+    () => Array.from(new Set(submitters.map((s) => s.role))).sort(),
+    [submitters]
+  );
+  const filteredSubmitters = useMemo(
+    () => (onBehalfOfRole ? submitters.filter((s) => s.role === onBehalfOfRole) : submitters),
+    [submitters, onBehalfOfRole]
+  );
 
   const baseColumns = [
     { key: "user_name", label: "Employee" },
@@ -376,23 +386,49 @@ export default function ExpensesPage() {
 
             <form onSubmit={handleCreateExpense} className="space-y-4">
               {userRole === "admin" && (
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    File On Behalf Of
-                  </label>
-                  <select
-                    value={onBehalfOfUserId}
-                    onChange={(e) => setOnBehalfOfUserId(e.target.value)}
-                    className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
-                  >
-                    <option value="">Myself</option>
-                    {submitters.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.first_name} {s.last_name || ""} ({s.role})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      File On Behalf Of - Role
+                    </label>
+                    <select
+                      value={onBehalfOfRole}
+                      onChange={(e) => {
+                        setOnBehalfOfRole(e.target.value);
+                        setOnBehalfOfUserId("");
+                      }}
+                      className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white capitalize focus:outline-none focus:border-[#00B4D8]"
+                    >
+                      <option value="">Myself</option>
+                      {availableSubmitterRoles.map((r) => (
+                        <option key={r} value={r} className="capitalize">
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {onBehalfOfRole && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                        Person*
+                      </label>
+                      <select
+                        value={onBehalfOfUserId}
+                        onChange={(e) => setOnBehalfOfUserId(e.target.value)}
+                        className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
+                        required
+                      >
+                        <option value="">Select a person</option>
+                        {filteredSubmitters.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.first_name} {s.last_name || ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
               )}
 
               <div>

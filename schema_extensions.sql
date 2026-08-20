@@ -181,4 +181,15 @@ create policy "Allow all" on public.notification_reads for all using (true) with
 -- rows across all 339 profiles before applying - safe to lock down.
 alter table public.profiles alter column role set not null;
 
+-- 13. Fix: notifications table had row-level security enabled with zero
+-- policies defined (pre-dates this repo's tracked schema - likely toggled on
+-- via the Supabase dashboard and never given a policy). RLS-enabled + no
+-- policy = deny everything by default, so Topbar's client-side bell read
+-- (using the logged-in user's own session, not the admin key) was silently
+-- blocked no matter what. All writes already go through the admin/
+-- service-role client in app/actions/broadcast.ts, so only SELECT needs
+-- opening up here. Verified live: anon-key read failed before this, passed
+-- after, using a throwaway test row that was deleted immediately after.
+create policy "Allow authenticated read" on public.notifications for select using (true);
+
 
