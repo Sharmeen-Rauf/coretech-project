@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { createClientComponentClient } from "@/lib/supabase";
@@ -26,7 +26,7 @@ interface NotificationItem {
   id: string;
   title: string;
   message: string;
-  target_role: string;
+  target_role: string[];
   read: boolean;
   created_at: string;
 }
@@ -41,6 +41,7 @@ export default function Topbar() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+  const callerIdRef = useRef("");
   const [profile, setProfile] = useState<any>({
     first_name: "",
     last_name: "",
@@ -70,26 +71,44 @@ export default function Topbar() {
       if (cached) setProfile(JSON.parse(cached));
     } catch (e) {}
 
-    // Notifications carry `target_role` ("all" or one specific role) - resolve
-    // the caller's own role first so both the initial fetch and the realtime
-    // subscription below only ever surface notifications actually addressed to
-    // them, not everyone's. `callerRole` is captured once here and closed over
-    // by the realtime handler rather than read from React state, so it can't go
-    // stale across renders.
+    // Notifications carry `target_role` (an array containing "all" and/or one
+    // or more specific roles) - resolve the caller's own role/id first so both
+    // the initial fetch and the realtime subscription below only ever surface
+    // notifications actually addressed to them, not everyone's. `callerRole`/
+    // `callerId` are captured once here and closed over by the realtime
+    // handler rather than read from React state, so they can't go stale
+    // across renders.
     let callerRole = "";
+    let callerId = "";
 
     const fetchNotifications = async () => {
       try {
         const { data, error } = await supabase
           .from("notifications")
           .select("*")
-          .in("target_role", ["all", callerRole])
+          .overlaps("target_role", ["all", callerRole])
           .order("created_at", { ascending: false })
           .limit(20);
 
         if (error) throw error;
-        setNotifications(data || []);
-        setUnreadCount((data || []).filter((n: NotificationItem) => !n.read).length);
+        const rows = data || [];
+
+        // Read state is per-user (notification_reads), not a single shared
+        // flag on the notification itself - a prior "mark all as read" from
+        // one user must never make it look already-read for anyone else.
+        let readIds = new Set<string>();
+        if (callerId && rows.length > 0) {
+          const { data: reads } = await supabase
+            .from("notification_reads")
+            .select("notification_id")
+            .eq("user_id", callerId)
+            .in("notification_id", rows.map((r: any) => r.id));
+          readIds = new Set((reads || []).map((r: any) => r.notification_id));
+        }
+
+        const withReadState = rows.map((r: any) => ({ ...r, read: readIds.has(r.id) }));
+        setNotifications(withReadState);
+        setUnreadCount(withReadState.filter((n: NotificationItem) => !n.read).length);
       } catch (err: any) {
         console.error("Error fetching notifications:", err.message);
       }
@@ -113,6 +132,8 @@ export default function Topbar() {
         };
         setProfile(fullProf);
         callerRole = data.role || "";
+        callerId = session.user.id;
+        callerIdRef.current = session.user.id;
         try { sessionStorage.setItem("coretech_user_profile", JSON.stringify(fullProf)); } catch (e) {}
       } catch (err: any) {
         console.warn("Failed to fetch user profile in Topbar", err.message);
@@ -133,8 +154,9 @@ export default function Topbar() {
         { event: "INSERT", schema: "public", table: "notifications" },
         (payload: any) => {
           const newNotif = payload.new as NotificationItem;
-          if (newNotif.target_role !== "all" && newNotif.target_role !== callerRole) return;
-          setNotifications((prev: any) => [newNotif, ...prev]);
+          const targets = newNotif.target_role || [];
+          if (!targets.includes("all") && !targets.includes(callerRole)) return;
+          setNotifications((prev: any) => [{ ...newNotif, read: false }, ...prev]);
           setUnreadCount((prev) => prev + 1);
           toast((t) => (
             <div className="flex items-start gap-2 text-xs">
@@ -156,12 +178,19 @@ export default function Topbar() {
 
   const markAllAsRead = async () => {
     try {
-      const { error } = await supabase
-        .from("notifications")
-        .update({ read: true })
-        .eq("read", false);
+      const callerId = callerIdRef.current;
+      if (!callerId) return;
 
-      if (error) throw error;
+      const unreadIds = notifications.filter((n) => !n.read).map((n) => n.id);
+      if (unreadIds.length > 0) {
+        const { error } = await supabase
+          .from("notification_reads")
+          .upsert(
+            unreadIds.map((notification_id) => ({ notification_id, user_id: callerId })),
+            { onConflict: "notification_id,user_id" }
+          );
+        if (error) throw error;
+      }
 
       setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadCount(0);
