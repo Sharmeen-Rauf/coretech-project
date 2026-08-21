@@ -29,6 +29,7 @@ import {
   approveJobStage2Action,
   rejectJobStage1Action,
   rejectJobStage2Action,
+  setJobPaymentPaidAction,
 } from "@/app/actions/products";
 
 interface JobRow {
@@ -368,43 +369,25 @@ export default function AdminJobsPage() {
     }
   };
 
-  const handleMarkPaymentPaid = async (id: string) => {
+  const [payingJobId, setPayingJobId] = useState<string | null>(null);
+
+  const handleMarkPaymentPaid = async (id: string, jobLabel: string) => {
+    if (!window.confirm(`Mark the incentive for "${jobLabel}" as PAID? This cannot be undone.`)) return;
+
+    setPayingJobId(id);
     try {
-      try {
-        const { error } = await supabase
-          .from("installer_jobs")
-          .update({ payment_status: "paid" })
-          .eq("id", id);
+      const res = await setJobPaymentPaidAction(id);
+      if (!res.success) throw new Error(res.error || "Failed to settle payment");
 
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Database payment update failed. Saving locally.", dbErr);
-        const localJobs = getLocalItems("coretech_local_installer_jobs");
-        const match = localJobs.find((j: any) => j.id === id);
-        const updated = {
-          ...(match || { id }),
-          payment_status: "paid",
-        };
-        saveLocalItem("coretech_local_installer_jobs", updated, true);
-      }
-
-      try {
-        const target = jobs.find((j) => j.id === id);
-        await supabase.from("activity_logs").insert({
-          action: "Job Payment Settlement",
-          details: `Installer payment for job "${target?.job_title}" set to Paid`,
-        });
-      } catch (logErr) {
-        console.warn("Activity log failed:", logErr);
-      }
-
-      toast.success("Job payment status marked as PAID!");
+      toast.success("Incentive marked as PAID!");
       if (selectedJob && selectedJob.id === id) {
         setSelectedJob(prev => prev ? { ...prev, payment_status: "paid" } : null);
       }
       fetchData();
     } catch (err: any) {
       toast.error(err.message || "Failed to settle payment");
+    } finally {
+      setPayingJobId(null);
     }
   };
 
@@ -547,6 +530,38 @@ export default function AdminJobsPage() {
         return (
           <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${bgClass}`}>
             {labelText}
+          </span>
+        );
+      }
+    },
+    {
+      key: "payment_status",
+      label: "Incentive Status",
+      render: (val: string, row: any) => {
+        if (row.status !== "approved") {
+          return <span className="text-[10px] text-slate-400 font-semibold">—</span>;
+        }
+        if (val === "paid") {
+          return (
+            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border bg-emerald-50 text-emerald-700 border-emerald-200">
+              Paid
+            </span>
+          );
+        }
+        if (userRole === "admin") {
+          return (
+            <button
+              onClick={() => handleMarkPaymentPaid(row.id, row.job_title || row.serial_number || "this job")}
+              disabled={payingJobId === row.id}
+              className="px-2.5 py-1 text-[9px] font-bold uppercase text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {payingJobId === row.id ? "Saving..." : "Unpaid"}
+            </button>
+          );
+        }
+        return (
+          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border bg-amber-50 text-amber-700 border-amber-200">
+            Unpaid
           </span>
         );
       }

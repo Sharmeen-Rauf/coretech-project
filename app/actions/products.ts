@@ -428,6 +428,52 @@ export async function approveJobStage2Action(jobId: string, serialNumber: string
   }
 }
 
+// Incentive payment status: admin-only, one-way (unpaid -> paid), and only
+// once the job has cleared Stage 2 approval. Re-verified server-side rather
+// than trusting the client, since a client-only check is trivially bypassed.
+export async function setJobPaymentPaidAction(jobId: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || caller.role !== "admin") {
+      return { success: false, error: "Only Admin can mark incentive payments as paid" };
+    }
+
+    const supabase = getAdminClient();
+    const { data: job, error: fetchError } = await supabase
+      .from("installer_jobs")
+      .select("status, payment_status, job_title")
+      .eq("id", jobId)
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!job) return { success: false, error: "Job not found" };
+    if (job.status !== "approved") {
+      return { success: false, error: "Incentive can only be marked paid after Stage 2 approval" };
+    }
+    if (job.payment_status === "paid") {
+      return { success: true };
+    }
+
+    const { error } = await supabase
+      .from("installer_jobs")
+      .update({ payment_status: "paid" })
+      .eq("id", jobId);
+    if (error) throw error;
+
+    try {
+      await supabase.from("activity_logs").insert({
+        action: "Job Payment Settlement",
+        details: `Installer incentive for job "${job.job_title}" marked as Paid by admin`,
+      });
+    } catch {
+      // Non-critical, don't fail the payment update over a log-write failure
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to update payment status" };
+  }
+}
+
 async function rejectJobInternal(jobId: string, serialNumber: string, note: string, callerId: string) {
   try {
     const supabase = getAdminClient();
