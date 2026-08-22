@@ -110,6 +110,39 @@ export async function fetchRolesAction() {
   }
 }
 
+// Narrower than fetchRolesAction (admin-only, full role_permissions detail) -
+// this only exposes id/display_name for non-system roles, gated to whoever
+// can actually create an employee (same check createUserAction itself
+// applies), so the "Add Employee" form can offer custom roles as an option
+// without needing every caller who can create an employee to also be admin.
+export async function fetchAssignableCustomRolesAction(): Promise<{
+  success: boolean;
+  data: { name: string; display_name: string }[];
+  error?: string;
+}> {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated", data: [] };
+
+    if (caller.role !== "admin") {
+      const { canWrite } = await getMyScopeAction("users.add_employee");
+      if (!canWrite) return { success: false, error: "You don't have permission to view roles", data: [] };
+    }
+
+    const supabase = getAdminClient();
+    const { data: roles, error } = await supabase
+      .from("roles")
+      .select("name, display_name")
+      .eq("is_system_role", false)
+      .order("display_name");
+    if (error) throw error;
+
+    return { success: true, data: roles || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch roles", data: [] };
+  }
+}
+
 export async function fetchRolePermissionsAction(roleId: string) {
   try {
     const caller = await getCallerIdentity();

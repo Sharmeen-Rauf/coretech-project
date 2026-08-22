@@ -65,12 +65,17 @@ async function validateSubDealerDistributor(distributorId: string | undefined, r
   return { success: true };
 }
 
-function catalogKeyForUserRole(role: string): string | null {
-  if (["employee", "rsm", "country_head", "retail_manager", "admin", "marketing_manager"].includes(role)) return "users.add_employee";
+function catalogKeyForUserRole(role: string): string {
   if (role === "distributor") return "users.add_distributor";
   if (role === "sub_dealer") return "users.add_sub_dealer";
   if (role === "installer") return "users.add_installer";
-  return null;
+  // Every other role - the 5 original office roles (employee/rsm/country_head/
+  // retail_manager/marketing_manager/admin all go through the "Add Employee"
+  // form already) plus any custom role created in Role Management - is
+  // created the same way as an employee, so it's gated by the same
+  // users.add_employee permission. Distributor/sub-dealer/installer are the
+  // only categories with their own distinct creation form and permission key.
+  return "users.add_employee";
 }
 
 // Stage 3 (Role Management): createUserAction/updateUserAction/deleteUserAction
@@ -99,8 +104,6 @@ async function checkUsersWriteAccess(
   if (caller.role === "admin") return { allowed: true };
 
   const key = catalogKeyForUserRole(targetRole);
-  if (!key) return { allowed: false, error: "You don't have permission to manage this type of user" };
-
   const { canWrite } = await getUsersScopeAndWrite(caller, key);
   if (!canWrite) return { allowed: false, error: "You don't have write access to manage this type of user" };
   return { allowed: true };
