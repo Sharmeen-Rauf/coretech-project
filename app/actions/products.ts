@@ -585,7 +585,39 @@ export async function fetchSellOutAction() {
       }
     }
 
-    const enriched = rows.map((row: any) => ({ ...row, consumer: consumerMap.get(row.id) || null }));
+    // Seller Type / Seller Name: whichever entity actually held the unit right
+    // before it sold out - same priority order the region-scope resolver above
+    // already uses (sub_dealer, then distributor, then warehouse). Batched into
+    // one query for whichever profile ids show up, instead of one lookup per
+    // row - warehouse needs no lookup at all since stock already carries its
+    // name directly.
+    const sellerProfileIds = Array.from(
+      new Set(rows.flatMap((r: any) => [r.sub_dealer_id, r.distributor_id]).filter(Boolean))
+    );
+    const sellerNameByProfileId = new Map<string, string>();
+    if (sellerProfileIds.length > 0) {
+      const { data: sellerProfiles } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name")
+        .in("id", sellerProfileIds);
+      (sellerProfiles || []).forEach((p: any) => sellerNameByProfileId.set(p.id, `${p.first_name} ${p.last_name || ""}`.trim()));
+    }
+
+    const enriched = rows.map((row: any) => {
+      let sellerType: string;
+      let sellerName: string;
+      if (row.sub_dealer_id) {
+        sellerType = "Sub Dealer";
+        sellerName = sellerNameByProfileId.get(row.sub_dealer_id) || "Unknown";
+      } else if (row.distributor_id) {
+        sellerType = "Distributor";
+        sellerName = sellerNameByProfileId.get(row.distributor_id) || "Unknown";
+      } else {
+        sellerType = "Direct from Warehouse";
+        sellerName = row.warehouse_name || "Unknown Warehouse";
+      }
+      return { ...row, sellerType, sellerName, consumer: consumerMap.get(row.id) || null };
+    });
     return { success: true, data: enriched, canWrite };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch sell out stock", data: [], canWrite: false };

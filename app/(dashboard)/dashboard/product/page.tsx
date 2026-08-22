@@ -6,7 +6,7 @@ import DataTable from "@/components/DataTable";
 import ProductModal from "@/components/ProductModal";
 import toast from "react-hot-toast";
 import { deleteRecordAction } from "@/app/actions/users";
-import { fetchProductsAction } from "@/app/actions/products";
+import { fetchProductsAction, updateProductAction } from "@/app/actions/products";
 import { getMyScopeAction } from "@/app/actions/roles";
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -107,7 +107,53 @@ export default function ProductManagementPage() {
       label: "Sale Price",
       render: (val: number) => <span className="font-semibold text-slate-700">Rs. {val?.toLocaleString() || "0"}</span>,
     },
+    {
+      key: "is_active",
+      label: "Status",
+      excludeFromExport: true,
+      render: (val: boolean, row: any) => {
+        const active = val !== false;
+        if (!canWrite) {
+          return (
+            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${active ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-500 border-slate-200"}`}>
+              {active ? "Active" : "Disabled"}
+            </span>
+          );
+        }
+        return (
+          <button
+            onClick={() => handleToggleActive(row)}
+            disabled={togglingId === row.id}
+            title={active ? "Disable - hides this product from Buzzcart's create-order picker" : "Enable - shows this product in Buzzcart's create-order picker again"}
+            className={`px-2.5 py-1 text-[9px] font-bold uppercase rounded-full border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              active
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                : "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200"
+            }`}
+          >
+            {togglingId === row.id ? "Saving..." : active ? "Active" : "Disabled"}
+          </button>
+        );
+      },
+    },
   ];
+
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const handleToggleActive = async (prod: any) => {
+    if (!prod.id) return; // local-fallback rows without a real DB id can't be toggled server-side
+    setTogglingId(prod.id);
+    try {
+      const res = await updateProductAction(prod.id, { is_active: !prod.is_active });
+      if (!res.success) throw new Error(res.error || "Failed to update product status");
+      toast.success(prod.is_active ? `${prod.name} disabled` : `${prod.name} enabled`);
+      fetchProducts();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update product status");
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   const handleEditClick = (prod: any) => {
     setEditingProduct(prod);

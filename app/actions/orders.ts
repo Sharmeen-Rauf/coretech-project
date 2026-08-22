@@ -3,6 +3,7 @@
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
 import { getMyScopeAction } from "@/app/actions/roles";
+import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -57,14 +58,32 @@ export async function fetchOrdersAction() {
       } else {
         query = query.eq("id", "00000000-0000-0000-0000-000000000000");
       }
-    } else if (scope === "region" && callerId) {
-      query = query.or(`sales_coordinator_id.eq.${callerId},distributor.region.ilike.%${callerRegion || ""}%`);
     }
+    // scope === "region" is resolved below, post-fetch - PostgREST's .or()
+    // filter DSL doesn't accept a dotted path into a non-inner embedded
+    // resource (`distributor.region...`) the way this used to be written; that
+    // threw a real PGRST100 parse error on every single region-scoped request,
+    // which fetchOrdersAction's catch turned into {success:false, canWrite:
+    // false}, and the page's own catch silently swallowed that into "read-only"
+    // with no visible error - confirmed live 2026-08-22. Same shared
+    // region-match resolver already used by fetchSalesLedgerAction, so this
+    // can't newly disagree with how Sales already resolves "region" for RSM.
     // scope === "everything": no filter.
 
-    const { data, error } = await query.order("created_at", { ascending: false });
+    let { data, error } = await query.order("created_at", { ascending: false });
     if (error) throw error;
-    return { success: true, data: data || [], role: caller.role, canWrite };
+    let rows = data || [];
+
+    if (scope === "region" && callerId && callerRegion) {
+      const parties: PartyRef[] = rows.map((r: any) => ({ type: "distributor", id: r.distributor_id }));
+      const regionMap = await buildPartyRegionMap(supabase, parties);
+      rows = rows.filter(
+        (r: any, idx: number) =>
+          r.sales_coordinator_id === callerId || regionsMatch(regionForParty(regionMap, parties[idx]), callerRegion)
+      );
+    }
+
+    return { success: true, data: rows, role: caller.role, canWrite };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch orders", data: [], role: null, canWrite: false };
   }

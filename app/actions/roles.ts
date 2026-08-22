@@ -89,13 +89,21 @@ export async function fetchRolesAction() {
     const { data: roles, error } = await supabase.from("roles").select("*").order("is_system_role", { ascending: false }).order("display_name");
     if (error) throw error;
 
+    // "employee" is hidden from Role Management by client request - it stays a
+    // fully real, functional role everywhere else (Buzzcart self-scope,
+    // users.add_employee, etc.), it's just not surfaced as an editable row
+    // here. Filtered here rather than client-side so it can't be reached via
+    // fetchRolePermissionsAction/updateRolePermissionsAction by id either -
+    // this is the only place that lists role ids for the UI to act on.
+    const visibleRoles = (roles || []).filter((r) => r.name !== "employee");
+
     const { data: allPerms } = await supabase.from("role_permissions").select("role_id, granted");
     const grantedCounts: Record<string, number> = {};
     (allPerms || []).forEach((p) => {
       if (p.granted) grantedCounts[p.role_id] = (grantedCounts[p.role_id] || 0) + 1;
     });
 
-    const withCounts = (roles || []).map((r) => ({ ...r, granted_count: grantedCounts[r.id] || 0 }));
+    const withCounts = visibleRoles.map((r) => ({ ...r, granted_count: grantedCounts[r.id] || 0 }));
     return { success: true, data: withCounts };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch roles", data: [] };

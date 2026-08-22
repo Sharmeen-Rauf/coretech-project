@@ -53,7 +53,13 @@ export default function BuzzcartOrdersPage() {
       let dbData: any[] = [];
       try {
         const res = await fetchOrdersAction();
-        if (!res.success) throw new Error(res.error);
+        if (!res.success) {
+          // Surface real failures instead of silently falling back to the
+          // canWrite=false default, which used to look indistinguishable from
+          // a legitimate read-only permission - see fetchOrdersAction.
+          toast.error(res.error || "Failed to load Buzzcart orders");
+          throw new Error(res.error);
+        }
         dbData = res.data || [];
         if (res.role) setUserRole(res.role);
         setCanWrite(!!res.canWrite);

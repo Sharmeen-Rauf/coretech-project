@@ -24,6 +24,8 @@ interface SellOutItem {
   installation_id: string;
   consumer_name: string;
   consumer_phone: string;
+  seller_type: string;
+  seller_name: string;
   raw: any;
 }
 
@@ -93,6 +95,8 @@ export default function SellOutPage() {
           installation_id: row.installation_id,
           consumer_name: row.consumer?.consumer_name || "-",
           consumer_phone: row.consumer?.consumer_phone || "-",
+          seller_type: row.sellerType || "-",
+          seller_name: row.sellerName || "-",
           raw: row
         };
       });
@@ -203,6 +207,8 @@ export default function SellOutPage() {
     { key: "brand", label: "Brand" },
     { key: "serial_no", label: "Serial No" },
     { key: "warehouse_name", label: "Source" },
+    { key: "seller_type", label: "Seller Type" },
+    { key: "seller_name", label: "Seller Name" },
     { key: "installer_name", label: "Installer Name" },
     { key: "installation_project", label: "Installation Project" },
     { key: "consumer_name", label: "Consumer Name" },
