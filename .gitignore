@@ -47,3 +47,7 @@ whatsup_msg.md
 
 # Claude Code local tool state (not for client repo)
 .claude/
+
+# one-off local debug/migration scripts - run once, then deleted, never committed
+scratch*
+scratch/
