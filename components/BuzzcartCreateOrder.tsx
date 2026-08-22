@@ -34,12 +34,6 @@ interface Profile {
   distributor_id?: string;
 }
 
-interface Stock {
-  product_id: string;
-  quantity: number;
-  warehouse_name: string;
-}
-
 interface OrderItemInput {
   productId: string;
   productName: string;
@@ -64,7 +58,6 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
   const [employees, setEmployees] = useState<Profile[]>([]);
   const [distributors, setDistributors] = useState<Profile[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [stockData, setStockData] = useState<Stock[]>([]);
 
   // Form selections
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
@@ -197,10 +190,12 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
         });
         setOrderItems(initialItems);
 
+        // Still fetched for warehouse-name derivation below (whs), not for
+        // any availability display - Buzzcart order creation doesn't depend
+        // on stock levels at all, per the client's explicit call.
         const dbStock = stockRes.data || [];
         const localStock = getLocalItems("coretech_local_stock");
         const mergedStock = [...dbStock, ...localStock];
-        setStockData(mergedStock);
 
         let dbWarehouses: string[] = [];
         if (regionRes.success && regionRes.data) {
@@ -227,25 +222,6 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
 
     fetchOptions();
   }, [supabase]);
-
-  const getActiveWarehouse = () => {
-    if (currentRsm?.role === "distributor") return selectedWarehouse;
-    const activeDist = distributors.find(d => d.id === selectedDistributorId);
-    if (activeDist?.warehouse) return activeDist.warehouse;
-    const selectedEmp = employees.find(e => e.id === selectedEmployeeId);
-    if (selectedEmp?.warehouse) return selectedEmp.warehouse;
-    return currentRsm?.warehouse;
-  };
-
-  const checkStockStatus = (productId: string) => {
-    let filtered = stockData;
-    const wh = getActiveWarehouse();
-    if (wh) {
-      filtered = stockData.filter(s => s.warehouse_name?.toLowerCase().trim() === wh.toLowerCase().trim());
-    }
-    const totalQty = filtered.filter(s => s.product_id === productId).reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
-    return totalQty > 0;
-  };
 
   const handleToggleCheckbox = (productId: string) => {
     if (selectedProductIds.includes(productId)) {
@@ -279,15 +255,6 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
       setSelectedProductIds(prev => prev.filter(id => id !== productId));
     }
     setOrderItems(prev => ({ ...prev, [productId]: { ...prev[productId], quantity: num } }));
-  };
-
-  const getAvailableQty = (productId: string) => {
-    let filtered = stockData;
-    const wh = getActiveWarehouse();
-    if (wh) {
-      filtered = stockData.filter(s => s.warehouse_name?.toLowerCase().trim() === wh.toLowerCase().trim());
-    }
-    return filtered.filter(s => s.product_id === productId).reduce((sum, s) => sum + (Number(s.quantity) || 0), 0);
   };
 
   const handleQtyChange = (productId: string, val: string) => {
@@ -684,7 +651,6 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/10">
                     <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider">Model Name</th>
-                    <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider w-28">Stock Status</th>
                     <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider w-32">Order Qty (Pcs)</th>
                     <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider w-40">Suggested Price (PKR)</th>
                     <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider text-right">Subtotal</th>
@@ -695,7 +661,6 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                   {selectedProductIds.map((id) => {
                     const p = products.find(x => x.id === id);
                     if (!p) return null;
-                    const isInStock = checkStockStatus(p.id);
                     const entry = orderItems[p.id] || { quantity: 1, price: p.price || 0 };
                     const subtotal = entry.quantity * entry.price;
 
@@ -704,13 +669,6 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                         <td className="px-5 py-3 font-bold text-slate-800">
                           {p.name}
                           <p className="text-[10px] text-slate-400 font-normal">{p.model || "Generic"}</p>
-                        </td>
-                        <td className="px-5 py-3">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
-                            isInStock ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-rose-50 text-rose-600 border-rose-100"
-                          }`}>
-                            {isInStock ? "In Stock" : "Out of Stock"}
-                          </span>
                         </td>
                         <td className="px-5 py-3">
                           <input
@@ -799,7 +757,6 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                   <tr className="border-b border-slate-100 bg-slate-50/50 sticky top-0 bg-white z-10">
                     <th className="px-4 py-3 w-12 text-center">Select</th>
                     <th className="px-4 py-3 font-bold text-slate-400 uppercase tracking-wider">Select Product</th>
-                    <th className="px-4 py-3 font-bold text-slate-400 uppercase tracking-wider text-center w-32">Available Qty</th>
                     <th className="px-4 py-3 font-bold text-slate-400 uppercase tracking-wider text-center w-36">Quantity</th>
                     <th className="px-4 py-3 font-bold text-slate-400 uppercase tracking-wider w-36">Price</th>
                     <th className="px-4 py-3 font-bold text-slate-400 uppercase tracking-wider text-right w-40">Total Price</th>
@@ -811,7 +768,6 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                     const qty = orderItems[p.id]?.quantity || 0;
                     const price = orderItems[p.id]?.price || p.price || 0;
                     const totalPrice = qty * price;
-                    const availableQty = getAvailableQty(p.id);
 
                     return (
                       <tr key={p.id} className={`hover:bg-slate-50/30 transition-colors ${isChecked ? "bg-slate-50/10" : ""}`}>
@@ -822,7 +778,6 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                           {p.name}
                           <p className="text-[10px] text-slate-400 font-normal">{p.model || "Generic"}</p>
                         </td>
-                        <td className="px-4 py-3 text-center font-semibold text-slate-700">{availableQty}</td>
                         <td className="px-4 py-3 text-center">
                           <div className="inline-flex items-center border border-slate-200 rounded-[6px] overflow-hidden bg-white">
                             <button type="button" onClick={() => handleQtyDecrement(p.id)} className="px-2.5 py-1 bg-slate-50 hover:bg-slate-100 text-slate-500 font-bold border-r border-slate-200 transition-colors">-</button>

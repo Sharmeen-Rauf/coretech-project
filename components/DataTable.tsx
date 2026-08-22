@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Search, ChevronLeft, ChevronRight, Edit2, Info, ArrowUpDown, Trash2 } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, Edit2, Info, ArrowUpDown, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import StatusBadge from "./StatusBadge";
 
@@ -82,8 +82,8 @@ export default function DataTable({
   const [searchValue, setSearchValue] = useState("");
 
   const rawData = allData || data || [];
-  const displayData = onSearch 
-    ? rawData 
+  const displayData = onSearch
+    ? rawData
     : rawData.filter((row) => {
         if (!searchValue.trim()) return true;
         const q = searchValue.toLowerCase();
@@ -97,6 +97,56 @@ export default function DataTable({
           return String(val).toLowerCase().includes(q);
         });
       });
+
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  // Generic comparator - most columns here are already flattened to plain
+  // display values by the calling page before DataTable ever sees them
+  // (formatted strings/numbers, not raw joined objects), so this doesn't
+  // need per-column type hints: try numeric, then date, then fall back to a
+  // locale-aware string compare.
+  const compareValues = (a: any, b: any): number => {
+    if (typeof a === "number" && typeof b === "number") return a - b;
+
+    const aNum = typeof a === "string" && a.trim() !== "" && !Number.isNaN(Number(a)) ? Number(a) : null;
+    const bNum = typeof b === "string" && b.trim() !== "" && !Number.isNaN(Number(b)) ? Number(b) : null;
+    if (aNum !== null && bNum !== null) return aNum - bNum;
+
+    const aDate = typeof a === "string" ? Date.parse(a) : NaN;
+    const bDate = typeof b === "string" ? Date.parse(b) : NaN;
+    if (!Number.isNaN(aDate) && !Number.isNaN(bDate)) return aDate - bDate;
+
+    return String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
+  };
+
+  const sortedData = !sortKey
+    ? displayData
+    : displayData
+        .map((row, idx) => ({ row, idx }))
+        .sort((x, y) => {
+          const a = x.row[sortKey];
+          const b = y.row[sortKey];
+          const aEmpty = a === null || a === undefined || a === "";
+          const bEmpty = b === null || b === undefined || b === "";
+          // Empty values always sort to the end, regardless of direction -
+          // flipping direction shouldn't make blanks jump to the top.
+          if (aEmpty && bEmpty) return x.idx - y.idx;
+          if (aEmpty) return 1;
+          if (bEmpty) return -1;
+          const cmp = compareValues(a, b);
+          return sortDir === "asc" ? cmp : -cmp;
+        })
+        .map((w) => w.row);
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     const checked = e.target.checked;
@@ -500,19 +550,37 @@ export default function DataTable({
                   className="w-3.5 h-3.5 border-slate-300 text-[#00B4D8] focus:ring-[#00B4D8] rounded-[4px]"
                 />
               </th>
-              {columns.map((col) => (
-                <th
-                  key={col.key}
-                  className="px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider"
-                >
-                  <div className="flex items-center gap-1">
-                    {col.label}
-                    {col.key !== "actions" && (
-                      <ArrowUpDown className="w-3 h-3 text-slate-300" />
-                    )}
-                  </div>
-                </th>
-              ))}
+              {columns.map((col) => {
+                // A column marked excludeFromExport has no real underlying
+                // row value (a computed badge/button) - nothing meaningful to
+                // sort by, same reasoning that already excludes it from CSV.
+                const isSortable = col.key !== "actions" && !col.excludeFromExport;
+                const isActive = sortKey === col.key;
+                return (
+                  <th
+                    key={col.key}
+                    onClick={isSortable ? () => handleSort(col.key) : undefined}
+                    className={`px-5 py-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider ${
+                      isSortable ? "cursor-pointer select-none hover:text-slate-600" : ""
+                    }`}
+                  >
+                    <div className="flex items-center gap-1">
+                      {col.label}
+                      {isSortable && (
+                        isActive ? (
+                          sortDir === "asc" ? (
+                            <ArrowUp className="w-3 h-3 text-[#00B4D8]" />
+                          ) : (
+                            <ArrowDown className="w-3 h-3 text-[#00B4D8]" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-300" />
+                        )
+                      )}
+                    </div>
+                  </th>
+                );
+              })}
               {(onEditClick || onDeleteClick) && (
                 <th className="sticky right-0 z-10 w-24 px-5 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)]">
                   Actions
@@ -540,7 +608,7 @@ export default function DataTable({
                   )}
                 </tr>
               ))
-            ) : displayData.length === 0 ? (
+            ) : sortedData.length === 0 ? (
               // Empty State UI
               <tr>
                 <td
@@ -558,7 +626,7 @@ export default function DataTable({
               </tr>
             ) : (
               // Active Data Rows
-              displayData.map((row, rowIdx) => {
+              sortedData.map((row, rowIdx) => {
                 const rowId = row.id || `row-${rowIdx}`;
                 const isSelected = selectedRows[rowId] || false;
                 return (
