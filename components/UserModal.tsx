@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { X, Loader2 } from "lucide-react";
 import { createUserAction, updateUserAction, fetchRecordsAction, fetchProfilesAction } from "@/app/actions/users";
+import { fetchAssignableCustomRolesAction } from "@/app/actions/roles";
 import toast from "react-hot-toast";
 import { mergeLocalItems } from "@/lib/supabaseLocalFallback";
 
@@ -57,6 +58,7 @@ export default function UserModal({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dbWarehouses, setDbWarehouses] = useState<string[]>([]);
   const [systemRegions, setSystemRegions] = useState<{ id: string; name: string; region_code: string; warehouse: string }[]>([]);
+  const [customRoles, setCustomRoles] = useState<{ name: string; display_name: string }[]>([]);
 
   const resolveRegionValue = (raw: string) => {
     if (!raw) return "";
@@ -113,6 +115,15 @@ export default function UserModal({
       }
     };
     loadDistributors();
+  }, [role]);
+
+  useEffect(() => {
+    if (role !== "Employee") return;
+    const loadCustomRoles = async () => {
+      const res = await fetchAssignableCustomRolesAction();
+      if (res.success) setCustomRoles(res.data);
+    };
+    loadCustomRoles();
   }, [role]);
 
   useEffect(() => {
@@ -230,13 +241,19 @@ export default function UserModal({
 
     setIsLoading(true);
     const finalRole = role === "Employee" ? group : role.toLowerCase().replace(" ", "_");
-    const finalGroup = 
+    const finalGroup =
       finalRole === "rsm" ? "sales" :
       finalRole === "country_head" ? "sales" :
       finalRole === "retail_manager" ? "sales" :
       finalRole === "marketing_manager" ? "operations" :
       finalRole === "admin" ? "owner" :
       role === "Distributor" ? "sales" :
+      // A custom role picked from the Employee dropdown isn't one of the
+      // above and its own name isn't a legal group_name value (only
+      // owner/sales/operations are) - default it to a neutral bucket rather
+      // than passing the raw role name straight through, which would fail
+      // the DB constraint on save.
+      role === "Employee" ? "operations" :
       group;
 
     const formData = {
@@ -1135,6 +1152,9 @@ export default function UserModal({
                     <option value="retail_manager">RETAIL MANAGER</option>
                     <option value="admin">ADMIN</option>
                     <option value="marketing_manager">MARKETING MANAGER</option>
+                    {customRoles.map((r) => (
+                      <option key={r.name} value={r.name}>{r.display_name.toUpperCase()}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
