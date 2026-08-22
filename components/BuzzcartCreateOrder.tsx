@@ -182,7 +182,7 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
         setDistributors(dists);
 
         const [prodRes, stockRes, regionRes] = await Promise.all([
-          supabase.from("products").select("id, name, model, price"),
+          supabase.from("products").select("id, name, model, price").eq("is_active", true),
           supabase.from("stock").select("product_id, quantity, warehouse_name"),
           fetchRecordsAction("regions"),
         ]);

@@ -95,7 +95,13 @@ export default function RoleManagement() {
     setModalPerms((prev) => {
       const row = prev[key];
       if (!row || row.locked) return prev; // locked rows can't be toggled client-side either
-      return { ...prev, [key]: { ...row, granted: !row.granted } };
+      const granting = !row.granted;
+      // A fresh grant defaults to Read/Write rather than inheriting whatever
+      // can_write happened to be left over from before (e.g. a prior revoke) -
+      // otherwise re-checking a box can silently save as read-only with no
+      // visual cue, since the write dropdown only reflects existing state and
+      // easy to not double check.
+      return { ...prev, [key]: { ...row, granted: granting, can_write: granting ? true : row.can_write } };
     });
   };
 
@@ -107,11 +113,11 @@ export default function RoleManagement() {
     });
   };
 
-  const toggleWrite = (key: string) => {
+  const setWrite = (key: string, canWrite: boolean) => {
     setModalPerms((prev) => {
       const row = prev[key];
       if (!row || row.locked) return prev;
-      return { ...prev, [key]: { ...row, can_write: !row.can_write } };
+      return { ...prev, [key]: { ...row, can_write: canWrite } };
     });
   };
 
@@ -283,7 +289,7 @@ export default function RoleManagement() {
                               {granted && !locked && (
                                 <select
                                   value={canWrite ? "write" : "read"}
-                                  onChange={(e) => toggleWrite(item.key)}
+                                  onChange={(e) => setWrite(item.key, e.target.value === "write")}
                                   className="h-6 px-1.5 border border-slate-200 rounded text-[10px] font-semibold text-slate-600 focus:outline-none focus:border-[#00B4D8]"
                                 >
                                   <option value="write">Read/Write</option>
