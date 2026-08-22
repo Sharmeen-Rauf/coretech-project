@@ -124,14 +124,17 @@ export async function fetchRolePermissionsAction(roleId: string) {
   }
 }
 
-export async function createRoleAction(name: string, displayName: string) {
+export async function createRoleAction(displayName: string) {
   try {
     const caller = await getCallerIdentity();
     if (!caller || caller.role !== "admin") return { success: false, error: "Only admins can create roles" };
 
-    const cleanName = (name || "").trim().toLowerCase().replace(/\s+/g, "_");
     const cleanDisplayName = (displayName || "").trim();
-    if (!cleanName || !cleanDisplayName) return { success: false, error: "Name and display name are required" };
+    // Internal name is derived from the display name - the Create Role form
+    // only ever collects one field, there's no separate "internal name"
+    // input for an admin to fill in.
+    const cleanName = cleanDisplayName.toLowerCase().replace(/\s+/g, "_");
+    if (!cleanName || !cleanDisplayName) return { success: false, error: "Display name is required" };
     if (RESERVED_SYSTEM_ROLE_NAMES.includes(cleanName)) {
       return { success: false, error: "That name is reserved by a system role" };
     }

@@ -36,7 +36,6 @@ export default function RoleManagement() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<RoleRow | null>(null);
-  const [modalName, setModalName] = useState("");
   const [modalDisplayName, setModalDisplayName] = useState("");
   const [modalPerms, setModalPerms] = useState<Record<string, PermRow>>({});
   const [isSaving, setIsSaving] = useState(false);
@@ -56,7 +55,6 @@ export default function RoleManagement() {
 
   const openCreate = () => {
     setEditingRole(null);
-    setModalName("");
     setModalDisplayName("");
     const empty: Record<string, PermRow> = {};
     PERMISSION_CATALOG.forEach((g) => g.items.forEach((i) => { empty[i.key] = { permission_key: i.key, granted: false, locked: false, scope_level: "everything", can_write: true }; }));
@@ -66,7 +64,6 @@ export default function RoleManagement() {
 
   const openEdit = async (role: RoleRow) => {
     setEditingRole(role);
-    setModalName(role.name);
     setModalDisplayName(role.display_name);
     setIsModalOpen(true);
     setIsModalLoading(true);
@@ -133,7 +130,7 @@ export default function RoleManagement() {
         if (!res.success) { toast.error(res.error || "Failed to update role"); return; }
         toast.success("Role updated");
       } else {
-        const createRes = await createRoleAction(modalName, modalDisplayName);
+        const createRes = await createRoleAction(modalDisplayName);
         if (!createRes.success || !createRes.roleId) { toast.error(createRes.error || "Failed to create role"); return; }
         const permRes = await updateRolePermissionsAction(createRes.roleId, grants);
         if (!permRes.success) { toast.error(permRes.error || "Role created, but permissions failed to save"); return; }
