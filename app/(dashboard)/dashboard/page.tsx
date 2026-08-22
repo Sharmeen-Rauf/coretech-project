@@ -35,10 +35,26 @@ import {
 } from "lucide-react";
 import ReportingDashboardClient from "@/components/ReportingDashboardClient";
 import InventoryHealthPanel from "@/components/InventoryHealthPanel";
+import HomeDateRangeFilter from "@/components/HomeDateRangeFilter";
 
 export const revalidate = 0; // Disable caching for realtime updates
 
-async function DashboardStats() {
+interface DateRange {
+  from: string;
+  to: string;
+}
+
+// Upper bound applied as an exclusive "< day after `to`" rather than
+// "<= to" - safe regardless of whether the underlying column is a plain
+// date or a timestamp, which would otherwise silently exclude the whole
+// selected end day.
+function dayAfter(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+async function DashboardStats({ dateRange }: { dateRange: DateRange | null }) {
   const supabase = getAdminClient();
 
   let customersVal = 0;
@@ -51,6 +67,26 @@ async function DashboardStats() {
   let activeInstallersCount = 0;
 
   try {
+    // Only the genuine activity counts (ST1/ST2/Sell Out/Installer Jobs) move
+    // with the date range - Total Accounts, Total Stock Units, Total
+    // Valuation, and Registered Installers are point-in-time snapshots
+    // ("how many/much exists right now"), not "how much happened in this
+    // window", so they stay all-time regardless of the filter. Total
+    // Valuation in particular sums every unit currently in stock, sold or
+    // not - it was never actually a "revenue in period" metric to begin with.
+    let st1Query = supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST1");
+    let st2Query = supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST2");
+    let soQuery = supabase.from("stock").select("id", { count: "exact", head: true }).eq("status", "sold_out");
+    let instQuery = supabase.from("installer_jobs").select("id", { count: "exact", head: true });
+
+    if (dateRange) {
+      const toExclusive = dayAfter(dateRange.to);
+      st1Query = st1Query.gte("date", dateRange.from).lt("date", toExclusive);
+      st2Query = st2Query.gte("date", dateRange.from).lt("date", toExclusive);
+      soQuery = soQuery.gte("sold_out_at", dateRange.from).lt("sold_out_at", toExclusive);
+      instQuery = instQuery.gte("created_at", dateRange.from).lt("created_at", toExclusive);
+    }
+
     // Execute all 7 statistical database queries concurrently via Promise.all for maximum speed.
     // (Was 8 - the old separate "quantity only" stock query was a strict subset
     // of the "quantity + product price" one below, so ordersVal is now derived
@@ -65,10 +101,10 @@ async function DashboardStats() {
       actInstRes
     ] = await Promise.all([
       supabase.from("profiles").select("id", { count: "exact", head: true }),
-      supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST1"),
-      supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST2"),
-      supabase.from("stock").select("id", { count: "exact", head: true }).eq("status", "sold_out"),
-      supabase.from("installer_jobs").select("id", { count: "exact", head: true }),
+      st1Query,
+      st2Query,
+      soQuery,
+      instQuery,
       supabase.from("stock").select("quantity, products(price)"),
       supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "installer")
     ]);
@@ -393,7 +429,11 @@ import dynamic from "next/dynamic";
 const SubDealerDashboardHome = dynamic(() => import("@/components/SubDealerDashboardHome"));
 const DistributorDashboardHome = dynamic(() => import("@/components/DistributorDashboardHome"));
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: { from?: string; to?: string };
+}) {
   const supabase = getAdminClient();
   const serverAuth = createServerComponentClient();
   const { data: { user } } = await serverAuth.auth.getUser();
@@ -402,6 +442,9 @@ export default async function DashboardPage() {
     const { data: prof } = await supabase.from("profiles").select("role").eq("id", user.id).single();
     userRole = prof?.role || "";
   }
+
+  const dateRange: DateRange | null =
+    searchParams.from && searchParams.to ? { from: searchParams.from, to: searchParams.to } : null;
 
   if (userRole === "sub_dealer" || userRole === "distributor") {
     let custCount = 0;
@@ -794,9 +837,12 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-6 select-none">
       {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Home</h1>
-        <p className="text-xs text-slate-500">Welcome to your CoreTECH operations control panel.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Home</h1>
+          <p className="text-xs text-slate-500">Welcome to your CoreTECH operations control panel.</p>
+        </div>
+        <HomeDateRangeFilter />
       </div>
 
       {/* KPI Cards Grid with Loader Suspense */}
@@ -815,7 +861,7 @@ export default async function DashboardPage() {
           </div>
         }
       >
-        <DashboardStats />
+        <DashboardStats dateRange={dateRange} />
       </Suspense>
 
       {/* Cross-Role Reporting Operations Summary */}

@@ -222,7 +222,7 @@ export default function RoleManagement() {
                 type="text" placeholder="Role Name (e.g. Warehouse Clerk)"
                 value={modalDisplayName}
                 onChange={(e) => setModalDisplayName(e.target.value)}
-                className="w-full h-10 px-3 mb-4 border border-slate-200 rounded-[6px] text-xs font-semibold focus:outline-none focus:border-[#00B4D8]"
+                className="w-full h-10 px-3 mb-4 border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#00B4D8]"
               />
             )}
             {editingRole && !editingRole.is_system_role && (
@@ -230,7 +230,7 @@ export default function RoleManagement() {
                 type="text" placeholder="Role Name"
                 value={modalDisplayName}
                 onChange={(e) => setModalDisplayName(e.target.value)}
-                className="w-full h-10 px-3 mb-4 border border-slate-200 rounded-[6px] text-xs font-semibold focus:outline-none focus:border-[#00B4D8]"
+                className="w-full h-10 px-3 mb-4 border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-800 focus:outline-none focus:border-[#00B4D8]"
               />
             )}
             {editingRole && editingRole.is_system_role && (
