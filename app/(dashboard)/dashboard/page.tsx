@@ -35,10 +35,26 @@ import {
 } from "lucide-react";
 import ReportingDashboardClient from "@/components/ReportingDashboardClient";
 import InventoryHealthPanel from "@/components/InventoryHealthPanel";
+import HomeDateRangeFilter from "@/components/HomeDateRangeFilter";
 
 export const revalidate = 0; // Disable caching for realtime updates
 
-async function DashboardStats() {
+interface DateRange {
+  from: string;
+  to: string;
+}
+
+// Upper bound applied as an exclusive "< day after `to`" rather than
+// "<= to" - safe regardless of whether the underlying column is a plain
+// date or a timestamp, which would otherwise silently exclude the whole
+// selected end day.
+function dayAfter(dateStr: string): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+async function DashboardStats({ dateRange }: { dateRange: DateRange | null }) {
   const supabase = getAdminClient();
 
   let customersVal = 0;
@@ -51,10 +67,32 @@ async function DashboardStats() {
   let activeInstallersCount = 0;
 
   try {
-    // Execute all 8 statistical database queries concurrently via Promise.all for maximum speed
+    // Only the genuine activity counts (ST1/ST2/Sell Out/Installer Jobs) move
+    // with the date range - Total Accounts, Total Stock Units, Total
+    // Valuation, and Registered Installers are point-in-time snapshots
+    // ("how many/much exists right now"), not "how much happened in this
+    // window", so they stay all-time regardless of the filter. Total
+    // Valuation in particular sums every unit currently in stock, sold or
+    // not - it was never actually a "revenue in period" metric to begin with.
+    let st1Query = supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST1");
+    let st2Query = supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST2");
+    let soQuery = supabase.from("stock").select("id", { count: "exact", head: true }).eq("status", "sold_out");
+    let instQuery = supabase.from("installer_jobs").select("id", { count: "exact", head: true });
+
+    if (dateRange) {
+      const toExclusive = dayAfter(dateRange.to);
+      st1Query = st1Query.gte("date", dateRange.from).lt("date", toExclusive);
+      st2Query = st2Query.gte("date", dateRange.from).lt("date", toExclusive);
+      soQuery = soQuery.gte("sold_out_at", dateRange.from).lt("sold_out_at", toExclusive);
+      instQuery = instQuery.gte("created_at", dateRange.from).lt("created_at", toExclusive);
+    }
+
+    // Execute all 7 statistical database queries concurrently via Promise.all for maximum speed.
+    // (Was 8 - the old separate "quantity only" stock query was a strict subset
+    // of the "quantity + product price" one below, so ordersVal is now derived
+    // from that same result instead of running a second full-table query.)
     const [
       profRes,
-      stockQtyRes,
       st1Res,
       st2Res,
       soRes,
@@ -63,18 +101,17 @@ async function DashboardStats() {
       actInstRes
     ] = await Promise.all([
       supabase.from("profiles").select("id", { count: "exact", head: true }),
-      supabase.from("stock").select("quantity"),
-      supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST1"),
-      supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST2"),
-      supabase.from("stock").select("id", { count: "exact", head: true }).eq("status", "sold_out"),
-      supabase.from("installer_jobs").select("id", { count: "exact", head: true }),
+      st1Query,
+      st2Query,
+      soQuery,
+      instQuery,
       supabase.from("stock").select("quantity, products(price)"),
       supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "installer")
     ]);
 
     if (profRes.count !== null && profRes.count > 0) customersVal = profRes.count;
-    if (stockQtyRes.data && stockQtyRes.data.length > 0) {
-      ordersVal = stockQtyRes.data.reduce((sum, s) => sum + (s.quantity || 1), 0);
+    if (stockPricesRes.data && stockPricesRes.data.length > 0) {
+      ordersVal = stockPricesRes.data.reduce((sum, s) => sum + (s.quantity || 1), 0);
     }
     if (st1Res.count !== null && st1Res.count > 0) st1Val = st1Res.count;
     if (st2Res.count !== null && st2Res.count > 0) st2Val = st2Res.count;
@@ -131,28 +168,28 @@ async function DashboardStats() {
       />
       <StatsCard
         title="Total ST-1"
-        value={st1Val > 0 ? st1Val.toLocaleString() : "14"}
+        value={st1Val.toLocaleString()}
         change="+14.2%"
         isPositive={true}
         subtitle="Primary Transfers"
       />
       <StatsCard
         title="Total ST-2"
-        value={st2Val > 0 ? st2Val.toLocaleString() : "8"}
+        value={st2Val.toLocaleString()}
         change="+9.5%"
         isPositive={true}
         subtitle="Secondary Transfers"
       />
       <StatsCard
-        title="Total SO (Sell-Out)"
-        value={soVal > 0 ? soVal.toLocaleString() : "12"}
+        title="Total Sell Out"
+        value={soVal.toLocaleString()}
         change="+6.7%"
         isPositive={true}
         subtitle="Active Deployments"
       />
       <StatsCard
         title="Completed Jobs"
-        value={installationsVal > 0 ? installationsVal.toLocaleString() : "5"}
+        value={installationsVal.toLocaleString()}
         change="+18.4%"
         isPositive={true}
         subtitle="Installation Projects"
@@ -166,7 +203,6 @@ async function ReportingDashboard() {
   
   let jobsCount = 0;
   let claimsCount = 0;
-  let ticketsCount = 0;
   let activeJobs: any[] = [];
 
   try {
@@ -182,12 +218,6 @@ async function ReportingDashboard() {
       .eq("status", "pending");
     if (cCount !== null) claimsCount = cCount;
 
-    const { count: tCount } = await supabase
-      .from("support_tickets")
-      .select("*", { count: "exact", head: true })
-      .eq("status", "open");
-    if (tCount !== null) ticketsCount = tCount;
-
     const { data: jobsData } = await supabase
       .from("installer_jobs")
       .select("*")
@@ -201,7 +231,6 @@ async function ReportingDashboard() {
     <ReportingDashboardClient
       jobsCount={jobsCount}
       claimsCount={claimsCount}
-      ticketsCount={ticketsCount}
       activeJobs={activeJobs}
     />
   );
@@ -393,10 +422,18 @@ async function TopSellingProductsTable() {
   );
 }
 
-import SubDealerDashboardHome from "@/components/SubDealerDashboardHome";
-import DistributorDashboardHome from "@/components/DistributorDashboardHome";
+import dynamic from "next/dynamic";
+// Code-split: these two role-specific dashboards are large client components
+// that only ever render for sub_dealer/distributor - dynamic-importing them
+// keeps their JS out of the bundle every other role has to download for /dashboard.
+const SubDealerDashboardHome = dynamic(() => import("@/components/SubDealerDashboardHome"));
+const DistributorDashboardHome = dynamic(() => import("@/components/DistributorDashboardHome"));
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: { from?: string; to?: string };
+}) {
   const supabase = getAdminClient();
   const serverAuth = createServerComponentClient();
   const { data: { user } } = await serverAuth.auth.getUser();
@@ -405,6 +442,9 @@ export default async function DashboardPage() {
     const { data: prof } = await supabase.from("profiles").select("role").eq("id", user.id).single();
     userRole = prof?.role || "";
   }
+
+  const dateRange: DateRange | null =
+    searchParams.from && searchParams.to ? { from: searchParams.from, to: searchParams.to } : null;
 
   if (userRole === "sub_dealer" || userRole === "distributor") {
     let custCount = 0;
@@ -447,13 +487,13 @@ export default async function DashboardPage() {
       ];
     }
 
-    const formattedRev = revTotal > 0 ? (revTotal >= 1000000 ? `Rs. ${(revTotal / 1000000).toFixed(1)}M` : `Rs. ${revTotal.toLocaleString()}`) : "$695";
+    const formattedRev = revTotal >= 1000000 ? `Rs. ${(revTotal / 1000000).toFixed(1)}M` : `Rs. ${revTotal.toLocaleString()}`;
 
     if (userRole === "sub_dealer") {
       return (
         <SubDealerDashboardHome
-          customersCount={custCount || 3781}
-          ordersCount={ordCount || 1219}
+          customersCount={custCount}
+          ordersCount={ordCount}
           revenueVal={formattedRev}
           transfers={liveTransfers}
           locationStats={liveLocations}
@@ -463,8 +503,8 @@ export default async function DashboardPage() {
 
     return (
       <DistributorDashboardHome
-        customersCount={custCount || 3781}
-        ordersCount={ordCount || 1219}
+        customersCount={custCount}
+        ordersCount={ordCount}
         revenueVal={formattedRev}
         transfers={liveTransfers}
         locationStats={liveLocations}
@@ -630,39 +670,7 @@ export default async function DashboardPage() {
     console.warn("Error mapping region stats:", e);
   }
 
-  // 5. Low Stock Alerts & Aging Stock
-  let lowStockAlerts: any[] = [];
-  try {
-    const { data: allProducts } = await supabase.from("products").select("id, name, alert_quantity");
-    const { data: stockCounts } = await supabase.from("stock").select("product_id, quantity");
-
-    if (allProducts) {
-      const productStockSum: Record<string, number> = {};
-      stockCounts?.forEach(s => {
-        if (s.product_id) {
-          productStockSum[s.product_id] = (productStockSum[s.product_id] || 0) + (s.quantity || 0);
-        }
-      });
-
-      allProducts.forEach(p => {
-        const current = productStockSum[p.id] || 0;
-        const reorder = p.alert_quantity || 5;
-        if (current <= reorder) {
-          lowStockAlerts.push({
-            name: p.name,
-            current,
-            reorder,
-            unit: "units",
-            badge: current === 0 ? "Critical" : "Warning"
-          });
-        }
-      });
-      lowStockAlerts = lowStockAlerts.slice(0, 3);
-    }
-  } catch (e) {
-    console.warn("Error calculating low stock alerts:", e);
-  }
-
+  // 5. Aging Stock
   let agingStock: any[] = [];
   try {
     const { data: oldestStock } = await supabase
@@ -694,74 +702,147 @@ export default async function DashboardPage() {
     console.warn("Error calculating aging stock:", e);
   }
 
-  // 6. Top Performers Register
+  // 6. Top Performers Register - ranked by real activity volume, not just
+  // whichever row happened to come back first.
   let topProduct = "No Sales Yet";
   let topProductQty = 0;
   let topEmployee = "No Employee Standings";
+  let topEmployeeVol = 0;
   let topDistributor = "No Distributor Standings";
+  let topDistributorVol = 0;
   let topSubDealer = "No Sub Dealer Standings";
+  let topSubDealerVol = 0;
   let topInstaller = "No Installer Standings";
+  let topInstallerVol = 0;
+
+  function topByCount(counts: Map<string, number>): { id: string; count: number } | null {
+    let best: { id: string; count: number } | null = null;
+    counts.forEach((count, id) => {
+      if (!best || count > best.count) best = { id, count };
+    });
+    return best;
+  }
 
   try {
-    const { data: topProds } = await supabase
-      .from("stock")
-      .select("quantity, products(name)")
-      .limit(1);
-    if (topProds && topProds.length > 0) {
-      const prodData: any = topProds[0].products;
-      const prod = Array.isArray(prodData) ? prodData[0] : prodData;
-      if (prod?.name) {
-        topProduct = prod.name;
-        topProductQty = topProds[0].quantity || 0;
+    const [stockRes, ordersRes, distSalesRes, subSalesRes, subSelloutRes, jobsRes] = await Promise.all([
+      supabase.from("stock").select("quantity, products(name)"),
+      supabase.from("orders").select("sales_coordinator_id, items").in("status", ["approved", "invoice_generated", "delivered"]),
+      supabase.from("sales").select("id, source_id").eq("type", "ST2").eq("source_type", "distributor"),
+      supabase.from("sales").select("id, destination_id").eq("type", "ST2").eq("destination_type", "sub_dealer"),
+      supabase.from("stock").select("sub_dealer_id").eq("status", "sold_out").not("sub_dealer_id", "is", null),
+      supabase.from("installer_jobs").select("installer_id").eq("status", "approved"),
+    ]);
+
+    // Top Product: real aggregate quantity per product, same aggregation the
+    // Top Selling Products table already uses.
+    if (stockRes.data && stockRes.data.length > 0) {
+      const prodQty = new Map<string, number>();
+      stockRes.data.forEach((s: any) => {
+        const prodData: any = s.products;
+        const prod = Array.isArray(prodData) ? prodData[0] : prodData;
+        const name = prod?.name;
+        if (!name) return;
+        prodQty.set(name, (prodQty.get(name) || 0) + (Number(s.quantity) || 1));
+      });
+      const best = topByCount(prodQty);
+      if (best) {
+        topProduct = best.id;
+        topProductQty = best.count;
       }
     }
 
-    const { data: employees } = await supabase
-      .from("profiles")
-      .select("first_name, last_name")
-      .in("role", ["employee", "rsm", "country_head", "retail_manager", "marketing_manager"])
-      .limit(1);
-    if (employees && employees.length > 0) {
-      topEmployee = `${employees[0].first_name} ${employees[0].last_name || ""}`.trim();
+    // Top Employee: real Buzzcart order volume attributed to each coordinator.
+    let bestEmployee: { id: string; count: number } | null = null;
+    if (ordersRes.data && ordersRes.data.length > 0) {
+      const empUnits = new Map<string, number>();
+      ordersRes.data.forEach((o: any) => {
+        if (!o.sales_coordinator_id) return;
+        const qty = Array.isArray(o.items) ? o.items.reduce((s: number, it: any) => s + (Number(it?.quantity) || 0), 0) : 0;
+        empUnits.set(o.sales_coordinator_id, (empUnits.get(o.sales_coordinator_id) || 0) + qty);
+      });
+      bestEmployee = topByCount(empUnits);
     }
 
-    const { data: distributors } = await supabase
-      .from("profiles")
-      .select("first_name, last_name")
-      .eq("role", "distributor")
-      .limit(1);
-    if (distributors && distributors.length > 0) {
-      topDistributor = `${distributors[0].first_name} ${distributors[0].last_name || ""}`.trim();
+    // Top Distributor: real outgoing ST-2 unit volume.
+    const distSaleIds = (distSalesRes.data || []).map((s: any) => s.id);
+    const subSaleIds = (subSalesRes.data || []).map((s: any) => s.id);
+    const { data: itemsData } =
+      distSaleIds.length + subSaleIds.length > 0
+        ? await supabase.from("sale_items").select("sale_id").in("sale_id", [...distSaleIds, ...subSaleIds])
+        : { data: [] };
+    const itemCountBySale = new Map<string, number>();
+    (itemsData || []).forEach((it: any) => itemCountBySale.set(it.sale_id, (itemCountBySale.get(it.sale_id) || 0) + 1));
+
+    let bestDistributor: { id: string; count: number } | null = null;
+    if (distSalesRes.data && distSalesRes.data.length > 0) {
+      const distUnits = new Map<string, number>();
+      distSalesRes.data.forEach((s: any) => {
+        distUnits.set(s.source_id, (distUnits.get(s.source_id) || 0) + (itemCountBySale.get(s.id) || 0));
+      });
+      bestDistributor = topByCount(distUnits);
     }
 
-    const { data: subdealers } = await supabase
-      .from("profiles")
-      .select("first_name, last_name")
-      .eq("role", "sub_dealer")
-      .limit(1);
-    if (subdealers && subdealers.length > 0) {
-      topSubDealer = `${subdealers[0].first_name} ${subdealers[0].last_name || ""}`.trim();
+    // Top Sub Dealer: real incoming ST-2 volume + Sell Out volume combined.
+    const subUnits = new Map<string, number>();
+    (subSalesRes.data || []).forEach((s: any) => {
+      subUnits.set(s.destination_id, (subUnits.get(s.destination_id) || 0) + (itemCountBySale.get(s.id) || 0));
+    });
+    (subSelloutRes.data || []).forEach((r: any) => {
+      subUnits.set(r.sub_dealer_id, (subUnits.get(r.sub_dealer_id) || 0) + 1);
+    });
+    const bestSubDealer = subUnits.size > 0 ? topByCount(subUnits) : null;
+
+    // Top Installer: real completed job count.
+    let bestInstaller: { id: string; count: number } | null = null;
+    if (jobsRes.data && jobsRes.data.length > 0) {
+      const jobCounts = new Map<string, number>();
+      jobsRes.data.forEach((j: any) => {
+        if (!j.installer_id) return;
+        jobCounts.set(j.installer_id, (jobCounts.get(j.installer_id) || 0) + 1);
+      });
+      bestInstaller = topByCount(jobCounts);
     }
 
-    const { data: installers } = await supabase
-      .from("profiles")
-      .select("first_name, last_name")
-      .eq("role", "installer")
-      .eq("status", "active")
-      .limit(1);
-    if (installers && installers.length > 0) {
-      topInstaller = `${installers[0].first_name} ${installers[0].last_name || ""}`.trim();
+    // One batched name lookup for all four "best" ids instead of four
+    // separate sequential single-row queries.
+    const bestIds = [bestEmployee?.id, bestDistributor?.id, bestSubDealer?.id, bestInstaller?.id].filter(
+      (id): id is string => !!id
+    );
+    const nameById = new Map<string, string>();
+    if (bestIds.length > 0) {
+      const { data: bestProfiles } = await supabase.from("profiles").select("id, first_name, last_name").in("id", bestIds);
+      (bestProfiles || []).forEach((p: any) => nameById.set(p.id, `${p.first_name} ${p.last_name || ""}`.trim()));
+    }
+
+    if (bestEmployee && nameById.has(bestEmployee.id)) {
+      topEmployee = nameById.get(bestEmployee.id)!;
+      topEmployeeVol = bestEmployee.count;
+    }
+    if (bestDistributor && nameById.has(bestDistributor.id)) {
+      topDistributor = nameById.get(bestDistributor.id)!;
+      topDistributorVol = bestDistributor.count;
+    }
+    if (bestSubDealer && nameById.has(bestSubDealer.id)) {
+      topSubDealer = nameById.get(bestSubDealer.id)!;
+      topSubDealerVol = bestSubDealer.count;
+    }
+    if (bestInstaller && nameById.has(bestInstaller.id)) {
+      topInstaller = nameById.get(bestInstaller.id)!;
+      topInstallerVol = bestInstaller.count;
     }
   } catch (e) {
     console.warn("Error calculating top performers:", e);
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 select-none">
       {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Home</h1>
-        <p className="text-xs text-slate-500">Welcome to your CoreTECH operations control panel.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Home</h1>
+          <p className="text-xs text-slate-500">Welcome to your CoreTECH operations control panel.</p>
+        </div>
+        <HomeDateRangeFilter />
       </div>
 
       {/* KPI Cards Grid with Loader Suspense */}
@@ -780,7 +861,7 @@ export default async function DashboardPage() {
           </div>
         }
       >
-        <DashboardStats />
+        <DashboardStats dateRange={dateRange} />
       </Suspense>
 
       {/* Cross-Role Reporting Operations Summary */}
@@ -861,7 +942,7 @@ export default async function DashboardPage() {
         {/* Inventory & Stock Health Alerts */}
         <div className="lg:col-span-1">
           <Suspense fallback={<div className="h-64 bg-slate-100 rounded-[8px] animate-pulse"></div>}>
-            <InventoryHealthPanel lowStockAlerts={lowStockAlerts} agingStock={agingStock} />
+            <InventoryHealthPanel agingStock={agingStock} />
           </Suspense>
         </div>
 
@@ -900,8 +981,8 @@ export default async function DashboardPage() {
                     Top Employee
                   </td>
                   <td className="px-5 py-3.5 font-bold text-slate-800">{topEmployee}</td>
-                  <td className="px-5 py-3.5 text-slate-500">Active Resolver Standings</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-indigo-600">Active</td>
+                  <td className="px-5 py-3.5 text-slate-500">Buzzcart units coordinated</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-indigo-600">{topEmployeeVol} Units</td>
                 </tr>
                 <tr className="hover:bg-slate-50/30 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-400 uppercase tracking-wider text-[9px] flex items-center gap-1.5">
@@ -909,8 +990,8 @@ export default async function DashboardPage() {
                     Top Distributor
                   </td>
                   <td className="px-5 py-3.5 font-bold text-slate-800">{topDistributor}</td>
-                  <td className="px-5 py-3.5 text-slate-500">Distribution Hub Champion</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-emerald-600">Active</td>
+                  <td className="px-5 py-3.5 text-slate-500">ST-2 units sent</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-emerald-600">{topDistributorVol} Units</td>
                 </tr>
                 <tr className="hover:bg-slate-50/30 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-400 uppercase tracking-wider text-[9px] flex items-center gap-1.5">
@@ -918,8 +999,8 @@ export default async function DashboardPage() {
                     Top Sub Dealer
                   </td>
                   <td className="px-5 py-3.5 font-bold text-slate-800">{topSubDealer}</td>
-                  <td className="px-5 py-3.5 text-slate-500">Retail Sales Lead</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-amber-600">Active</td>
+                  <td className="px-5 py-3.5 text-slate-500">ST-2 received + Sell Out units</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-amber-600">{topSubDealerVol} Units</td>
                 </tr>
                 <tr className="hover:bg-slate-50/30 transition-colors">
                   <td className="px-5 py-3.5 font-bold text-slate-400 uppercase tracking-wider text-[9px] flex items-center gap-1.5">
@@ -927,8 +1008,8 @@ export default async function DashboardPage() {
                     Top Installer
                   </td>
                   <td className="px-5 py-3.5 font-bold text-slate-800">{topInstaller}</td>
-                  <td className="px-5 py-3.5 text-slate-500">Field Deployment Champion</td>
-                  <td className="px-5 py-3.5 text-right font-bold text-rose-600">Active</td>
+                  <td className="px-5 py-3.5 text-slate-500">Completed installation jobs</td>
+                  <td className="px-5 py-3.5 text-right font-bold text-rose-600">{topInstallerVol} Jobs</td>
                 </tr>
               </tbody>
             </table>

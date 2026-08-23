@@ -5,9 +5,16 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
-import { deleteUserAction, updateRecordAction } from "@/app/actions/users";
+import {
+  deleteUserAction,
+  fetchEmailsByIdsAction,
+  verifyInstallerStage1Action,
+  approveInstallerStage2Action,
+  rejectInstallerStage1Action,
+  rejectInstallerStage2Action,
+} from "@/app/actions/users";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
-import { Clock, Check, X, Eye, UserCheck, Calendar, CheckCircle } from "lucide-react";
+import { Clock, Check, X, Eye, UserCheck, Calendar, CheckCircle, QrCode } from "lucide-react";
 
 interface InstallerProfile {
   id: string;
@@ -38,7 +45,15 @@ export default function InstallerListPage() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+  const [qrOrigin, setQrOrigin] = useState("http://localhost:3000");
   const perPage = 10;
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setQrOrigin(window.location.origin);
+    }
+  }, []);
 
   const applyPreset = (preset: 'today' | '7days' | '30days' | 'thisMonth' | 'all') => {
     const today = new Date();
@@ -164,16 +179,22 @@ export default function InstallerListPage() {
   const fetchInstallers = async () => {
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      const profilesRes = await supabase
         .from("profiles")
         .select("*")
         .eq("role", "installer")
         .order("created_at", { ascending: false });
 
-      if (error) throw error;
+      if (profilesRes.error) throw profilesRes.error;
+      const data = profilesRes.data;
+
+      // Real emails live in auth.users - profiles has no email column of its own.
+      const emailsRes = await fetchEmailsByIdsAction((data || []).map((p: any) => p.id));
+      const emailMap = emailsRes.success ? emailsRes.data : {};
 
       const formatted = (data || []).map((prof: any) => ({
         ...prof,
+        email: emailMap[prof.id] || "",
         installer_id: (prof.id || "").substring(0, 8).toUpperCase(), // readable installer ID prefix
         installer_name: `${prof.first_name || ""} ${prof.last_name || ""}`.trim() || "Installer",
       }));
@@ -217,19 +238,13 @@ export default function InstallerListPage() {
 
   const handleVerifyInstaller = async (instId: string) => {
     try {
-      const updateData = {
-        status: "pending_approval",
-        verified_by: currentUserProfile?.id || null,
-        verified_at: new Date().toISOString(),
-        verification_note: "Credentials and documents verified by Retail Manager."
-      };
-      const res = await updateRecordAction("profiles", instId, updateData);
+      const res = await verifyInstallerStage1Action(instId);
       if (!res.success) throw new Error(res.error);
 
       const localProfiles = getLocalItems("profiles") || [];
       const index = localProfiles.findIndex((p: any) => p.id === instId);
       if (index > -1) {
-        Object.assign(localProfiles[index], updateData);
+        Object.assign(localProfiles[index], { status: "pending_approval" });
         localStorage.setItem("profiles", JSON.stringify(localProfiles));
       }
 
@@ -243,19 +258,13 @@ export default function InstallerListPage() {
 
   const handleApproveInstaller = async (instId: string) => {
     try {
-      const updateData = {
-        status: "active",
-        approved_by: currentUserProfile?.id || null,
-        approved_at: new Date().toISOString(),
-        approval_note: "Final approval granted by Country Head."
-      };
-      const res = await updateRecordAction("profiles", instId, updateData);
+      const res = await approveInstallerStage2Action(instId);
       if (!res.success) throw new Error(res.error);
 
       const localProfiles = getLocalItems("profiles") || [];
       const index = localProfiles.findIndex((p: any) => p.id === instId);
       if (index > -1) {
-        Object.assign(localProfiles[index], updateData);
+        Object.assign(localProfiles[index], { status: "active" });
         localStorage.setItem("profiles", JSON.stringify(localProfiles));
       }
 
@@ -267,10 +276,13 @@ export default function InstallerListPage() {
     }
   };
 
-  const handleRejectInstaller = async (instId: string) => {
+  const handleRejectInstaller = async (instId: string, stage: "stage1" | "stage2") => {
     if (!window.confirm("Are you sure you want to reject this installer registration?")) return;
     try {
-      const res = await deleteUserAction(instId);
+      const res =
+        stage === "stage2"
+          ? await rejectInstallerStage2Action(instId)
+          : await rejectInstallerStage1Action(instId);
       if (!res.success) throw new Error(res.error);
 
       const localProfiles = getLocalItems("profiles") || [];
@@ -419,13 +431,23 @@ export default function InstallerListPage() {
               cleanText = parsed.designation || "Installer";
             } catch (e) { }
           } else {
-            cleanText = val;
+            cleanText = row.marital_status ? `Installer (${row.marital_status})` : val;
           }
         }
-        return <span className="text-slate-650 font-semibold">{cleanText}</span>;
+        return <span className="text-slate-600 font-semibold">{cleanText}</span>;
       }
     },
     { key: "contact", label: "Contact Phone" },
+    {
+      key: "payment_provider",
+      label: "Bank Account Type",
+      render: (val: string) => <span>{val || "-"}</span>,
+    },
+    {
+      key: "payment_account_no",
+      label: "Bank Account Number",
+      render: (val: string) => <span>{val || "-"}</span>,
+    },
     {
       key: "status",
       label: "Status",
@@ -505,7 +527,7 @@ export default function InstallerListPage() {
       render: (_: string, row: any) => (
         <button
           onClick={() => setSelectedInstaller(row)}
-          className="flex items-center gap-1.5 px-3 py-1 hover:bg-[#F0FAFE] hover:text-[#00B4D8] border border-slate-200 text-slate-650 rounded-[4px] text-[11px] font-bold transition-all"
+          className="flex items-center gap-1.5 px-3 py-1 hover:bg-[#F0FAFE] hover:text-[#00B4D8] border border-slate-200 text-slate-600 rounded-[6px] text-[11px] font-bold transition-all"
         >
           <UserCheck className="w-3.5 h-3.5" />
           Audit Trail
@@ -548,17 +570,27 @@ export default function InstallerListPage() {
     <div className="space-y-6 select-none">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Installers</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Verify Installer</h1>
           <p className="text-xs text-slate-500">
             Monitor registration, designation and active status for installation field staff.
           </p>
         </div>
 
+        <div className="flex items-center gap-2 shrink-0">
+        {/* Installer Registration QR Code trigger */}
+        <button
+          onClick={() => setIsQrModalOpen(true)}
+          className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-[6px] text-xs font-bold shadow-sm transition-all"
+        >
+          <QrCode className="w-4 h-4 text-[#00B4D8]" />
+          Installer QR Code
+        </button>
+
         {/* Floating Custom Date Range Picker */}
         <div className="relative shrink-0">
           <button
             onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
-            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-[8px] text-xs font-bold shadow-sm transition-all"
+            className="flex items-center gap-2 px-3.5 py-2 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-[6px] text-xs font-bold shadow-sm transition-all"
           >
             <Calendar className="w-4 h-4 text-slate-500" />
             <span>
@@ -628,6 +660,7 @@ export default function InstallerListPage() {
             </div>
           )}
         </div>
+        </div>
       </div>
 
       {/* KPI summaries row with interactive filtering */}
@@ -655,7 +688,7 @@ export default function InstallerListPage() {
             <Clock className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 1: Pending RM</p>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 1: Pending Retail Manager</p>
             <p className="text-base font-extrabold text-slate-800">{pendingRmCount} Installer(s)</p>
           </div>
         </div>
@@ -669,7 +702,7 @@ export default function InstallerListPage() {
             <UserCheck className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 2: Pending CH</p>
+            <p className="text-slate-500 text-[9px] font-bold uppercase tracking-wider">Stage 2: Pending Country Head</p>
             <p className="text-base font-extrabold text-slate-800">{pendingChCount} Installer(s)</p>
           </div>
         </div>
@@ -753,7 +786,7 @@ export default function InstallerListPage() {
               </div>
               <button
                 onClick={() => setSelectedInstaller(null)}
-                className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-655 rounded-full"
+                className="p-1 hover:bg-slate-100 text-slate-500 hover:text-slate-600 rounded-full"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -788,19 +821,21 @@ export default function InstallerListPage() {
                 <div>
                   <p className="text-[9px] font-extrabold text-slate-700 uppercase">Marital Status</p>
                   <p className="font-bold text-slate-900 mt-0.5">
-                    {parseInstallerMetadata(selectedInstaller.designation).marital_status || "Single"}
+                    {selectedInstaller.marital_status || parseInstallerMetadata(selectedInstaller.designation).marital_status || "Single"}
                   </p>
                 </div>
                 <div>
                   <p className="text-[9px] font-extrabold text-slate-700 uppercase">EasyPaisa / JazzCash No.</p>
                   <p className="font-bold text-emerald-700 mt-0.5">
-                    {parseInstallerMetadata(selectedInstaller.designation).easypaisa_jazzcash_no || "-"}
+                    {selectedInstaller.payment_provider && selectedInstaller.payment_account_no
+                      ? `${selectedInstaller.payment_provider}: ${selectedInstaller.payment_account_no}`
+                      : parseInstallerMetadata(selectedInstaller.designation).easypaisa_jazzcash_no || "-"}
                   </p>
                 </div>
                 <div>
                   <p className="text-[9px] font-extrabold text-slate-700 uppercase">Gmail / Email Address</p>
                   <p className="font-bold text-[#0077B6] mt-0.5">
-                    {parseInstallerMetadata(selectedInstaller.designation).email || selectedInstaller.email || "-"}
+                    {selectedInstaller.email || parseInstallerMetadata(selectedInstaller.designation).email || "-"}
                   </p>
                 </div>
                 <div className="col-span-2">
@@ -875,32 +910,47 @@ export default function InstallerListPage() {
               <div className="flex items-center justify-between pt-4 border-t border-slate-100 mt-6">
                 <div className="flex items-center gap-2">
                   {(selectedInstaller.status === "pending_verification" || selectedInstaller.status === "pending") && (
-                    <button
-                      onClick={() => handleVerifyInstaller(selectedInstaller.id)}
-                      className="h-9 px-4 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-[6px] shadow transition-colors flex items-center gap-1.5"
-                    >
-                      <UserCheck className="w-3.5 h-3.5" />
-                      Verify Credentials (Stage 1)
-                    </button>
+                    <>
+                      {(currentUserProfile?.role === "retail_manager" || currentUserProfile?.role === "country_head" || currentUserProfile?.role === "admin") && (
+                        <button
+                          onClick={() => handleVerifyInstaller(selectedInstaller.id)}
+                          className="h-9 px-4 text-xs font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-[6px] shadow transition-colors flex items-center gap-1.5"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          Verify Credentials (Stage 1)
+                        </button>
+                      )}
+                      {(currentUserProfile?.role === "retail_manager" || currentUserProfile?.role === "country_head" || currentUserProfile?.role === "admin") && (
+                        <button
+                          onClick={() => handleRejectInstaller(selectedInstaller.id, "stage1")}
+                          className="h-9 px-3.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-[6px] border border-rose-200 transition-colors"
+                        >
+                          Reject
+                        </button>
+                      )}
+                    </>
                   )}
 
                   {(selectedInstaller.status === "pending_approval" || selectedInstaller.status === "verified") && (
-                    <button
-                      onClick={() => handleApproveInstaller(selectedInstaller.id)}
-                      className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-[6px] shadow transition-colors flex items-center gap-1.5"
-                    >
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      Approve & Activate (Stage 2)
-                    </button>
-                  )}
-
-                  {selectedInstaller.status !== "active" && selectedInstaller.status !== "approved" && (
-                    <button
-                      onClick={() => handleRejectInstaller(selectedInstaller.id)}
-                      className="h-9 px-3.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-[6px] border border-rose-200 transition-colors"
-                    >
-                      Reject
-                    </button>
+                    <>
+                      {(currentUserProfile?.role === "country_head" || currentUserProfile?.role === "admin") && (
+                        <button
+                          onClick={() => handleApproveInstaller(selectedInstaller.id)}
+                          className="h-9 px-4 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-[6px] shadow transition-colors flex items-center gap-1.5"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Approve & Activate (Stage 2)
+                        </button>
+                      )}
+                      {(currentUserProfile?.role === "country_head" || currentUserProfile?.role === "admin") && (
+                        <button
+                          onClick={() => handleRejectInstaller(selectedInstaller.id, "stage2")}
+                          className="h-9 px-3.5 text-xs font-bold bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-[6px] border border-rose-200 transition-colors"
+                        >
+                          Reject
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -913,6 +963,58 @@ export default function InstallerListPage() {
               </div>
 
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Installer Registration QR Code Modal */}
+      {isQrModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            onClick={() => setIsQrModalOpen(false)}
+            className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm"
+          ></div>
+
+          <div className="relative bg-white w-full max-w-sm border border-slate-100 rounded-[12px] shadow-2xl p-6 flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center w-full pb-3 border-b border-slate-100 mb-4">
+              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                Installer Registration QR Code
+              </h3>
+              <button
+                onClick={() => setIsQrModalOpen(false)}
+                className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white border border-slate-200 rounded-[12px] p-4 mx-auto flex items-center justify-center shadow-inner">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(qrOrigin + "/installer/register")}`}
+                  alt="installer-registration-qr"
+                  className="w-40 h-40 object-contain"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs font-bold text-slate-800">Scan to Circulate Registration Form</p>
+                <p className="text-[10px] text-slate-500 leading-relaxed px-4">
+                  Let the new installer scan this QR code on their mobile device to open the verification form.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border rounded-[8px] p-2 text-[10px] text-slate-600 font-mono break-all select-all">
+                {qrOrigin}/installer/register
+              </div>
+            </div>
+
+            <button
+              onClick={() => setIsQrModalOpen(false)}
+              className="mt-6 w-full h-9 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-[6px]"
+            >
+              Done
+            </button>
           </div>
         </div>
       )}

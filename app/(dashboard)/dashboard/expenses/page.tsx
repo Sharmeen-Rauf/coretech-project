@@ -1,10 +1,17 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
-import { Loader2, Plus, X, Check, FileText } from "lucide-react";
+import { Loader2, Plus, X, Trash2, Check, ImagePlus } from "lucide-react";
 import toast from "react-hot-toast";
+import {
+  fetchExpensesAction,
+  submitExpenseAction,
+  deleteExpenseAction,
+  updateExpenseStatusAction,
+  fetchExpenseSubmittersAction,
+} from "@/app/actions/expenses";
 
 interface ExpenseRow {
   id: string;
@@ -13,15 +20,24 @@ interface ExpenseRow {
   amount: number;
   category: string;
   date: string;
-  status: string;
   description: string;
+  status: string;
+  receipt_urls: string[];
+}
+
+interface SubmitterOption {
+  id: string;
+  first_name: string;
+  last_name: string | null;
+  role: string;
 }
 
 export default function ExpensesPage() {
   const supabase = createClientComponentClient();
   const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [userRole, setUserRole] = useState<string>("");
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
+  const [userRole, setUserRole] = useState("");
 
   // Modal states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -31,48 +47,33 @@ export default function ExpensesPage() {
   const [date, setDate] = useState(() => new Date().toLocaleDateString('en-CA'));
   const [description, setDescription] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [receiptFiles, setReceiptFiles] = useState<File[]>([]);
+  const [isUploadingReceipts, setIsUploadingReceipts] = useState(false);
+  const [submitters, setSubmitters] = useState<SubmitterOption[]>([]);
+  const [onBehalfOfRole, setOnBehalfOfRole] = useState("");
+  const [onBehalfOfUserId, setOnBehalfOfUserId] = useState("");
 
   const fetchExpenses = async () => {
     setIsLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
- 
-      let roleStr = "employee";
-      try {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role")
-          .eq("id", session.user.id)
-          .single();
-        if (profile?.role) roleStr = profile.role;
-      } catch (profileErr) {
-        console.warn("Failed to fetch user role. Defaulting to employee.", profileErr);
-      }
-      setUserRole(roleStr);
- 
+
+      // Scoped server-side (role_permissions.scope_level for "expenses") via
+      // getCallerIdentity - not a client-resolved role, which was the only real
+      // barrier here given expenses' fully permissive RLS policy.
       let dbData: any[] = [];
       try {
-        let query = supabase
-          .from("expenses")
-          .select(`
-            id,
-            title,
-            amount,
-            category,
-            date,
-            status,
-            description,
-            profile:profiles!user_id(first_name, last_name)
-          `);
- 
-        if (roleStr === "employee") {
-          query = query.eq("user_id", session.user.id);
+        const res = await fetchExpensesAction();
+        if (!res.success) throw new Error(res.error);
+        dbData = res.data || [];
+        setCanWrite(!!res.canWrite);
+        setUserRole(res.role || "");
+
+        if (res.role === "admin") {
+          const subRes = await fetchExpenseSubmittersAction();
+          if (subRes.success) setSubmitters(subRes.data);
         }
- 
-        const { data, error } = await query.order("date", { ascending: false });
-        if (error) throw error;
-        dbData = data || [];
       } catch (dbErr) {
         console.warn("Failed to fetch expenses from Supabase. Using local fallback.", dbErr);
       }
@@ -87,8 +88,9 @@ export default function ExpensesPage() {
         amount: Number(row.amount),
         category: row.category,
         date: row.date ? new Date(row.date).toLocaleDateString() : "-",
-        status: row.status,
         description: row.description || "-",
+        status: row.status || "pending",
+        receipt_urls: Array.isArray(row.receipt_urls) ? row.receipt_urls : [],
       }));
  
       setExpenses(formatted);
@@ -112,76 +114,110 @@ export default function ExpensesPage() {
  
     setIsSubmitting(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No authenticated user session found");
- 
-      const newExpense = {
-        user_id: user.id,
-        title,
-        amount: parseFloat(amount),
-        category,
-        date,
-        description,
-        status: "pending",
-      };
-
-      try {
-        const { error } = await supabase.from("expenses").insert(newExpense);
-        if (error) throw error;
-        toast.success("Expense claim successfully submitted!");
-      } catch (dbErr) {
-        console.warn("Supabase expense insert failed. Falling back to local storage.", dbErr);
-        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
-        saveLocalItem("coretech_local_expenses", newExpense);
-        toast.success("Expense claim successfully submitted locally (Database fallback)!");
+      let receiptUrls: string[] = [];
+      if (receiptFiles.length > 0) {
+        setIsUploadingReceipts(true);
+        try {
+          for (const file of receiptFiles) {
+            const fileExt = file.name.split(".").pop();
+            const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+            const filePath = `expense-receipts/${fileName}`;
+            const { error: uploadErr } = await supabase.storage.from("job-photos").upload(filePath, file);
+            if (uploadErr) throw uploadErr;
+            const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
+            receiptUrls.push(pUrl.publicUrl);
+          }
+        } catch (uploadErr) {
+          console.error("Receipt upload failed:", uploadErr);
+          toast.error("Failed to upload one or more receipt images");
+        } finally {
+          setIsUploadingReceipts(false);
+        }
       }
- 
+
+      // Real server action now, gated by role_permissions.can_write for "expenses" -
+      // an explicit denial must never fall back to local storage, since that would
+      // let a read-only user "submit" locally as if the write actually went through.
+      const res = await submitExpenseAction({
+        title, amount: parseFloat(amount), category, date, description,
+        receiptUrls,
+        onBehalfOfUserId: userRole === "admin" ? onBehalfOfUserId : undefined,
+      });
+      if (!res.success) {
+        toast.error(res.error || "Failed to submit expense");
+        return;
+      }
+      toast.success("Expense claim successfully submitted!");
       setIsModalOpen(false);
       setTitle("");
       setAmount("");
       setDescription("");
+      setReceiptFiles([]);
+      setOnBehalfOfRole(""); setOnBehalfOfUserId("");
       fetchExpenses();
     } catch (err: any) {
-      toast.error(err.message || "Failed to submit expense");
+      // Genuine unexpected failure (network, etc.), not a permission denial - the
+      // local fallback still makes sense here.
+      console.warn("submitExpenseAction failed unexpectedly. Falling back to local storage.", err);
+      const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
+      saveLocalItem("coretech_local_expenses", {
+        title, amount: parseFloat(amount), category, date, description, status: "pending",
+      });
+      toast.success("Expense claim successfully submitted locally (Database fallback)!");
+      setIsModalOpen(false);
+      setTitle("");
+      setAmount("");
+      setDescription("");
+      setReceiptFiles([]);
+      setOnBehalfOfRole(""); setOnBehalfOfUserId("");
+      fetchExpenses();
     } finally {
       setIsSubmitting(false);
     }
   };
- 
-  const handleUpdateStatus = async (id: string, newStatus: string) => {
+
+  const handleDeleteExpense = async (id: string) => {
+    if (!window.confirm("Are you sure you want to delete this expense entry? This cannot be undone.")) return;
+
     try {
-      try {
-        const { error } = await supabase
-          .from("expenses")
-          .update({ status: newStatus })
-          .eq("id", id);
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Supabase expense status update failed. Falling back to local storage.", dbErr);
-        const { saveLocalItem } = require("@/lib/supabaseLocalFallback");
-        const target = expenses.find((e) => e.id === id);
-        if (target) {
-          saveLocalItem("coretech_local_expenses", { ...target, status: newStatus }, true);
-        }
+      const res = await deleteExpenseAction(id);
+      if (!res.success) {
+        toast.error(res.error || "Failed to delete expense");
+        return;
       }
- 
-      // Log activity safely
-      try {
-        const target = expenses.find((e) => e.id === id);
-        await supabase.from("activity_logs").insert({
-          action: "Expense Audit Update",
-          details: `Expense claim "${target?.title}" was ${newStatus}d`,
-        });
-      } catch (logErr) {
-        console.warn("Activity log insert failed:", logErr);
+
+      const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
+      deleteLocalItem("coretech_local_expenses", id, "id");
+
+      toast.success("Expense entry deleted successfully!");
+      fetchExpenses();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete expense");
+    }
+  };
+
+  const handleUpdateStatus = async (id: string, status: "approved" | "rejected") => {
+    try {
+      const res = await updateExpenseStatusAction(id, status);
+      if (!res.success) {
+        toast.error(res.error || "Failed to update expense status");
+        return;
       }
- 
-      toast.success(`Expense successfully ${newStatus}d!`);
+      toast.success(`Expense ${status}`);
       fetchExpenses();
     } catch (err: any) {
       toast.error(err.message || "Failed to update expense status");
     }
   };
+
+  const availableSubmitterRoles = useMemo(
+    () => Array.from(new Set(submitters.map((s) => s.role))).sort(),
+    [submitters]
+  );
+  const filteredSubmitters = useMemo(
+    () => (onBehalfOfRole ? submitters.filter((s) => s.role === onBehalfOfRole) : submitters),
+    [submitters, onBehalfOfRole]
+  );
 
   const baseColumns = [
     { key: "user_name", label: "Employee" },
@@ -197,47 +233,86 @@ export default function ExpensesPage() {
       render: (val: string) => <span className="capitalize">{val}</span>,
     },
     { key: "date", label: "Date" },
+    { key: "description", label: "Description" },
+    {
+      key: "receipt_urls",
+      label: "Receipts",
+      excludeFromExport: true,
+      render: (val: string[]) =>
+        val && val.length > 0 ? (
+          <div className="flex gap-1">
+            {val.map((url, idx) => (
+              <a
+                key={idx}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-1 hover:bg-sky-50 text-sky-600 rounded border border-sky-100 transition-colors"
+                title="View receipt"
+              >
+                <ImagePlus className="w-4 h-4" />
+              </a>
+            ))}
+          </div>
+        ) : (
+          <span className="text-slate-300">-</span>
+        ),
+    },
     {
       key: "status",
       label: "Status",
       render: (val: string) => (
-        <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
-          val === "approved" ? "bg-emerald-50 text-emerald-600 border border-emerald-200" :
-          val === "rejected" ? "bg-rose-50 text-rose-600 border border-rose-200" :
-          "bg-amber-50 text-amber-600 border border-amber-200"
-        }`}>
+        <span
+          className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${
+            val === "approved"
+              ? "bg-emerald-50 text-emerald-600 border-emerald-100"
+              : val === "rejected"
+              ? "bg-rose-50 text-rose-500 border-rose-100"
+              : "bg-amber-50 text-amber-500 border-amber-100"
+          }`}
+        >
           {val}
         </span>
       ),
     },
   ];
 
-  const columns = userRole === "employee" ? baseColumns : [
+  // Delete is available to anyone with real write access; Approve/Reject reuse
+  // the same flag and only make sense while a claim is still pending.
+  const columns = !canWrite ? baseColumns : [
     ...baseColumns,
     {
       key: "id",
-      label: "Audit",
-      render: (val: string, row: any) => {
-        if (row.status !== "pending") return <span className="text-slate-400 text-xs">Reviewed</span>;
-        return (
-          <div className="flex gap-2">
-            <button
-              onClick={() => handleUpdateStatus(val, "approved")}
-              className="p-1 hover:bg-emerald-50 text-emerald-600 rounded border border-emerald-100 transition-colors"
-              title="Approve Claim"
-            >
-              <Check className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleUpdateStatus(val, "rejected")}
-              className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
-              title="Reject Claim"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        );
-      },
+      label: "Actions",
+      render: (val: string, row: any) => (
+        <div className="flex items-center gap-1.5">
+          {row.status === "pending" && (
+            <>
+              <button
+                onClick={() => handleUpdateStatus(val, "approved")}
+                className="p-1 hover:bg-emerald-50 text-emerald-600 rounded border border-emerald-100 transition-colors"
+                title="Approve"
+              >
+                <Check className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => handleUpdateStatus(val, "rejected")}
+                className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
+                title="Reject"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => handleDeleteExpense(val)}
+            className="p-1 hover:bg-rose-50 text-rose-600 rounded border border-rose-100 transition-colors"
+            title="Delete Entry"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      ),
     },
   ];
 
@@ -259,38 +334,34 @@ export default function ExpensesPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            const today = new Date().toLocaleDateString('en-CA');
-            setDate(today);
-            setIsModalOpen(true);
-          }}
-          className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Submit Expense
-        </button>
+        {canWrite && (
+          <button
+            onClick={() => {
+              const today = new Date().toLocaleDateString('en-CA');
+              setDate(today);
+              setIsModalOpen(true);
+            }}
+            className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Submit Expense
+          </button>
+        )}
       </div>
 
-      {isLoading ? (
-        <div className="min-h-[40vh] flex items-center justify-center">
-          <Loader2 className="w-8 h-8 text-[#00B4D8] animate-spin" />
-        </div>
-      ) : (
-        <DataTable allData={expenses}
-          title="Expenses Ledger"
-          columns={columns}
-          data={paginated}
-          isLoading={false}
-          searchPlaceholder="Search Expenses..."
-          pagination={{
-            current: currentPage,
-            total: expenses.length,
-            perPage: perPage,
-            onChange: (page) => setCurrentPage(page),
-          }}
-        />
-      )}
+      <DataTable allData={expenses}
+        title="Expenses Ledger"
+        columns={columns}
+        data={paginated}
+        isLoading={isLoading}
+        searchPlaceholder="Search Expenses..."
+        pagination={{
+          current: currentPage,
+          total: expenses.length,
+          perPage: perPage,
+          onChange: (page) => setCurrentPage(page),
+        }}
+      />
 
       {/* Expense Submission Modal */}
       {isModalOpen && (
@@ -314,6 +385,52 @@ export default function ExpensesPage() {
             </div>
 
             <form onSubmit={handleCreateExpense} className="space-y-4">
+              {userRole === "admin" && (
+                <>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                      File On Behalf Of - Role
+                    </label>
+                    <select
+                      value={onBehalfOfRole}
+                      onChange={(e) => {
+                        setOnBehalfOfRole(e.target.value);
+                        setOnBehalfOfUserId("");
+                      }}
+                      className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white capitalize focus:outline-none focus:border-[#00B4D8]"
+                    >
+                      <option value="">Myself</option>
+                      {availableSubmitterRoles.map((r) => (
+                        <option key={r} value={r} className="capitalize">
+                          {r}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {onBehalfOfRole && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                        Person*
+                      </label>
+                      <select
+                        value={onBehalfOfUserId}
+                        onChange={(e) => setOnBehalfOfUserId(e.target.value)}
+                        className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8]"
+                        required
+                      >
+                        <option value="">Select a person</option>
+                        {filteredSubmitters.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.first_name} {s.last_name || ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
+
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                   Title*
@@ -386,6 +503,22 @@ export default function ExpensesPage() {
                 />
               </div>
 
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Receipt Images
+                </label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => setReceiptFiles(Array.from(e.target.files || []))}
+                  className="w-full text-xs text-slate-600 file:mr-3 file:h-8 file:px-3 file:rounded-[6px] file:border-0 file:bg-[#F0FAFE] file:text-[#00B4D8] file:text-xs file:font-semibold"
+                />
+                {receiptFiles.length > 0 && (
+                  <p className="text-[10px] text-slate-500 mt-1">{receiptFiles.length} file(s) selected</p>
+                )}
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100 mt-6">
                 <button
                   type="button"
@@ -396,7 +529,7 @@ export default function ExpensesPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || isUploadingReceipts}
                   className="h-9 px-4 text-xs font-semibold text-white bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/60 rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
                 >
                   {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

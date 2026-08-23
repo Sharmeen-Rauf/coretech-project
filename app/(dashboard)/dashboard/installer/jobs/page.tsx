@@ -23,13 +23,23 @@ import {
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import { deleteRecordAction } from "@/app/actions/users";
-import { revertRejectedInstallationStockAction } from "@/app/actions/products";
+import {
+  revertRejectedInstallationStockAction,
+  verifyJobStage1Action,
+  approveJobStage2Action,
+  rejectJobStage1Action,
+  rejectJobStage2Action,
+  setJobPaymentPaidAction,
+} from "@/app/actions/products";
 
 interface JobRow {
   id: string;
   job_title: string;
   address: string;
   installer_name: string;
+  installer_contact: string;
+  installer_bank_type: string;
+  installer_bank_account: string;
   status: string;
   payment_status: string;
   created_at: string;
@@ -38,6 +48,8 @@ interface JobRow {
   serial_number: string;
   remarks: string;
   incentive: number;
+  isDuplicateSerial: boolean;
+  duplicateSerialCount: number;
 }
 
 export default function AdminJobsPage() {
@@ -91,7 +103,7 @@ export default function AdminJobsPage() {
             serial_number,
             remarks,
             incentive,
-            installer:profiles!installer_id(first_name, last_name, contact)
+            installer:profiles!installer_id(first_name, last_name, contact, payment_provider, payment_account_no)
           `)
           .order("created_at", { ascending: false }),
         supabase
@@ -118,11 +130,14 @@ export default function AdminJobsPage() {
         if (notesText.startsWith("[METADATA]")) {
           try {
             const firstLine = notesText.split("\n")[0];
-            notesText = notesText.substring(firstLine.length + 1);
+            // Keep notesText intact (including the VIDEO: tag) — the detail panel
+            // below re-parses it to find the installation video URL. Only use
+            // firstLine locally to read out SN/INC/REM.
             const metaStr = firstLine.replace("[METADATA] ", "");
             const parts = metaStr.split(" | ");
             parts.forEach((part: string) => {
-              const [key, val] = part.split(":");
+              const [key, ...rest] = part.split(":");
+              const val = rest.join(":");
               if (key === "SN") sn = val;
               else if (key === "INC") inc = parseFloat(val) || 0;
               else if (key === "REM") rem = val;
@@ -130,8 +145,8 @@ export default function AdminJobsPage() {
           } catch (e) {}
         }
 
-        const instName = row.installer 
-          ? `${row.installer.first_name} ${row.installer.last_name || ""}`.trim() 
+        const instName = row.installer
+          ? `${row.installer.first_name} ${row.installer.last_name || ""}`.trim()
           : "Unassigned";
 
         return {
@@ -139,24 +154,49 @@ export default function AdminJobsPage() {
           job_title: row.job_title || "Site Installation",
           address: row.address || "-",
           installer_name: instName,
+          installer_contact: row.installer?.contact || "-",
+          installer_bank_type: row.installer?.payment_provider || "-",
+          installer_bank_account: row.installer?.payment_account_no || "-",
           status: row.status || "pending_verification",
           payment_status: row.payment_status || "unpaid",
-          created_at: row.created_at 
-            ? new Date(row.created_at).toLocaleString("en-GB", { 
-                day: "2-digit", 
-                month: "2-digit", 
-                year: "numeric", 
-                hour: "2-digit", 
-                minute: "2-digit", 
-                hour12: true 
-              }) 
+          created_at: row.created_at
+            ? new Date(row.created_at).toLocaleString("en-GB", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: true
+              })
             : "-",
           photos: row.photos || [],
           notes: notesText,
           serial_number: sn,
           remarks: rem,
           incentive: inc,
+          isDuplicateSerial: false,
+          duplicateSerialCount: 0,
         };
+      });
+
+      // Flag serial numbers shared by more than one still-relevant (non-rejected) job —
+      // the item stays live in inventory until final approval, so multiple installers
+      // can legitimately submit against the same serial while pending. Surface that as
+      // a badge instead of silently blocking it.
+      const activeSerialCounts = new Map<string, number>();
+      formatted.forEach((j) => {
+        const sn = j.serial_number.trim().toLowerCase();
+        const isActive = j.status.trim().toLowerCase() !== "rejected";
+        if (sn && isActive) {
+          activeSerialCounts.set(sn, (activeSerialCounts.get(sn) || 0) + 1);
+        }
+      });
+      formatted.forEach((j) => {
+        const sn = j.serial_number.trim().toLowerCase();
+        const isActive = j.status.trim().toLowerCase() !== "rejected";
+        const count = sn && isActive ? (activeSerialCounts.get(sn) || 0) : 0;
+        j.isDuplicateSerial = count > 1;
+        j.duplicateSerialCount = count;
       });
 
       setJobs(formatted);
@@ -329,43 +369,25 @@ export default function AdminJobsPage() {
     }
   };
 
-  const handleMarkPaymentPaid = async (id: string) => {
+  const [payingJobId, setPayingJobId] = useState<string | null>(null);
+
+  const handleMarkPaymentPaid = async (id: string, jobLabel: string) => {
+    if (!window.confirm(`Mark the incentive for "${jobLabel}" as PAID? This cannot be undone.`)) return;
+
+    setPayingJobId(id);
     try {
-      try {
-        const { error } = await supabase
-          .from("installer_jobs")
-          .update({ payment_status: "paid" })
-          .eq("id", id);
+      const res = await setJobPaymentPaidAction(id);
+      if (!res.success) throw new Error(res.error || "Failed to settle payment");
 
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Database payment update failed. Saving locally.", dbErr);
-        const localJobs = getLocalItems("coretech_local_installer_jobs");
-        const match = localJobs.find((j: any) => j.id === id);
-        const updated = {
-          ...(match || { id }),
-          payment_status: "paid",
-        };
-        saveLocalItem("coretech_local_installer_jobs", updated, true);
-      }
-
-      try {
-        const target = jobs.find((j) => j.id === id);
-        await supabase.from("activity_logs").insert({
-          action: "Job Payment Settlement",
-          details: `Installer payment for job "${target?.job_title}" set to Paid`,
-        });
-      } catch (logErr) {
-        console.warn("Activity log failed:", logErr);
-      }
-
-      toast.success("Job payment status marked as PAID!");
+      toast.success("Incentive marked as PAID!");
       if (selectedJob && selectedJob.id === id) {
         setSelectedJob(prev => prev ? { ...prev, payment_status: "paid" } : null);
       }
       fetchData();
     } catch (err: any) {
       toast.error(err.message || "Failed to settle payment");
+    } finally {
+      setPayingJobId(null);
     }
   };
 
@@ -417,20 +439,8 @@ export default function AdminJobsPage() {
 
   const handleVerifyJobStage1 = async (jobId: string) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const currentUserId = session?.user?.id;
-
-      const { error } = await supabase
-        .from("installer_jobs")
-        .update({
-          status: "pending_approval",
-          verified_by: currentUserId,
-          verified_at: new Date().toISOString(),
-          verification_note: auditNote.trim()
-        })
-        .eq("id", jobId);
-
-      if (error) throw error;
+      const res = await verifyJobStage1Action(jobId, auditNote);
+      if (!res.success) throw new Error(res.error);
       toast.success("Stage 1: Retail Manager verification completed!");
       setSelectedJob(null);
       setAuditNote("");
@@ -442,33 +452,8 @@ export default function AdminJobsPage() {
 
   const handleApproveJobStage2 = async (job: JobRow) => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const currentUserId = session?.user?.id;
-
-      const { error } = await supabase
-        .from("installer_jobs")
-        .update({
-          status: "approved",
-          approved_by: currentUserId,
-          approved_at: new Date().toISOString(),
-          approval_note: auditNote.trim()
-        })
-        .eq("id", job.id);
-
-      if (error) throw error;
-
-      if (job.serial_number) {
-        await supabase
-          .from("stock")
-          .update({
-            status: "sold_out",
-            sold_out_at: new Date().toISOString(),
-            sold_out_by_installer_id: job.id,
-            installation_id: job.id
-          })
-          .ilike("serial_no", job.serial_number.trim());
-      }
-
+      const res = await approveJobStage2Action(job.id, job.serial_number, auditNote);
+      if (!res.success) throw new Error(res.error);
       toast.success("Stage 2: Installation fully approved & stock deducted!");
       setSelectedJob(null);
       setAuditNote("");
@@ -478,24 +463,13 @@ export default function AdminJobsPage() {
     }
   };
 
-  const handleRejectJobStage = async (job: JobRow) => {
+  const handleRejectJobStage = async (job: JobRow, stage: "stage1" | "stage2") => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const currentUserId = session?.user?.id;
-
-      const { error } = await supabase
-        .from("installer_jobs")
-        .update({
-          status: "rejected",
-          approved_by: currentUserId,
-          approved_at: new Date().toISOString(),
-          approval_note: auditNote.trim() || "Rejected during site audit."
-        })
-        .eq("id", job.id);
-
-      if (error) throw error;
-
-      await revertRejectedInstallationStockAction(job.id, job.serial_number);
+      const res =
+        stage === "stage2"
+          ? await rejectJobStage2Action(job.id, job.serial_number, auditNote)
+          : await rejectJobStage1Action(job.id, job.serial_number, auditNote);
+      if (!res.success) throw new Error(res.error);
 
       toast.success("Installation rejected & serial number restored to inventory!");
       setSelectedJob(null);
@@ -509,20 +483,33 @@ export default function AdminJobsPage() {
   const totalCount = jobs.length;
   const pendingRmCount = jobs.filter(j => j.status === "pending_verification" || j.status === "assigned" || j.status === "in_progress").length;
   const pendingChCount = jobs.filter(j => j.status === "pending_approval" || j.status === "pending_installation_approval").length;
-  const approvedCount = jobs.filter(j => j.status === "approved" || j.status === "completed").length;
+  const approvedCount = jobs.filter(j => j.status === "approved").length;
 
   const columns = [
-    { 
-      key: "serial_number", 
+    {
+      key: "serial_number",
       label: "Job / Serial No",
       render: (val: string, row: any) => (
         <div>
-          <span className="font-extrabold text-[#00B4D8] text-xs block">{val || "JOB-" + row.id.substring(0, 6)}</span>
+          <div className="flex items-center gap-1.5">
+            <span className="font-extrabold text-[#00B4D8] text-xs">{val || "JOB-" + row.id.substring(0, 6)}</span>
+            {row.isDuplicateSerial && (
+              <span
+                title={`${row.duplicateSerialCount} pending applications share this serial number`}
+                className="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase bg-amber-100 text-amber-700 border border-amber-300"
+              >
+                ⚠ Duplicate
+              </span>
+            )}
+          </div>
           <span className="text-[10px] text-slate-500 font-semibold">{row.job_title}</span>
         </div>
       )
     },
     { key: "installer_name", label: "Installer Name" },
+    { key: "installer_contact", label: "Installer Phone" },
+    { key: "installer_bank_type", label: "Bank Account Type" },
+    { key: "installer_bank_account", label: "Bank Account Number" },
     { key: "address", label: "Installation Location" },
     {
       key: "status",
@@ -533,7 +520,7 @@ export default function AdminJobsPage() {
         if (val === "pending_approval" || val === "pending_installation_approval") {
           bgClass = "bg-sky-50 text-sky-700 border-sky-200";
           labelText = "Pending CH";
-        } else if (val === "approved" || val === "completed") {
+        } else if (val === "approved") {
           bgClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
           labelText = "Active Approved";
         } else if (val === "rejected") {
@@ -548,8 +535,41 @@ export default function AdminJobsPage() {
       }
     },
     {
+      key: "payment_status",
+      label: "Incentive Status",
+      render: (val: string, row: any) => {
+        if (row.status !== "approved") {
+          return <span className="text-[10px] text-slate-400 font-semibold">—</span>;
+        }
+        if (val === "paid") {
+          return (
+            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border bg-emerald-50 text-emerald-700 border-emerald-200">
+              Paid
+            </span>
+          );
+        }
+        if (userRole === "admin") {
+          return (
+            <button
+              onClick={() => handleMarkPaymentPaid(row.id, row.job_title || row.serial_number || "this job")}
+              disabled={payingJobId === row.id}
+              className="px-2.5 py-1 text-[9px] font-bold uppercase text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {payingJobId === row.id ? "Saving..." : "Unpaid"}
+            </button>
+          );
+        }
+        return (
+          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border bg-amber-50 text-amber-700 border-amber-200">
+            Unpaid
+          </span>
+        );
+      }
+    },
+    {
       key: "audit_history",
       label: "Audit History Log",
+      excludeFromExport: true, // computed live from status, no real field to export
       render: (_: any, row: any) => {
         if (row.status === "pending_verification" || row.status === "assigned" || row.status === "in_progress") {
           return (
@@ -587,6 +607,7 @@ export default function AdminJobsPage() {
     {
       key: "audit_logs",
       label: "Audit Logs",
+      excludeFromExport: true, // just an "open review popup" button, no real field to export
       render: (_: any, row: any) => (
         <button
           onClick={() => setSelectedJob(row)}
@@ -610,7 +631,7 @@ export default function AdminJobsPage() {
       return item.status === "pending_approval" || item.status === "pending_installation_approval";
     }
     if (selectedStatusFilter === "approved") {
-      return item.status === "approved" || item.status === "completed";
+      return item.status === "approved";
     }
     if (selectedStatusFilter === "rejected") {
       return item.status === "rejected";
@@ -628,7 +649,7 @@ export default function AdminJobsPage() {
       {!isCreating ? (
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-2xl font-bold text-slate-800">Installations</h1>
+            <h1 className="text-2xl font-bold text-slate-800">Verify Installation</h1>
             <p className="text-xs text-slate-500">
               Monitor site verification, installation audit history, and active approval status.
             </p>
@@ -665,7 +686,7 @@ export default function AdminJobsPage() {
       {/* Top Summary KPI Cards matching Installer Register */}
       {!isCreating && !isLoading && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in duration-300">
-          <div className="bg-white p-5 rounded-[10px] border border-[#00B4D8]/30 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-[12px] border border-[#00B4D8]/30 shadow-sm flex items-center gap-4">
             <div className="p-3 bg-[#E0F7FA] text-[#00B4D8] rounded-full">
               <Wrench className="w-5 h-5" />
             </div>
@@ -675,7 +696,7 @@ export default function AdminJobsPage() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-[10px] border border-amber-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-[12px] border border-amber-200 shadow-sm flex items-center gap-4">
             <div className="p-3 bg-amber-50 text-amber-600 rounded-full">
               <AlertCircle className="w-5 h-5" />
             </div>
@@ -685,7 +706,7 @@ export default function AdminJobsPage() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-[10px] border border-sky-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-[12px] border border-sky-200 shadow-sm flex items-center gap-4">
             <div className="p-3 bg-sky-50 text-sky-600 rounded-full">
               <TrendingUp className="w-5 h-5" />
             </div>
@@ -695,7 +716,7 @@ export default function AdminJobsPage() {
             </div>
           </div>
 
-          <div className="bg-white p-5 rounded-[10px] border border-emerald-200 shadow-sm flex items-center gap-4">
+          <div className="bg-white p-5 rounded-[12px] border border-emerald-200 shadow-sm flex items-center gap-4">
             <div className="p-3 bg-emerald-50 text-emerald-600 rounded-full">
               <FileText className="w-5 h-5" />
             </div>
@@ -977,8 +998,13 @@ export default function AdminJobsPage() {
             <div className="space-y-4 text-xs">
               {/* Job Details Card */}
               <div className="bg-slate-50 border border-slate-200 rounded-[8px] p-3.5 space-y-2">
-                <p className="text-slate-600 font-bold">
+                <p className="text-slate-600 font-bold flex items-center gap-1.5">
                   SERIAL NO: <span className="text-[#00B4D8] font-extrabold">{selectedJob.serial_number || "JOB-" + selectedJob.id.substring(0, 6)}</span>
+                  {selectedJob.isDuplicateSerial && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase bg-amber-100 text-amber-700 border border-amber-300">
+                      ⚠ {selectedJob.duplicateSerialCount} pending applications share this serial
+                    </span>
+                  )}
                 </p>
                 <p className="text-slate-600 font-semibold">
                   <strong>Technician:</strong> {selectedJob.installer_name}
@@ -1199,7 +1225,7 @@ export default function AdminJobsPage() {
                   </span>
                   <div>
                     <p className="font-bold text-slate-800">Stage 1: Retail Manager Verification</p>
-                    {selectedJob.status === "pending_approval" || selectedJob.status === "approved" || selectedJob.status === "completed" ? (
+                    {selectedJob.status === "pending_approval" || selectedJob.status === "approved" ? (
                       <p className="text-[11px] font-semibold text-slate-700">Verified by <span className="font-bold text-slate-900">Shoaib Khan (Retail Manager)</span></p>
                     ) : (
                       <p className="text-[11px] font-medium text-slate-500">Awaiting credentials/site verification audit.</p>
@@ -1214,15 +1240,15 @@ export default function AdminJobsPage() {
                       ? "bg-sky-100 text-sky-700 border border-sky-300 animate-pulse"
                       : selectedJob.status === "rejected"
                       ? "bg-rose-100 text-rose-700 border border-rose-300"
-                      : selectedJob.status === "approved" || selectedJob.status === "completed"
+                      : selectedJob.status === "approved"
                       ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
                       : "bg-slate-100 text-slate-400 border border-slate-200"
                   }`}>
-                    {selectedJob.status === "approved" || selectedJob.status === "completed" ? "✓" : selectedJob.status === "rejected" ? "✗" : "3"}
+                    {selectedJob.status === "approved" ? "✓" : selectedJob.status === "rejected" ? "✗" : "3"}
                   </span>
                   <div>
                     <p className="font-bold text-slate-800">Stage 2: Country Head Approval</p>
-                    {selectedJob.status === "approved" || selectedJob.status === "completed" ? (
+                    {selectedJob.status === "approved" ? (
                       <p className="text-[11px] font-semibold text-slate-700">Approved by <span className="font-bold text-slate-900">Ammar Khan (Country Head)</span></p>
                     ) : selectedJob.status === "rejected" ? (
                       <p className="text-[11px] font-semibold text-rose-600">Rejected during site audit.</p>
@@ -1234,7 +1260,7 @@ export default function AdminJobsPage() {
               </div>
 
               {/* Audit Remarks Textarea */}
-              {(selectedJob.status !== "approved" && selectedJob.status !== "completed" && selectedJob.status !== "rejected") && (
+              {(selectedJob.status !== "approved" && selectedJob.status !== "rejected") && (
                 <div className="space-y-1 mt-4">
                   <label className="text-[10px] font-bold text-slate-500 uppercase">Audit Remarks / Notes</label>
                   <textarea
@@ -1259,13 +1285,15 @@ export default function AdminJobsPage() {
               {/* Pending Stage 1 (RM) */}
               {(selectedJob.status === "pending_verification" || selectedJob.status === "assigned" || selectedJob.status === "in_progress") && (
                 <>
-                  <button
-                    onClick={() => handleRejectJobStage(selectedJob)}
-                    className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    Reject Installation
-                  </button>
+                  {(userRole === "retail_manager" || userRole === "admin" || userRole === "country_head") && (
+                    <button
+                      onClick={() => handleRejectJobStage(selectedJob, "stage1")}
+                      className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Reject Installation
+                    </button>
+                  )}
                   {(userRole === "retail_manager" || userRole === "admin" || userRole === "country_head") && (
                     <button
                       onClick={() => handleVerifyJobStage1(selectedJob.id)}
@@ -1281,13 +1309,15 @@ export default function AdminJobsPage() {
               {/* Pending Stage 2 (CH) */}
               {(selectedJob.status === "pending_approval" || selectedJob.status === "pending_installation_approval") && (
                 <>
-                  <button
-                    onClick={() => handleRejectJobStage(selectedJob)}
-                    className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                    Reject Installation
-                  </button>
+                  {(userRole === "country_head" || userRole === "admin") && (
+                    <button
+                      onClick={() => handleRejectJobStage(selectedJob, "stage2")}
+                      className="h-9 px-4 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-[6px] shadow transition-colors flex items-center gap-1"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      Reject Installation
+                    </button>
+                  )}
                   {(userRole === "country_head" || userRole === "admin") && (
                     <button
                       onClick={() => handleApproveJobStage2(selectedJob)}

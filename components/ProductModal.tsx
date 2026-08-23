@@ -26,68 +26,54 @@ export default function ProductModal({
  
   const [brand, setBrand] = useState("");
   const [name, setName] = useState("");
-  const [model, setModel] = useState("");
   const [code, setCode] = useState("");
   const [prodCategory, setProdCategory] = useState("inverter");
   const [price, setPrice] = useState("");
-  const [cost, setCost] = useState("");
-  const [alertQuantity, setAlertQuantity] = useState("5");
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
- 
+
   useEffect(() => {
     if (isOpen) {
       if (editingProduct) {
         setBrand(editingProduct.brand || "");
         setName(editingProduct.name || "");
-        setModel(editingProduct.model || "");
         setCode(editingProduct.code || "");
         setProdCategory(editingProduct.category || category || "inverter");
         setPrice(editingProduct.price ? String(editingProduct.price) : "");
-        setCost(editingProduct.cost ? String(editingProduct.cost) : "");
-        setAlertQuantity(editingProduct.alert_quantity ? String(editingProduct.alert_quantity) : "5");
       } else {
         setBrand("");
         setName("");
-        setModel("");
         setCode("");
         setProdCategory(category || "inverter");
         setPrice("");
-        setCost("");
-        setAlertQuantity("5");
       }
       setErrors({});
     }
   }, [isOpen, editingProduct, category]);
- 
+
   if (!isOpen) return null;
- 
+
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!brand.trim()) errs.brand = "Brand is required";
     if (!name.trim()) errs.name = "Product name is required";
-    if (!model.trim()) errs.model = "Model is required";
     if (!code.trim()) errs.code = "Product code is required";
     if (!price || parseFloat(price) <= 0) errs.price = "Valid price is required";
-    if (!cost || parseFloat(cost) <= 0) errs.cost = "Valid cost is required";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
- 
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
- 
+
     setIsLoading(true);
     const data = {
       brand: brand.trim(),
       name: name.trim(),
-      model: model.trim(),
       code: code.trim().toUpperCase(),
       category: prodCategory,
       price: parseFloat(price),
-      cost: parseFloat(cost),
-      alert_quantity: parseInt(alertQuantity) || 0,
     };
  
     try {
@@ -162,41 +148,22 @@ export default function ProductModal({
  
         {/* Scrollable Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Brand*
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. CoreTECH"
-                value={brand}
-                onChange={(e) => setBrand(e.target.value)}
-                className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
-                  errors.brand ? "border-rose-500" : "border-slate-200"
-                }`}
-              />
-              {errors.brand && (
-                <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.brand}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Model*
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. SUN2000"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
-                  errors.model ? "border-rose-500" : "border-slate-200"
-                }`}
-              />
-              {errors.model && (
-                <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.model}</p>
-              )}
-            </div>
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+              Brand*
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. CoreTECH"
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+              className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                errors.brand ? "border-rose-500" : "border-slate-200"
+              }`}
+            />
+            {errors.brand && (
+              <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.brand}</p>
+            )}
           </div>
  
           <div>
@@ -251,52 +218,22 @@ export default function ProductModal({
             </div>
           </div>
  
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Cost Price*
-              </label>
-              <input
-                type="number"
-                placeholder="Cost"
-                value={cost}
-                onChange={(e) => setCost(e.target.value)}
-                className={`w-full h-9 px-2 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
-                  errors.cost ? "border-rose-500" : "border-slate-200"
-                }`}
-              />
-              {errors.cost && (
-                <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.cost}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Sale Price*
-              </label>
-              <input
-                type="number"
-                placeholder="Price"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                className={`w-full h-9 px-2 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
-                  errors.price ? "border-rose-500" : "border-slate-200"
-                }`}
-              />
-              {errors.price && (
-                <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.price}</p>
-              )}
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                Alert Qty
-              </label>
-              <input
-                type="number"
-                value={alertQuantity}
-                onChange={(e) => setAlertQuantity(e.target.value)}
-                className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
-              />
-            </div>
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+              Sale Price*
+            </label>
+            <input
+              type="number"
+              placeholder="Price"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              className={`w-full h-9 px-2 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                errors.price ? "border-rose-500" : "border-slate-200"
+              }`}
+            />
+            {errors.price && (
+              <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.price}</p>
+            )}
           </div>
         </form>
  

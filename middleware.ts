@@ -1,9 +1,20 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createMiddlewareSupabaseClient } from '@/lib/supabase';
 import { createClient } from '@supabase/supabase-js';
+import { PERMISSION_CATALOG } from '@/lib/permissionCatalog';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+
+// Short-lived cache for the granted-routes-per-role lookup below. Safe to
+// share across every caller on the same role, because role_permissions
+// grants are per-ROLE, not per-user - the exact same allowed-routes list is
+// correct for every user of that role at once. Lives only as long as this
+// edge isolate stays warm (best-effort, not guaranteed across cold starts),
+// and a miss just falls through to the same DB query as before, so there's
+// no correctness risk from missing the cache - only a lost speedup.
+const ROUTE_CACHE_TTL_MS = 45_000;
+const routeCacheByRole = new Map<string, { routes: string[]; expiresAt: number }>();
 
 // Helper to decode JWT claims locally on the edge to avoid database querying timeouts
 interface SessionDetails {
@@ -175,82 +186,53 @@ export async function middleware(request: NextRequest) {
     // B. High-Privilege MFA Enforcement (Disabled)
     // if (role === 'admin' || role === 'country_head') { ... }
 
-    // C. Sub-route validation based on role permissions
-    if (role === 'distributor') {
-      const allowedDistributorPrefixes = [
-        '/dashboard/purchase/import-stock',
-        '/dashboard/purchase/inventory',
-        '/dashboard/sales/st1',
-        '/dashboard/buzzcart/orders',
-        '/dashboard/buzzcart/create',
-        '/dashboard/users',
-        '/dashboard/sales/transfer',
-        '/dashboard/sales/return',
-        '/dashboard/account',
-      ];
-      
-      const isExactDashboard = pathname === '/dashboard';
-      const isAllowed = isExactDashboard || allowedDistributorPrefixes.some(prefix => pathname.startsWith(prefix));
+    // C. Sub-route validation, data-driven from Role Management (roles/role_permissions).
+    // Admin is structurally unrestricted - never depends on table data being correct.
+    // Home and Account are universal for every active role, never gated by permissions.
+    // Permission changes now apply within ROUTE_CACHE_TTL_MS (45s) rather than
+    // the very next request - a deliberate trade against real, measured CPU
+    // pressure from this query firing on literally every navigation, for
+    // every non-admin role. A short staleness window was judged worth it
+    // over that cost.
+    const isExactDashboard = pathname === '/dashboard';
+    const isAccountRoute = pathname.startsWith('/dashboard/account');
 
-      if (!isAllowed) {
-        return redirectWithCookies('/dashboard');
-      }
-    } else if (role === 'sub_dealer') {
-      const allowedSubDealerPrefixes = [
-        '/dashboard/purchase/import-stock',
-        '/dashboard/purchase/inventory',
-        '/dashboard/purchase/sellout',
-        '/dashboard/buzzcart/orders',
-        '/dashboard/buzzcart/create',
-        '/dashboard/sales/transfer',
-        '/dashboard/sales/return',
-        '/dashboard/support',
-        '/dashboard/account',
-      ];
+    if (role !== 'admin' && !isExactDashboard && !isAccountRoute) {
+      try {
+        let allowedRoutes: string[] | null = null;
+        const cached = routeCacheByRole.get(role);
+        if (cached && cached.expiresAt > Date.now()) {
+          allowedRoutes = cached.routes;
+        }
 
-      const isExactDashboard = pathname === '/dashboard';
-      const isAllowed = isExactDashboard || allowedSubDealerPrefixes.some(prefix => pathname.startsWith(prefix));
+        if (!allowedRoutes) {
+          const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+            auth: { persistSession: false, autoRefreshToken: false },
+          });
 
-      if (!isAllowed) {
-        return redirectWithCookies('/dashboard');
-      }
-    } else if (role === 'marketing_manager') {
-      const allowedMarketingPrefixes = [
-        '/dashboard/expenses',
-      ];
+          // Single round trip instead of two sequential ones (role lookup, then
+          // permissions lookup) - resolved via one embedded-filter query
+          // instead of two awaits.
+          const { data: perms } = await supabaseAdmin
+            .from('role_permissions')
+            .select('permission_key, roles!inner(name)')
+            .eq('roles.name', role)
+            .eq('granted', true);
 
-      const isExactDashboard = pathname === '/dashboard';
-      const isAllowed = isExactDashboard || allowedMarketingPrefixes.some(prefix => pathname.startsWith(prefix));
+          const grantedKeys = new Set((perms || []).map((p) => p.permission_key));
+          allowedRoutes = PERMISSION_CATALOG.flatMap((g) => g.items)
+            .filter((item) => grantedKeys.has(item.key))
+            .map((item) => item.route);
 
-      if (!isAllowed) {
-        return redirectWithCookies('/dashboard');
-      }
-    } else if (role === 'rsm') {
-      const allowedRsmPrefixes = [
-        '/dashboard/buzzcart',
-        '/dashboard/sales',
-        '/dashboard/expenses',
-        '/dashboard/invoices',
-      ];
+          routeCacheByRole.set(role, { routes: allowedRoutes, expiresAt: Date.now() + ROUTE_CACHE_TTL_MS });
+        }
 
-      const isExactDashboard = pathname === '/dashboard';
-      const isAllowed = isExactDashboard || allowedRsmPrefixes.some(prefix => pathname.startsWith(prefix));
-
-      if (!isAllowed) {
-        return redirectWithCookies('/dashboard');
-      }
-    } else if (role === 'retail_manager') {
-      const allowedRetailManagerPrefixes = [
-        '/dashboard/approvals',
-        '/dashboard/installer/list',
-        '/dashboard/installer/jobs',
-        '/dashboard/account',
-      ];
-
-      const isExactDashboard = pathname === '/dashboard';
-      const isAllowed = isExactDashboard || allowedRetailManagerPrefixes.some(prefix => pathname.startsWith(prefix));
-
-      if (!isAllowed) {
+        const isAllowed = allowedRoutes.some((route) => pathname.startsWith(route));
+        if (!isAllowed) {
+          return redirectWithCookies('/dashboard');
+        }
+      } catch (permErr) {
+        console.warn('Middleware permission lookup failed, denying by default:', permErr);
         return redirectWithCookies('/dashboard');
       }
     }

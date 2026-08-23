@@ -34,3 +34,20 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# personal notes (local-only, not for client repo)
+CLAUDE.md
+PROJECT-OVERVIEW.md
+ARCHITECTURE.md
+ISSUES-TO-FIX.md
+ROLE-MANAGEMENT-PLAN.md
+NEXT-FEATURES-PLAN.md
+ui.md
+whatsup_msg.md
+
+# Claude Code local tool state (not for client repo)
+.claude/
+
+# one-off local debug/migration scripts - run once, then deleted, never committed
+scratch*
+scratch/

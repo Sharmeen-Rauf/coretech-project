@@ -5,8 +5,12 @@ import { useSearchParams } from "next/navigation";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
+import AdminPasswordReset from "@/components/AdminPasswordReset";
+import DealerAssignment from "@/components/DealerAssignment";
+import RoleManagement from "@/components/RoleManagement";
 import toast from "react-hot-toast";
-import { deleteUserAction } from "@/app/actions/users";
+import { deleteUserAction, fetchUsersAction } from "@/app/actions/users";
+import { getMyPermissionKeysAction } from "@/app/actions/roles";
 
 interface UserProfile {
   id: string;
@@ -38,6 +42,8 @@ export default function UsersPage() {
   const perPage = 10;
 
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
+  const [grantedKeys, setGrantedKeys] = useState<Set<string>>(new Set());
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
 
   useEffect(() => {
     const checkCurrentUserRole = async () => {
@@ -53,6 +59,13 @@ export default function UsersPage() {
       } catch (e) {
         console.warn("Failed to fetch session profile", e);
       }
+
+      try {
+        const permRes = await getMyPermissionKeysAction();
+        setGrantedKeys(new Set(permRes.keys));
+      } catch (e) {
+        console.warn("Failed to fetch permissions", e);
+      }
     };
     checkCurrentUserRole();
   }, [supabase]);
@@ -60,77 +73,13 @@ export default function UsersPage() {
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      let query = supabase.from("profiles").select("*");
-      if (activeRole === "employee") {
-        query = query.in("role", ["employee", "rsm", "country_head", "retail_manager", "admin", "marketing_manager"]);
-      } else {
-        query = query.eq("role", activeRole);
-      }
-
-      // Parallel execution of profiles and allowed_users whitelist
-      const [profilesRes, allowedRes] = await Promise.all([
-        query.order("created_at", { ascending: false }),
-        supabase.from("allowed_users").select("id, email")
-      ]);
-
-      if (profilesRes.error) throw profilesRes.error;
-      const profiles = profilesRes.data || [];
-
-      const allowedMap = new Map<string, string>();
-      if (allowedRes.data) {
-        allowedRes.data.forEach((u: any) => {
-          if (u.id && u.email) allowedMap.set(u.id, u.email.trim());
-        });
-      }
-
-      // 3. Resolve actual user email addresses & region filtering
-      let formattedProfiles = (profiles || []).map((prof: any) => {
-        let actualEmail = prof.email || allowedMap.get(prof.id) || "";
-
-        // Check nested metadata for email if not found
-        if (!actualEmail && typeof prof.designation === "string") {
-          try {
-            if (prof.designation.includes("INSTALLER_METADATA")) {
-              const cleanVal = prof.designation.replace("[DISTRIBUTOR_METADATA]", "");
-              const outer = JSON.parse(cleanVal);
-              const innerVal = outer.designation || "";
-              if (innerVal.startsWith("[INSTALLER_METADATA]")) {
-                const innerParsed = JSON.parse(innerVal.replace("[INSTALLER_METADATA]", ""));
-                if (innerParsed.email) actualEmail = innerParsed.email;
-              } else if (outer.email) {
-                actualEmail = outer.email;
-              }
-            } else if (prof.designation.startsWith("[DISTRIBUTOR_METADATA]")) {
-              const parsed = JSON.parse(prof.designation.replace("[DISTRIBUTOR_METADATA]", ""));
-              if (parsed.email) actualEmail = parsed.email;
-            }
-          } catch (e) {}
-        }
-
-        // Clean fallback email if none registered
-        if (!actualEmail) {
-          const nameSlug = `${prof.first_name || "user"}${prof.last_name ? "." + prof.last_name : ""}`.toLowerCase().replace(/[^a-z0-9.]/g, "");
-          actualEmail = `${nameSlug}@gmail.com`;
-        }
-
-        return {
-          ...prof,
-          email: actualEmail,
-        };
-      });
-
-      // 4. Strict Regional Data Isolation for RSM Users
-      const isRsmUser = currentUserProfile && (currentUserProfile.role === "rsm" || currentUserProfile.group_name === "rsm");
-      if (isRsmUser && currentUserProfile.region) {
-        const rsmRegionLower = currentUserProfile.region.toLowerCase().trim();
-        formattedProfiles = formattedProfiles.filter((u: any) => {
-          if (u.id === currentUserProfile.id) return true;
-          const uRegionLower = (u.region || "").toLowerCase().trim();
-          return uRegionLower === rsmRegionLower;
-        });
-      }
-
-      setUsers(formattedProfiles);
+      // Scoped server-side (role_permissions.scope_level for the matching
+      // users.add_* key) via getCallerIdentity - replaces the old client-side
+      // query that only ever had one hardcoded rule (RSM regional isolation).
+      const res = await fetchUsersAction(activeRole);
+      if (!res.success) throw new Error(res.error);
+      setUsers(res.data);
+      setCanWrite(!!res.canWrite);
     } catch (err: any) {
       toast.error(err.message || "Failed to fetch users");
     } finally {
@@ -139,6 +88,7 @@ export default function UsersPage() {
   };
 
   useEffect(() => {
+    if (activeRole === "reset_password" || activeRole === "dealer_assignment" || activeRole === "role_management") return;
     fetchUsers();
     setCurrentPage(1);
     setSearchQuery("");
@@ -212,20 +162,26 @@ export default function UsersPage() {
   );
 
   const columns = [
-    { key: "first_name", label: "First Name" },
-    { key: "last_name", label: "Last Name" },
+    { key: "first_name", label: activeRole === "distributor" ? "Distributor Name" : activeRole === "sub_dealer" ? "Sub Dealer Name" : "First Name" },
+    { key: "last_name", label: (activeRole === "distributor" || activeRole === "sub_dealer") ? "Owner Name" : "Last Name" },
     { key: "email", label: "Email Address" },
     {
       key: "designation",
       label: "Designation",
       render: (val: string, row: any) => {
-        if (val && val.startsWith("[DISTRIBUTOR_METADATA]")) {
-          try {
-            const meta = JSON.parse(val.replace("[DISTRIBUTOR_METADATA]", ""));
-            return meta.designation || (row.role === "distributor" ? "Distributor" : "");
-          } catch (e) {
-            return row.role === "distributor" ? "Distributor" : "";
+        // Never render raw metadata JSON on screen - it may contain sensitive fields.
+        if (val && (val.includes("[DISTRIBUTOR_METADATA]") || val.includes("[INSTALLER_METADATA]"))) {
+          if (val.startsWith("[DISTRIBUTOR_METADATA]")) {
+            try {
+              const meta = JSON.parse(val.replace("[DISTRIBUTOR_METADATA]", ""));
+              return meta.designation && !meta.designation.includes("METADATA")
+                ? meta.designation
+                : (row.role === "distributor" ? "Distributor" : "Installer");
+            } catch (e) {
+              return row.role === "distributor" ? "Distributor" : "Installer";
+            }
           }
+          return "Installer";
         }
         return val;
       }
@@ -279,6 +235,64 @@ export default function UsersPage() {
 
   const roleTitle = getRoleTitle(activeRole);
 
+  const hasPermission = (key: string) => currentUserProfile?.role === "admin" || grantedKeys.has(key);
+
+  if (activeRole === "reset_password") {
+    if (currentUserProfile && !hasPermission("users.reset_password")) {
+      return (
+        <div className="space-y-2 select-none">
+          <h1 className="text-2xl font-bold text-slate-800">Reset Password</h1>
+          <p className="text-xs text-rose-500 font-semibold">Only admins can access this page.</p>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-6 select-none">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Reset Password</h1>
+          <p className="text-xs text-slate-500">
+            Generate a new password for any CoreTECH account.
+          </p>
+        </div>
+        <AdminPasswordReset />
+      </div>
+    );
+  }
+
+  if (activeRole === "role_management") {
+    if (currentUserProfile && !hasPermission("users.role_management")) {
+      return (
+        <div className="space-y-2 select-none">
+          <h1 className="text-2xl font-bold text-slate-800">Role Management</h1>
+          <p className="text-xs text-rose-500 font-semibold">Only admins can access this page.</p>
+        </div>
+      );
+    }
+    return <RoleManagement />;
+  }
+
+  if (activeRole === "dealer_assignment") {
+    if (currentUserProfile && !hasPermission("users.dealer_assignment")) {
+      return (
+        <div className="space-y-2 select-none">
+          <h1 className="text-2xl font-bold text-slate-800">Dealer Assignment</h1>
+          <p className="text-xs text-rose-500 font-semibold">Only admins can access this page.</p>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-6 select-none">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Dealer Assignment</h1>
+          <p className="text-xs text-slate-500">
+            Map sub dealers to the distributor they operate under.
+          </p>
+        </div>
+        <DealerAssignment />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 select-none">
       {/* Breadcrumbs / Header */}
@@ -302,19 +316,19 @@ export default function UsersPage() {
           setSearchQuery(q);
           setCurrentPage(1);
         }}
-        actionButton={{
+        actionButton={canWrite ? {
           label: `Add ${roleTitle}`,
           onClick: handleAddClick,
-        }}
+        } : undefined}
         pagination={{
           current: currentPage,
           total: filteredUsers.length,
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
-        onEditClick={handleEditClick}
-        onDeleteClick={handleDeleteUser}
-        onBulkDelete={handleBulkDeleteUsers}
+        onEditClick={canWrite ? handleEditClick : undefined}
+        onDeleteClick={canWrite ? handleDeleteUser : undefined}
+        onBulkDelete={canWrite ? handleBulkDeleteUsers : undefined}
       />
 
       {/* User Management Form Modal */}

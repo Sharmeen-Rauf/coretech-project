@@ -3,11 +3,12 @@
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
-import OrderModal from "@/components/OrderModal";
 import Link from "next/link";
 import OrderStatusModal from "@/components/OrderStatusModal";
+import BuzzcartCreateOrder from "@/components/BuzzcartCreateOrder";
 import toast from "react-hot-toast";
-import { deleteRecordAction } from "@/app/actions/users";
+import { fetchOrdersAction, deleteOrderAction } from "@/app/actions/orders";
+import { Eye } from "lucide-react";
  
 interface OrderRow {
   id: string;
@@ -22,14 +23,14 @@ interface OrderRow {
  
 export default function BuzzcartOrdersPage() {
   const supabase = createClientComponentClient();
- 
+
   // Loading and modals
   const [orders, setOrders] = useState<OrderRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [userRole, setUserRole] = useState<string>("");
   const [selectedStatusOrder, setSelectedStatusOrder] = useState<any>(null);
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
  
   // Filters
   const [distributors, setDistributors] = useState<string[]>([]);
@@ -45,62 +46,29 @@ export default function BuzzcartOrdersPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
- 
-      let roleStr = "sub_dealer";
-      let userRegion = "";
-      try {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("role, group_name, region")
-          .eq("id", session.user.id)
-          .single();
-        if (profile?.role) roleStr = profile.role;
-        if (profile?.group_name === "rsm" || profile?.role === "rsm") {
-          roleStr = "rsm";
-          userRegion = profile.region || "";
-        }
-      } catch (profileErr) {
-        console.warn("Failed to fetch user role. Defaulting to sub_dealer.", profileErr);
-      }
-      setUserRole(roleStr);
 
+      // Scoped server-side (role_permissions.scope_level for "buzzcart") via
+      // getCallerIdentity - not a client-resolved role, which used to be the only
+      // thing standing between any caller and every order in the table.
       let dbData: any[] = [];
       try {
-        let query = supabase
-          .from("orders")
-          .select(`
-            id,
-            order_code,
-            created_at,
-            status,
-            user_id,
-            distributor_id,
-            sales_coordinator_id,
-            user:profiles!user_id(first_name, last_name, region),
-            product:products(name),
-            distributor:profiles!distributor_id(first_name, last_name, region),
-            coordinator:profiles!sales_coordinator_id(first_name, last_name)
-          `);
-
-        if (roleStr === "distributor") {
-          query = query.eq("distributor_id", session.user.id);
-        } else if (roleStr === "rsm") {
-          query = query.or(`sales_coordinator_id.eq.${session.user.id},distributor.region.ilike.%${userRegion}%`);
-        } else if (roleStr === "employee") {
-          query = query.eq("sales_coordinator_id", session.user.id);
-        } else if (roleStr === "sub_dealer") {
-          query = query.eq("user_id", session.user.id);
+        const res = await fetchOrdersAction();
+        if (!res.success) {
+          // Surface real failures instead of silently falling back to the
+          // canWrite=false default, which used to look indistinguishable from
+          // a legitimate read-only permission - see fetchOrdersAction.
+          toast.error(res.error || "Failed to load Buzzcart orders");
+          throw new Error(res.error);
         }
-
-        const { data, error } = await query.order("created_at", { ascending: false });
-        if (error) throw error;
-        dbData = data || [];
+        dbData = res.data || [];
+        if (res.role) setUserRole(res.role);
+        setCanWrite(!!res.canWrite);
       } catch (dbErr) {
         console.warn("Failed to fetch orders from Supabase. Using local fallback.", dbErr);
       }
 
       const { mergeLocalItems } = require("@/lib/supabaseLocalFallback");
-      const merged = mergeLocalItems(dbData, "coretech_local_orders");
+      const merged = mergeLocalItems(dbData, "coretech_local_orders", undefined, "id", "order_code");
  
       const formatted = merged.map((row: any) => ({
         id: row.id,
@@ -158,16 +126,19 @@ export default function BuzzcartOrdersPage() {
     if (!window.confirm(`Are you sure you want to delete order ${row.order_code}?`)) return;
 
     try {
+      // Real server-side admin check now - an explicit denial must never
+      // fall back to a local-only delete that then reports success anyway.
       if (row.id) {
-        const res = await deleteRecordAction("orders", row.id);
+        const res = await deleteOrderAction(row.id);
         if (!res.success) {
-          console.warn("DB delete failed, attempting local delete", res.error);
+          toast.error(res.error || "Failed to delete order");
+          return;
         }
       }
-      
+
       const { deleteLocalItem } = require("@/lib/supabaseLocalFallback");
       deleteLocalItem("coretech_local_orders", row.id || row.order_code, row.id ? "id" : "order_code");
-      
+
       toast.success(`Order deleted successfully!`);
       fetchOrders();
     } catch (err: any) {
@@ -247,8 +218,11 @@ export default function BuzzcartOrdersPage() {
                   normalized === "invoice_generated" ? "Gatepass Created" :
                   normalized === "payment_logged" ? "Payment Logged" : "DO Created";
         } else if (normalized === "approved") {
-          dotColor = "bg-[#0284C7]"; // blue
-          textColor = "text-[#0284C7]";
+          // Distinct from "pending" (also blue below) - a user approving
+          // orders needs to tell "still pending" and "already approved"
+          // apart at a glance, not just by re-reading the label text.
+          dotColor = "bg-[#00B4D8]";
+          textColor = "text-[#00B4D8]";
           label = "Approved";
         } else {
           dotColor = "bg-[#0284C7]"; // blue
@@ -270,16 +244,44 @@ export default function BuzzcartOrdersPage() {
         );
       },
     },
+    {
+      key: "review",
+      label: "Review",
+      render: (_: any, row: any) => {
+        const canReview = userRole === "country_head" || userRole === "admin";
+        if (!canReview) return <span className="text-slate-300">—</span>;
+        return (
+          <button
+            onClick={() => {
+              setSelectedStatusOrder(row.rawOrder);
+              setIsStatusModalOpen(true);
+            }}
+            className="flex items-center gap-1 text-[10px] font-bold text-[#00B4D8] hover:underline"
+          >
+            <Eye className="w-3.5 h-3.5" />
+            Review
+          </button>
+        );
+      },
+    },
   ];
 
   return (
     <div className="space-y-6 select-none">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">Buzzcart-Orders</h1>
+        <h1 className="text-2xl font-bold text-slate-800">Buzzcart Orders</h1>
         <p className="text-xs text-slate-500">
           Track customer product orders, invoice status, and distribution agents.
         </p>
       </div>
+
+      {canWrite ? (
+        <BuzzcartCreateOrder onSuccess={fetchOrders} />
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-[12px] p-8 text-center text-sm text-slate-500">
+          You have read-only access to Buzzcart.
+        </div>
+      )}
 
       <DataTable allData={filtered}
         title="Orders Ledger"
@@ -311,28 +313,19 @@ export default function BuzzcartOrdersPage() {
             },
           },
         ]}
-        actionButton={{
-          label: "Create Order",
-          onClick: () => setIsModalOpen(true),
-        }}
         pagination={{
           current: currentPage,
           total: filtered.length,
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
-        onDeleteClick={handleDeleteOrder}
-      />
-
-      <OrderModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSuccess={fetchOrders}
+        onDeleteClick={userRole === "admin" ? handleDeleteOrder : undefined}
       />
 
       {selectedStatusOrder && (
         <OrderStatusModal
           isOpen={isStatusModalOpen}
+          callerRole={userRole}
           onClose={() => {
             setIsStatusModalOpen(false);
             setSelectedStatusOrder(null);

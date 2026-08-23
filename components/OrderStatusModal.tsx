@@ -2,15 +2,21 @@
 
 import React, { useState, useEffect } from "react";
 import { X, Check, Loader2 } from "lucide-react";
-import { createClientComponentClient } from "@/lib/supabase";
 import toast from "react-hot-toast";
-import { saveLocalItem } from "@/lib/supabaseLocalFallback";
+import {
+  approveOrderAction,
+  declineOrderAction,
+  markInvoiceGeneratedAction,
+  markGatePassGeneratedAction,
+  revertOrderStageAction,
+} from "@/app/actions/orders";
 
 interface OrderStatusModalProps {
   isOpen: boolean;
   onClose: () => void;
   order: any;
   onSuccess: () => void;
+  callerRole?: string;
 }
 
 export default function OrderStatusModal({
@@ -18,8 +24,8 @@ export default function OrderStatusModal({
   onClose,
   order: initialOrder,
   onSuccess,
+  callerRole,
 }: OrderStatusModalProps) {
-  const supabase = createClientComponentClient();
   const [order, setOrder] = useState<any>(initialOrder);
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -28,6 +34,9 @@ export default function OrderStatusModal({
   }, [initialOrder]);
 
   if (!isOpen || !order) return null;
+
+  const canApprove = callerRole === "country_head" || callerRole === "admin";
+  const canInvoiceOrGatepass = callerRole === "admin";
 
   // Date formatter matching Figma "at 4:00 pm on 12th Jan 2026"
   const formatFigmaDate = (dateStr?: string) => {
@@ -47,18 +56,8 @@ export default function OrderStatusModal({
     else if (day === 3 || day === 23) suffix = "rd";
 
     const months = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
+      "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     const monthStr = months[d.getMonth()];
     const year = d.getFullYear();
@@ -68,226 +67,57 @@ export default function OrderStatusModal({
 
   const currentStatus = order.status || "pending";
 
-  const handleUpdateStatus = async (newStatus: string, dateField?: string) => {
+  const runAction = async (action: () => Promise<{ success: boolean; error?: string; message?: string }>, patch: any) => {
     setIsUpdating(true);
-    const nowISO = new Date().toISOString();
-    const updatedFields: any = { status: newStatus };
-    if (dateField) {
-      updatedFields[dateField] = nowISO;
-    }
-
     try {
-      try {
-        const { error } = await supabase
-          .from("orders")
-          .update(updatedFields)
-          .eq("id", order.id);
-        if (error) throw error;
-      } catch (dbErr) {
-        console.warn("Database status update failed. Saving locally.", dbErr);
-        saveLocalItem(
-          "coretech_local_orders",
-          { ...order, ...updatedFields },
-          true
-        );
+      const res = await action();
+      if (!res.success) {
+        toast.error(res.error || "Failed to update order");
+        return;
       }
-
-      // Log activity safely
-      try {
-        await supabase
-          .from("activity_logs")
-          .insert({
-            action: `Order Status Transition`,
-            details: `Order ${order.order_code} status transitioned to "${newStatus}"`,
-          });
-      } catch (e) {
-        console.warn("Activity log failed:", e);
-      }
-
-      toast.success(`Order status updated to ${newStatus}`);
-      const updatedOrder = { ...order, ...updatedFields };
-      setOrder(updatedOrder);
+      toast.success(res.message || "Order updated");
+      setOrder((prev: any) => ({ ...prev, ...patch }));
       onSuccess();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to update order status");
     } finally {
       setIsUpdating(false);
     }
   };
 
-  const handleCreateInvoice = async () => {
-    setIsUpdating(true);
-    const nowISO = new Date().toISOString();
-    const randomDigits = Math.floor(1000 + Math.random() * 9000);
-    const invoiceCode = `#INV${randomDigits}`;
-
-    // Calculate total order amount
-    const itemsList = order.items || [];
-    const totalAmount = itemsList.reduce(
-      (sum: number, item: any) => sum + (item.quantity * item.price),
-      0
-    ) || 120000;
-
-    try {
-      try {
-        const { error: invErr } = await supabase.from("invoices").insert({
-          invoice_code: invoiceCode,
-          order_id: order.id,
-          distributor_id: order.distributor_id || order.user_id,
-          amount: totalAmount,
-          due_date: new Date().toLocaleDateString("en-CA"),
-          payment_status: "paid",
-        });
-        if (invErr) throw invErr;
-      } catch (dbErr) {
-        console.warn("Database invoice insert failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_invoices", {
-          invoice_code: invoiceCode,
-          order_id: order.id,
-          distributor_id: order.distributor_id || order.user_id,
-          amount: totalAmount,
-          due_date: new Date().toLocaleDateString("en-CA"),
-          payment_status: "paid",
-          created_at: nowISO,
-        });
-      }
-
-      // Transition order status
-      const orderUpdates = {
-        status: "invoice_generated",
-        invoice_created_at: nowISO,
-      };
-
-      try {
-        const { error: orderErr } = await supabase
-          .from("orders")
-          .update(orderUpdates)
-          .eq("id", order.id);
-        if (orderErr) throw orderErr;
-      } catch (dbErr) {
-        console.warn("Database order update failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_orders", { ...order, ...orderUpdates }, true);
-      }
-
-      // Log activity safely
-      try {
-        await supabase
-          .from("activity_logs")
-          .insert({
-            action: "Invoice Generated",
-            details: `Generated invoice ${invoiceCode} for order ${order.order_code}`,
-          });
-      } catch (e) {
-        console.warn("Activity log failed:", e);
-      }
-
-      toast.success(`Invoice ${invoiceCode} generated!`);
-      setOrder((prev: any) => ({ ...prev, ...orderUpdates }));
-      onSuccess();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to generate invoice");
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
-  const handleCreateGatepass = async () => {
-    setIsUpdating(true);
-    const nowISO = new Date().toISOString();
-    const randomDigits = Math.floor(1000 + Math.random() * 9000);
-    const passCode = `#GP${randomDigits}`;
-
-    try {
-      try {
-        const { error: gpErr } = await supabase.from("gate_passes").insert({
-          pass_code: passCode,
-          order_id: order.id,
-          driver_name: "Self / Local Driver",
-          vehicle_no: "LES-9900",
-          status: "approved",
-        });
-        if (gpErr) throw gpErr;
-      } catch (dbErr) {
-        console.warn("Database gatepass insert failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_gate_passes", {
-          pass_code: passCode,
-          order_id: order.id,
-          driver_name: "Self / Local Driver",
-          vehicle_no: "LES-9900",
-          status: "approved",
-          created_at: nowISO,
-        });
-      }
-
-      // Transition order status to delivered
-      const orderUpdates = {
-        status: "delivered",
-        gate_pass_created_at: nowISO,
-      };
-
-      try {
-        const { error: orderErr } = await supabase
-          .from("orders")
-          .update(orderUpdates)
-          .eq("id", order.id);
-        if (orderErr) throw orderErr;
-      } catch (dbErr) {
-        console.warn("Database order update failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_orders", { ...order, ...orderUpdates }, true);
-      }
-
-      // Log activity safely
-      try {
-        await supabase
-          .from("activity_logs")
-          .insert({
-            action: "Gate Pass Issued",
-            details: `Issued gate pass ${passCode} for order ${order.order_code}`,
-          });
-      } catch (e) {
-        console.warn("Activity log failed:", e);
-      }
-
-      toast.success(`Gate pass ${passCode} issued!`);
-      setOrder((prev: any) => ({ ...prev, ...orderUpdates }));
-      onSuccess();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to create gatepass");
-    } finally {
-      setIsUpdating(false);
-    }
-  };
+  const handleApprove = () => runAction(() => approveOrderAction(order.id), { status: "approved", approved_at: new Date().toISOString() });
+  const handleDecline = () => runAction(() => declineOrderAction(order.id), { status: "declined" });
+  const handleCreateInvoice = () => runAction(() => markInvoiceGeneratedAction(order.id), { status: "invoice_generated", invoice_created_at: new Date().toISOString() });
+  const handleCreateGatepass = () => runAction(() => markGatePassGeneratedAction(order.id), { status: "delivered", gate_pass_created_at: new Date().toISOString() });
+  const handleRevertToPending = () => runAction(() => revertOrderStageAction(order.id, "pending"), { status: "pending" });
+  const handleRevertToApproved = () => runAction(() => revertOrderStageAction(order.id, "approved"), { status: "approved" });
 
   // Determine state of milestones
-  const isApproved =
-    currentStatus !== "pending" && currentStatus !== "declined";
+  const isApproved = currentStatus !== "pending" && currentStatus !== "declined";
   const isDeclined = currentStatus === "declined";
-  const isInvoiceCreated =
-    currentStatus === "invoice_generated" || currentStatus === "delivered";
+  const isInvoiceCreated = currentStatus === "invoice_generated" || currentStatus === "delivered";
   const isGatepassCreated = currentStatus === "delivered";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop with Glassmorphism */}
+      {/* Backdrop */}
       <div
         onClick={onClose}
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300"
+        className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm"
       ></div>
 
       {/* Modal Card */}
       <div className="relative bg-white w-full max-w-lg border border-slate-100 rounded-[12px] shadow-2xl p-7 flex flex-col animate-in fade-in zoom-in-95 duration-200">
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
-
-        {/* Title */}
-        <h3 className="text-center text-slate-800 font-extrabold text-lg mb-8 tracking-tight">
-          Order{order.order_code ? `#${order.order_code.replace("#", "")}` : ""} Status
-        </h3>
+        {/* Header - same bleed-bar structure used by the other modals */}
+        <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-6 bg-slate-50/50 -m-7 p-7 rounded-t-[12px]">
+          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+            Order{order.order_code ? `#${order.order_code.replace("#", "")}` : ""} Status
+          </h3>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
 
         {/* Vertical Timeline */}
         <div className="relative pl-12 pr-4 py-2 space-y-8 select-none">
@@ -296,23 +126,17 @@ export default function OrderStatusModal({
 
           {/* Milestone 1: Order Placed */}
           <div className="relative flex flex-col items-start gap-1 z-10">
-            {/* Timeline bullet */}
             <div className="absolute -left-9 top-0 w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-md shadow-emerald-100 border border-emerald-500">
               <Check className="w-3.5 h-3.5" />
             </div>
             <div>
-              <span className="text-xs font-bold text-slate-800">
-                Order Placed
-              </span>
-              <p className="text-[10px] text-slate-400 font-bold mt-0.5">
-                {formatFigmaDate(order.created_at)}
-              </p>
+              <span className="text-xs font-bold text-slate-800">Order Placed</span>
+              <p className="text-[10px] text-slate-400 font-bold mt-0.5">{formatFigmaDate(order.created_at)}</p>
             </div>
           </div>
 
-          {/* Milestone 2: RSM Approval Status */}
+          {/* Milestone 2: Country Head / Admin Approval */}
           <div className="relative flex flex-col items-start gap-1 z-10">
-            {/* Timeline bullet */}
             <div
               className={`absolute -left-9 top-0 w-6 h-6 rounded-full flex items-center justify-center border shadow-md transition-all duration-300 ${
                 isApproved
@@ -322,69 +146,33 @@ export default function OrderStatusModal({
                   : "bg-white border-slate-300 text-slate-400"
               }`}
             >
-              {isApproved ? (
-                <Check className="w-3.5 h-3.5" />
-              ) : isDeclined ? (
-                <X className="w-3.5 h-3.5" />
-              ) : (
-                <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-              )}
+              {isApproved ? <Check className="w-3.5 h-3.5" /> : isDeclined ? <X className="w-3.5 h-3.5" /> : <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>}
             </div>
             <div className="flex items-center justify-between w-full">
               <div>
-                <span className="text-xs font-bold text-slate-800">
-                  RSM Approval Status:
-                </span>
-                {isApproved && (
-                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">
-                    {formatFigmaDate(order.approved_at || order.created_at)}
-                  </p>
-                )}
-                {isDeclined && (
-                  <p className="text-[10px] text-rose-400 font-bold mt-0.5">
-                    Declined
-                  </p>
-                )}
+                <span className="text-xs font-bold text-slate-800">Approval Status:</span>
+                {isApproved && <p className="text-[10px] text-slate-400 font-bold mt-0.5">{formatFigmaDate(order.approved_at || order.created_at)}</p>}
+                {isDeclined && <p className="text-[10px] text-rose-400 font-bold mt-0.5">Declined</p>}
               </div>
 
-              {/* Action Buttons for Milestone 2 */}
-              {currentStatus === "pending" && (
+              {currentStatus === "pending" && canApprove && (
                 <div className="flex gap-2">
-                  <button
-                    disabled={isUpdating}
-                    onClick={() =>
-                      handleUpdateStatus("approved", "approved_at")
-                    }
-                    className="px-4 py-1.5 bg-[#52C41A] hover:bg-[#40a9ff] text-white text-[10px] font-extrabold rounded-[4px] shadow transition-all duration-200 hover:scale-105"
-                  >
+                  <button disabled={isUpdating} onClick={handleApprove} className="px-4 py-1.5 bg-[#52C41A] hover:bg-[#40a9ff] text-white text-[10px] font-extrabold rounded-[4px] shadow transition-all duration-200 hover:scale-105">
                     Approved
                   </button>
-                  <button
-                    disabled={isUpdating}
-                    onClick={() => handleUpdateStatus("declined")}
-                    className="px-4 py-1.5 bg-[#FF4D4F] hover:bg-rose-600 text-white text-[10px] font-extrabold rounded-[4px] shadow transition-all duration-200 hover:scale-105"
-                  >
+                  <button disabled={isUpdating} onClick={handleDecline} className="px-4 py-1.5 bg-[#FF4D4F] hover:bg-rose-600 text-white text-[10px] font-extrabold rounded-[4px] shadow transition-all duration-200 hover:scale-105">
                     Decline
                   </button>
                 </div>
               )}
 
-              {isApproved && (
-                <span className="px-3 py-1 bg-[#52C41A] text-white text-[10px] font-bold rounded-[4px]">
-                  Approved
-                </span>
-              )}
-              {isDeclined && (
-                <span className="px-3 py-1 bg-[#FF4D4F] text-white text-[10px] font-bold rounded-[4px]">
-                  Declined
-                </span>
-              )}
+              {isApproved && <span className="px-3 py-1 bg-[#52C41A] text-white text-[10px] font-bold rounded-[4px]">Approved</span>}
+              {isDeclined && <span className="px-3 py-1 bg-[#FF4D4F] text-white text-[10px] font-bold rounded-[4px]">Declined</span>}
             </div>
           </div>
 
-          {/* Milestone 3: Create Purchase Invoice */}
+          {/* Milestone 3: Invoice (generated externally, admin confirms here) */}
           <div className="relative flex flex-col items-start gap-1 z-10">
-            {/* Timeline bullet */}
             <div
               className={`absolute -left-9 top-0 w-6 h-6 rounded-full flex items-center justify-center border shadow-md transition-all duration-300 ${
                 isInvoiceCreated
@@ -394,61 +182,31 @@ export default function OrderStatusModal({
                   : "bg-white border-slate-200 border-dashed text-slate-300"
               }`}
             >
-              {isInvoiceCreated ? (
-                <Check className="w-3.5 h-3.5" />
-              ) : (
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    isApproved ? "bg-slate-450" : "bg-slate-200"
-                  }`}
-                ></span>
-              )}
+              {isInvoiceCreated ? <Check className="w-3.5 h-3.5" /> : <span className={`w-1.5 h-1.5 rounded-full ${isApproved ? "bg-slate-400" : "bg-slate-200"}`}></span>}
             </div>
             <div className="flex items-center justify-between w-full">
               <div className={isApproved ? "" : "opacity-40"}>
-                <span className="text-xs font-bold text-slate-800 font-sans">
-                  Create Purchase Invoice:
-                </span>
-                {isInvoiceCreated && (
-                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">
-                    {formatFigmaDate(
-                      order.invoice_created_at || order.created_at
-                    )}
-                  </p>
-                )}
+                <span className="text-xs font-bold text-slate-800 font-sans">Invoice Generated:</span>
+                {isInvoiceCreated && <p className="text-[10px] text-slate-400 font-bold mt-0.5">{formatFigmaDate(order.invoice_created_at || order.created_at)}</p>}
               </div>
 
-              {/* Action Buttons for Milestone 3 */}
-              {currentStatus === "approved" && (
+              {currentStatus === "approved" && canInvoiceOrGatepass && (
                 <div className="flex gap-2">
-                  <button
-                    disabled={isUpdating}
-                    onClick={handleCreateInvoice}
-                    className="px-4 py-1.5 bg-[#A8E6CF] hover:bg-emerald-400 text-emerald-800 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105"
-                  >
+                  <button disabled={isUpdating} onClick={handleCreateInvoice} className="px-4 py-1.5 bg-[#A8E6CF] hover:bg-emerald-400 text-emerald-800 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105">
                     Yes
                   </button>
-                  <button
-                    disabled={isUpdating}
-                    onClick={() => handleUpdateStatus("pending")}
-                    className="px-4 py-1.5 bg-[#FFD3B6] hover:bg-amber-400 text-amber-900 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105"
-                  >
+                  <button disabled={isUpdating} onClick={handleRevertToPending} className="px-4 py-1.5 bg-[#FFD3B6] hover:bg-amber-400 text-amber-900 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105">
                     No
                   </button>
                 </div>
               )}
 
-              {isInvoiceCreated && (
-                <span className="px-3 py-1 bg-[#A8E6CF] text-emerald-800 text-[10px] font-extrabold rounded-[4px]">
-                  Yes
-                </span>
-              )}
+              {isInvoiceCreated && <span className="px-3 py-1 bg-[#A8E6CF] text-emerald-800 text-[10px] font-extrabold rounded-[4px]">Yes</span>}
             </div>
           </div>
 
-          {/* Milestone 4: Create Gatepass */}
+          {/* Milestone 4: Gate Pass (issued externally, admin confirms here) */}
           <div className="relative flex flex-col items-start gap-1 z-10">
-            {/* Timeline bullet */}
             <div
               className={`absolute -left-9 top-0 w-6 h-6 rounded-full flex items-center justify-center border shadow-md transition-all duration-300 ${
                 isGatepassCreated
@@ -458,55 +216,26 @@ export default function OrderStatusModal({
                   : "bg-white border-slate-200 border-dashed text-slate-300"
               }`}
             >
-              {isGatepassCreated ? (
-                <Check className="w-3.5 h-3.5" />
-              ) : (
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    isInvoiceCreated ? "bg-slate-450" : "bg-slate-200"
-                  }`}
-                ></span>
-              )}
+              {isGatepassCreated ? <Check className="w-3.5 h-3.5" /> : <span className={`w-1.5 h-1.5 rounded-full ${isInvoiceCreated ? "bg-slate-400" : "bg-slate-200"}`}></span>}
             </div>
             <div className="flex items-center justify-between w-full">
               <div className={isInvoiceCreated ? "" : "opacity-40"}>
-                <span className="text-xs font-bold text-slate-800">
-                  Create Gatepass:
-                </span>
-                {isGatepassCreated && (
-                  <p className="text-[10px] text-slate-400 font-bold mt-0.5">
-                    {formatFigmaDate(
-                      order.gate_pass_created_at || order.created_at
-                    )}
-                  </p>
-                )}
+                <span className="text-xs font-bold text-slate-800">Gate Pass Issued:</span>
+                {isGatepassCreated && <p className="text-[10px] text-slate-400 font-bold mt-0.5">{formatFigmaDate(order.gate_pass_created_at || order.created_at)}</p>}
               </div>
 
-              {/* Action Buttons for Milestone 4 */}
-              {currentStatus === "invoice_generated" && (
+              {currentStatus === "invoice_generated" && canInvoiceOrGatepass && (
                 <div className="flex gap-2">
-                  <button
-                    disabled={isUpdating}
-                    onClick={handleCreateGatepass}
-                    className="px-4 py-1.5 bg-[#A8E6CF] hover:bg-emerald-400 text-emerald-800 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105"
-                  >
+                  <button disabled={isUpdating} onClick={handleCreateGatepass} className="px-4 py-1.5 bg-[#A8E6CF] hover:bg-emerald-400 text-emerald-800 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105">
                     Yes
                   </button>
-                  <button
-                    disabled={isUpdating}
-                    onClick={() => handleUpdateStatus("approved")}
-                    className="px-4 py-1.5 bg-[#FFD3B6] hover:bg-amber-400 text-amber-900 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105"
-                  >
+                  <button disabled={isUpdating} onClick={handleRevertToApproved} className="px-4 py-1.5 bg-[#FFD3B6] hover:bg-amber-400 text-amber-900 hover:text-white text-[10px] font-extrabold rounded-[4px] transition-all duration-200 hover:scale-105">
                     No
                   </button>
                 </div>
               )}
 
-              {isGatepassCreated && (
-                <span className="px-3 py-1 bg-[#A8E6CF] text-emerald-800 text-[10px] font-extrabold rounded-[4px]">
-                  Yes
-                </span>
-              )}
+              {isGatepassCreated && <span className="px-3 py-1 bg-[#A8E6CF] text-emerald-800 text-[10px] font-extrabold rounded-[4px]">Yes</span>}
             </div>
           </div>
         </div>

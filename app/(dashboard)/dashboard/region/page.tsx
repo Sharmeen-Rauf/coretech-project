@@ -7,6 +7,9 @@ import { X, Loader2, Plus } from "lucide-react";
 import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems, deleteLocalItem } from "@/lib/supabaseLocalFallback";
 import { deleteRecordAction, fetchRecordsAction } from "@/app/actions/users";
+import { fetchWarehousesAction } from "@/app/actions/warehouses";
+import { createRegionAction } from "@/app/actions/regions";
+import { getMyScopeAction } from "@/app/actions/roles";
  
 interface RegionRow {
   id: string;
@@ -25,15 +28,28 @@ export default function RegionPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
- 
+  const [warehousesList, setWarehousesList] = useState<{ id: string; name: string }[]>([]);
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
+
   // Form states
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [warehouse, setWarehouse] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
- 
+
+  const fetchWarehouseOptions = async () => {
+    const res = await fetchWarehousesAction();
+    if (res.success) setWarehousesList(res.data as { id: string; name: string }[]);
+  };
+
   const fetchRegions = async () => {
     setIsLoading(true);
+    try {
+      const writeRes = await getMyScopeAction("region");
+      setCanWrite(writeRes.canWrite);
+    } catch (writeErr) {
+      console.warn("Failed to resolve write access", writeErr);
+    }
     let dbData: any[] = [];
     try {
       // Use server action to bypass RLS
@@ -79,8 +95,9 @@ export default function RegionPage() {
  
   useEffect(() => {
     fetchRegions();
+    fetchWarehouseOptions();
   }, []);
- 
+
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!code.trim()) errs.code = "Region code is required (e.g. PK-LHR)";
@@ -96,35 +113,24 @@ export default function RegionPage() {
  
     setIsSubmitting(true);
     try {
-      const newRegion = {
-        region_code: code.trim().toUpperCase(),
-        name: name.trim(),
-        warehouse: warehouse.trim(),
-        distributors: 0,
-        sub_dealers: 0,
-        status: "active",
-      };
- 
+      // Real server action now, gated by role_permissions.can_write for
+      // "region" - an explicit denial must never fall back to local storage.
       try {
-        const { error } = await supabase.from("regions").insert(newRegion);
-        if (error) throw error;
-        toast.success(`Region ${newRegion.region_code} successfully registered!`);
+        const res = await createRegionAction({ regionCode: code, name, warehouse });
+        if (!res.success) {
+          toast.error(res.error || "Failed to create region");
+          return;
+        }
+        toast.success(`Region ${res.data?.region_code || code.trim().toUpperCase()} successfully registered!`);
       } catch (dbErr) {
-        console.warn("Database region insert failed. Saving locally.", dbErr);
-        saveLocalItem("coretech_local_regions", newRegion);
-        toast.success(`Region ${newRegion.region_code} registered locally (Database fallback)`);
-      }
- 
-      // Log audit activity safely
-      try {
-        await supabase.from("activity_logs").insert({
-          action: "Region Registered",
-          details: `Region Hub "${newRegion.name}" (${newRegion.region_code}) was registered`,
+        console.warn("createRegionAction failed unexpectedly. Saving locally.", dbErr);
+        saveLocalItem("coretech_local_regions", {
+          region_code: code.trim().toUpperCase(), name: name.trim(), warehouse: warehouse.trim(),
+          distributors: 0, sub_dealers: 0, status: "active",
         });
-      } catch (logErr) {
-        console.warn("Activity log failed:", logErr);
+        toast.success(`Region ${code.trim().toUpperCase()} registered locally (Database fallback)`);
       }
- 
+
       setIsModalOpen(false);
       setCode("");
       setName("");
@@ -234,13 +240,15 @@ export default function RegionPage() {
           </p>
         </div>
  
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Add Region
-        </button>
+        {canWrite && (
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow flex items-center gap-1.5 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Region
+          </button>
+        )}
       </div>
  
       <DataTable allData={regions}
@@ -254,7 +262,7 @@ export default function RegionPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
-        onDeleteClick={handleDeleteRegion}
+        onDeleteClick={canWrite ? handleDeleteRegion : undefined}
         onBulkDelete={handleBulkDeleteRegions}
       />
  
@@ -269,7 +277,7 @@ export default function RegionPage() {
           <div className="relative bg-white w-full max-w-sm border border-slate-100 rounded-[12px] shadow-2xl p-6 flex flex-col animate-in fade-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center pb-4 border-b border-slate-100 mb-4 bg-slate-50/50 -m-6 p-6 rounded-t-[12px]">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                Add Region Hub
+                Add Region
               </h3>
               <button
                 onClick={() => setIsModalOpen(false)}
@@ -322,21 +330,27 @@ export default function RegionPage() {
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                   Primary Warehouse*
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Hayatabad Depot"
+                <select
                   value={warehouse}
                   onChange={(e) => setWarehouse(e.target.value)}
-                  className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] ${
+                  className={`w-full h-9 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${
                     errors.warehouse ? "border-rose-500" : "border-slate-200"
                   }`}
                   required
-                />
+                >
+                  <option value="">{warehousesList.length === 0 ? "No warehouses yet — add one first" : "Select Warehouse"}</option>
+                  {warehousesList.map((wh) => (
+                    <option key={wh.id} value={wh.name}>{wh.name}</option>
+                  ))}
+                </select>
                 {errors.warehouse && (
                   <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.warehouse}</p>
                 )}
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Don't see the warehouse you need? Add it first under Purchase → Warehouses.
+                </p>
               </div>
- 
+
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-100 mt-6">
                 <button
                   type="button"

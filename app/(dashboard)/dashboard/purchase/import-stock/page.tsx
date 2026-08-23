@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
-import { Download, UploadCloud, FileText, Loader2, ArrowRight, Zap, CheckCircle2 } from "lucide-react";
+import { Download, UploadCloud, FileText, Loader2, Zap, CheckCircle2, AlertTriangle } from "lucide-react";
 import toast from "react-hot-toast";
-import { getOrCreateProductByCode, fetchStockAction, bulkImportStockAction } from "@/app/actions/products";
-import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
-import { fetchRecordsAction, updateRecordAction, createRecordAction } from "@/app/actions/users";
+import { bulkImportStockAction } from "@/app/actions/products";
+import { getLocalItems, mergeLocalItems } from "@/lib/supabaseLocalFallback";
+import { fetchRecordsAction } from "@/app/actions/users";
+import { getMyScopeAction } from "@/app/actions/roles";
 
 export default function ImportStockPage() {
   const supabase = createClientComponentClient();
@@ -14,16 +15,17 @@ export default function ImportStockPage() {
   // Form states
   const [file, setFile] = useState<File | null>(null);
   const [importDate, setImportDate] = useState(new Date().toLocaleDateString('en-CA'));
-  const [modelNo, setModelNo] = useState("");
+  const [productCode, setProductCode] = useState("");
   const [serialNo, setSerialNo] = useState("");
   const [warehouseName, setWarehouseName] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [progressPercent, setProgressPercent] = useState(0);
   const [progressText, setProgressText] = useState("");
   const [importSpeedInfo, setImportSpeedInfo] = useState("");
-  const [modelsList, setModelsList] = useState<string[]>([]);
+  const [importSkipped, setImportSkipped] = useState<{ serial_no?: string; code?: string; reason: string }[]>([]);
   const [warehousesList, setWarehousesList] = useState<string[]>([]);
   const [userRole, setUserRole] = useState("");
+  const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as other scoped pages
 
   const [allProductsList, setAllProductsList] = useState<any[]>([]);
   const [selectedProductDetails, setSelectedProductDetails] = useState<any | null>(null);
@@ -50,6 +52,13 @@ export default function ImportStockPage() {
       }
 
       try {
+        const writeRes = await getMyScopeAction("purchase.import_stock");
+        setCanWrite(writeRes.canWrite);
+      } catch (writeErr) {
+        console.warn("Failed to resolve write access", writeErr);
+      }
+
+      try {
         let dbProds: any[] = [];
         try {
           const { data, error } = await supabase
@@ -65,11 +74,8 @@ export default function ImportStockPage() {
         const localProds = getLocalItems("coretech_local_products");
         const allProds = [...dbProds, ...localProds];
         setAllProductsList(allProds);
-
-        const uniqueModels = Array.from(new Set(allProds.map((item: any) => item.model).filter(Boolean))) as string[];
-        setModelsList(uniqueModels);
       } catch (err: any) {
-        console.error("Error fetching product models:", err);
+        console.error("Error fetching products:", err);
       }
 
       let dbData: any[] = [];
@@ -88,13 +94,13 @@ export default function ImportStockPage() {
     fetchModels();
   }, [supabase]);
 
-  const handleModelChange = (modelName: string) => {
-    setModelNo(modelName);
-    if (!modelName) {
+  const handleProductChange = (code: string) => {
+    setProductCode(code);
+    if (!code) {
       setSelectedProductDetails(null);
       return;
     }
-    const matched = allProductsList.find((p) => p.model === modelName);
+    const matched = allProductsList.find((p) => p.code === code);
     setSelectedProductDetails(matched || null);
   };
 
@@ -111,9 +117,9 @@ export default function ImportStockPage() {
 
   const downloadSampleFile = () => {
     const headers = "Name,Code,Serial Number,Brand,Category Code,Model,Price,Cost,Warehouse\n";
-    const sampleRows = 
-      'ASOS Ridley High Waist,ASOS-RD1,SN-BATT-001,ASOS,battery,AR-100,79.49,50.00,Lahore Central\n' +
-      'Marco Lightweight Shirt,MARCO-SH1,SN-INV-001,Marco,inverter,M-50,128.50,90.00,Karachi Port\n';
+    const sampleRows =
+      'ASOS Ridley High Waist,ASOS-RD1,SN-BATT-001,ASOS,battery,AR-100,79.49,50.00,Lahore\n' +
+      'Marco Lightweight Shirt,MARCO-SH1,SN-INV-001,Marco,inverter,M-50,128.50,90.00,Karachi Korangi\n';
     
     const blob = new Blob([headers + sampleRows], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -129,14 +135,14 @@ export default function ImportStockPage() {
   const validate = () => {
     const errs: Record<string, string> = {};
     if (!importDate) errs.importDate = "Import date is required";
-    
+
     // Only require manual details if no file is selected
     if (!file) {
-      if (!modelNo) errs.modelNo = "Model name is required";
+      if (!productCode) errs.productCode = "Product is required";
       if (!serialNo.trim()) errs.serialNo = "Serial number is required";
       if (!warehouseName.trim()) errs.warehouseName = "Warehouse name is required";
     }
-    
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -149,12 +155,18 @@ export default function ImportStockPage() {
     setProgressPercent(0);
     setProgressText("Initializing bulk import pipeline...");
     setImportSpeedInfo("");
+    setImportSkipped([]);
 
     const startTime = Date.now();
+    const allSkipped: { serial_no?: string; code?: string; reason: string }[] = [];
 
     try {
       if (file) {
         // Mode A: High-Speed CSV Bulk Import
+        // CSV structure is unchanged (Name, Code, Serial Number, Brand, Category Code,
+        // Model, Price, Cost, Warehouse) — only Code, Serial Number, and Warehouse are
+        // actually used; the rest is parsed but ignored, since every row must map to an
+        // already-registered Product Management record by Code.
         setProgressText("Reading & parsing CSV file...");
         const text = await file.text();
         const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -162,7 +174,6 @@ export default function ImportStockPage() {
           throw new Error("CSV file is empty or only contains headers");
         }
 
-        const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
         const parsedItems: any[] = [];
 
         for (let i = 1; i < lines.length; i++) {
@@ -171,28 +182,14 @@ export default function ImportStockPage() {
 
           const name = row[0];
           const code = row[1] || name;
-          const serialNum = row[2] || `${serialNo || "SN"}-${i}`;
-          const brand = row[3] || "CoreTech";
-          let category = row[4]?.toLowerCase() || "inverter";
-          if (!["inverter", "battery", "aio"].includes(category)) {
-            category = "inverter";
-          }
-          const model = row[5] || modelNo || name;
-          const price = parseFloat(row[6]) || 0;
-          const cost = parseFloat(row[7]) || 0;
-          const csvWarehouse = row[8] || warehouseName || "Main Warehouse (275)";
+          const serialNum = row[2] || "";
+          const csvWarehouse = row[8] || warehouseName || "";
 
           if (!name && !code) continue;
 
           parsedItems.push({
-            name,
             code,
             serial_no: serialNum,
-            brand,
-            category,
-            model,
-            price,
-            cost,
             warehouse_name: csvWarehouse,
           });
         }
@@ -207,6 +204,7 @@ export default function ImportStockPage() {
         // Execute in chunks of 3,000 items
         const chunkSize = 3000;
         let processedCount = 0;
+        let totalInserted = 0;
 
         for (let i = 0; i < totalItems; i += chunkSize) {
           const chunk = parsedItems.slice(i, i + chunkSize);
@@ -215,10 +213,13 @@ export default function ImportStockPage() {
 
           setProgressText(`Importing batch ${currentBatchNumber} of ${totalBatches} (${processedCount.toLocaleString()} / ${totalItems.toLocaleString()} items)...`);
 
-          const res = await bulkImportStockAction(chunk, importDate, warehouseName || "Main Warehouse (275)");
+          const res = await bulkImportStockAction(chunk, importDate, warehouseName || undefined);
           if (!res.success) {
             throw new Error(res.error || `Bulk batch ${currentBatchNumber} failed`);
           }
+
+          totalInserted += res.count || 0;
+          if (res.skipped && res.skipped.length) allSkipped.push(...res.skipped);
 
           processedCount += chunk.length;
           const percent = Math.min(100, Math.round((processedCount / totalItems) * 100));
@@ -226,9 +227,13 @@ export default function ImportStockPage() {
         }
 
         const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-        const speedMsg = `Successfully imported ${totalItems.toLocaleString()} stock entries in ${duration} seconds!`;
+        const speedMsg = `Imported ${totalInserted.toLocaleString()} of ${totalItems.toLocaleString()} stock entries in ${duration}s${allSkipped.length ? ` — ${allSkipped.length} skipped` : ""}`;
         setImportSpeedInfo(speedMsg);
-        toast.success(speedMsg);
+        if (allSkipped.length) {
+          toast.error(`${allSkipped.length} row(s) skipped — see details below`);
+        } else {
+          toast.success(speedMsg);
+        }
         setFile(null);
       } else {
         // Mode B: Fast Manual Stock Entry
@@ -236,25 +241,26 @@ export default function ImportStockPage() {
         setProgressText("Saving manual stock entry...");
 
         const manualItem = [{
-          name: modelNo,
-          code: modelNo,
+          code: productCode,
           serial_no: finalSerial,
-          brand: "CoreTech",
-          category: "inverter",
-          model: modelNo,
-          price: 0,
-          cost: 0,
-          warehouse_name: warehouseName || "Main Warehouse (275)",
+          warehouse_name: warehouseName,
         }];
 
-        const res = await bulkImportStockAction(manualItem, importDate, warehouseName || "Main Warehouse (275)");
+        const res = await bulkImportStockAction(manualItem, importDate, warehouseName);
         if (!res.success) throw new Error(res.error || "Failed manual stock insert");
 
+        if (res.skipped && res.skipped.length) allSkipped.push(...res.skipped);
+
         setProgressPercent(100);
-        toast.success("Manual stock entry registered successfully!");
+        if (allSkipped.length) {
+          toast.error(allSkipped[0].reason);
+        } else {
+          toast.success("Manual stock entry registered successfully!");
+        }
       }
 
-      setModelNo("");
+      setImportSkipped(allSkipped);
+      setProductCode("");
       setSerialNo("");
       setWarehouseName("");
       setSelectedProductDetails(null);
@@ -265,16 +271,28 @@ export default function ImportStockPage() {
     }
   };
 
+  if (!canWrite) {
+    return (
+      <div className="space-y-6 select-none max-w-4xl mx-auto">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Import Stock</h1>
+          <p className="text-xs text-slate-500">
+            Upload products CSV inventory files and associate them to warehouses.
+          </p>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-[12px] p-8 text-center text-sm text-slate-500">
+          You have read-only access to Import Stock.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 select-none max-w-4xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold text-slate-800">
-          {userRole === "distributor" ? "Consignment Import" : "Import Stock"}
-        </h1>
+        <h1 className="text-2xl font-bold text-slate-800">Import Stock</h1>
         <p className="text-xs text-slate-500">
-          {userRole === "distributor" 
-            ? "Upload consignment CSV inventory files and associate them to warehouses."
-            : "Upload products CSV inventory files and associate them to warehouses."}
+          Upload products CSV inventory files and associate them to warehouses.
         </p>
       </div>
 
@@ -288,6 +306,7 @@ export default function ImportStockPage() {
             <li>The CSV file structure should not be modified.</li>
             <li>The correct column order is: <span className="font-bold text-[#00B4D8]">Name, Code, Serial Number, Brand, Category Code, Model, Price, Cost, Warehouse</span></li>
             <li>Ensure the category code is one of: <span className="font-bold">inverter, battery, aio</span></li>
+            <li>The Warehouse column must exactly match a real warehouse (e.g. Lahore, Multan, Karachi Korangi) — unrecognized warehouse names will be skipped</li>
           </ul>
         </div>
         <button
@@ -333,6 +352,27 @@ export default function ImportStockPage() {
               {importSpeedInfo && (
                 <span className="font-mono text-emerald-400 font-bold">{importSpeedInfo}</span>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Skipped Rows Report */}
+        {importSkipped.length > 0 && (
+          <div className="p-4 rounded-[8px] bg-rose-50 border border-rose-200 space-y-2 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2 text-xs font-bold text-rose-700">
+              <AlertTriangle className="w-4 h-4" />
+              {importSkipped.length} row(s) skipped — not added to inventory
+            </div>
+            <div className="max-h-40 overflow-y-auto space-y-1">
+              {importSkipped.map((s, idx) => (
+                <div key={idx} className="text-[11px] text-rose-700 bg-white border border-rose-100 rounded-[4px] px-2 py-1">
+                  {s.serial_no && <span className="font-mono font-bold">{s.serial_no}</span>}
+                  {s.serial_no && s.code && " · "}
+                  {s.code && <span className="font-mono">{s.code}</span>}
+                  {(s.serial_no || s.code) && " — "}
+                  {s.reason}
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -401,27 +441,27 @@ export default function ImportStockPage() {
 
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-              Model Name*
+              Product*
             </label>
             <select
-              value={modelNo}
+              value={productCode}
               disabled={!!file}
-              onChange={(e) => handleModelChange(e.target.value)}
+              onChange={(e) => handleProductChange(e.target.value)}
               className={`w-full h-10 px-2 border rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] ${
                 file ? "opacity-50 cursor-not-allowed bg-slate-50" : ""
               } ${
-                errors.modelNo ? "border-rose-500" : "border-slate-200"
+                errors.productCode ? "border-rose-500" : "border-slate-200"
               }`}
             >
-              <option value="">Select Model Name</option>
-              {modelsList.map((model, idx) => (
-                <option key={idx} value={model}>
-                  {model}
+              <option value="">Select Product</option>
+              {allProductsList.map((p, idx) => (
+                <option key={idx} value={p.code}>
+                  {p.name} ({p.code})
                 </option>
               ))}
             </select>
-            {errors.modelNo && (
-              <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.modelNo}</p>
+            {errors.productCode && (
+              <p className="text-[10px] text-rose-500 font-semibold mt-0.5">{errors.productCode}</p>
             )}
           </div>
 

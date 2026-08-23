@@ -1,7 +1,6 @@
 "use client";
  
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@/lib/supabase";
 import toast from "react-hot-toast";
 import { Loader2, ShieldAlert } from "lucide-react";
@@ -11,17 +10,18 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [loginError, setLoginError] = useState("");
  
   // MFA states
   const [step, setStep] = useState<"login" | "mfa">("login");
   const [mfaCode, setMfaCode] = useState("");
   const [mfaRedirectRole, setMfaRedirectRole] = useState("");
  
-  const router = useRouter();
   const supabase = createClientComponentClient();
  
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoginError("");
     if (!email || !password) {
       toast.error("Please fill in all fields");
       return;
@@ -35,7 +35,7 @@ export default function LoginPage() {
       });
  
       if (error) {
-        toast.error(error.message);
+        setLoginError(error.message || "Invalid email or password. Please try again.");
         setIsLoading(false);
         return;
       }
@@ -53,7 +53,7 @@ export default function LoginPage() {
 
       const userRole = profile?.role || "";
       if (!userRole) {
-        toast.error("Profile role not found. Please contact administrator.");
+        setLoginError("Profile role not found. Please contact administrator.");
         setIsLoading(false);
         return;
       }
@@ -61,11 +61,19 @@ export default function LoginPage() {
       toast.success("Sign in successful!");
       document.cookie = `user_role=${userRole}; path=/; max-age=2592000; SameSite=Lax`;
       document.cookie = `user_status=${profile?.status || "active"}; path=/; max-age=2592000; SameSite=Lax`;
+      // Hard navigation, not router.push - middleware runs on the very next
+      // request and needs the Supabase auth cookie already written. router.push
+      // fires its request immediately, which can race ahead of @supabase/ssr's
+      // internal session-persistence step still completing, so middleware
+      // sometimes sees no session yet and silently bounces back to /login -
+      // reported live as "have to click Sign in 2-3 times". A full navigation
+      // forces a real page unload/reload cycle first, which reliably gives that
+      // write time to land before the next request is actually sent.
       if (userRole === "installer") {
-        router.push("/installer");
+        window.location.href = "/installer";
       } else {
         document.cookie = "mfa_verified=true; path=/; max-age=2592000; SameSite=Lax";
-        router.push("/dashboard");
+        window.location.href = "/dashboard";
       }
     } catch (err: any) {
       toast.error(err.message || "An authentication error occurred");
@@ -96,9 +104,9 @@ export default function LoginPage() {
       document.cookie = "mfa_verified=true; path=/; max-age=2592000; SameSite=Lax";
       
       if (mfaRedirectRole === "installer") {
-        router.push("/installer");
+        window.location.href = "/installer";
       } else {
-        router.push("/dashboard");
+        window.location.href = "/dashboard";
       }
     }, 500);
   };
@@ -134,7 +142,7 @@ export default function LoginPage() {
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => { setEmail(e.target.value); setLoginError(""); }}
                   placeholder="name@coretechsolar.pk"
                   className="w-full h-9 px-3 bg-white border border-[#00B4D8]/30 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
                   required
@@ -148,12 +156,18 @@ export default function LoginPage() {
                 <input
                   type="password"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => { setPassword(e.target.value); setLoginError(""); }}
                   placeholder="••••••••"
                   className="w-full h-9 px-3 bg-white border border-[#00B4D8]/30 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
                   required
                 />
               </div>
+
+              {loginError && (
+                <div className="bg-rose-50 border border-rose-200 rounded-[6px] px-3 py-2 text-xs font-semibold text-rose-600">
+                  {loginError}
+                </div>
+              )}
 
               <button
                 type="submit"

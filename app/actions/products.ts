@@ -4,6 +4,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient as createJSClient } from "@supabase/supabase-js";
+import { getCallerIdentity } from "@/app/actions/users";
+import { getMyScopeAction } from "@/app/actions/roles";
+import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -43,6 +46,9 @@ function getAdminClient() {
 export async function createProductAction(data: any) {
   const supabase = getAdminClient();
   try {
+    const { canWrite } = await getMyScopeAction("product");
+    if (!canWrite) return { success: false, error: "You have read-only access to Product Management" };
+
     const { data: newProd, error } = await supabase
       .from("products")
       .insert(data)
@@ -59,6 +65,9 @@ export async function createProductAction(data: any) {
 export async function updateProductAction(id: string, data: any) {
   const supabase = getAdminClient();
   try {
+    const { canWrite } = await getMyScopeAction("product");
+    if (!canWrite) return { success: false, error: "You have read-only access to Product Management" };
+
     const { data: updatedProd, error } = await supabase
       .from("products")
       .update(data)
@@ -73,35 +82,6 @@ export async function updateProductAction(id: string, data: any) {
     return { success: true, data: updatedProd };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to update product" };
-  }
-}
-
-export async function getOrCreateProductByCode(code: string, fallbackData: any) {
-  const supabase = getAdminClient();
-  try {
-    // 1. Check if product exists
-    const { data: existingProd, error: fetchErr } = await supabase
-      .from("products")
-      .select("*")
-      .eq("code", code)
-      .maybeSingle();
-
-    if (fetchErr) throw fetchErr;
-    if (existingProd) {
-      return { success: true, data: existingProd, created: false };
-    }
-
-    // 2. Insert new product
-    const { data: newProd, error: insertErr } = await supabase
-      .from("products")
-      .insert(fallbackData)
-      .select()
-      .single();
-
-    if (insertErr) throw insertErr;
-    return { success: true, data: newProd, created: true };
-  } catch (err: any) {
-    return { success: false, error: err.message || "Failed to get or create product" };
   }
 }
 
@@ -124,9 +104,20 @@ export async function fetchProductsAction(category?: string) {
 export async function fetchStockAction() {
   const supabase = getAdminClient();
   try {
-    const { data, error } = await supabase
-      .from("stock")
-      .select(`
+    // A unit stays "in inventory" its whole life - warehouse, then distributor,
+    // then sub dealer - only truly leaving once it's sold out. Which slice of that
+    // pool shows up here now comes from the caller's role_permissions scope_level
+    // for "purchase.inventory" (Role Management, Stage 2), not a hardcoded role
+    // check: "self" mirrors the exact ownership each role already has elsewhere
+    // (distributor's own unclaimed-by-a-sub-dealer stock, sub dealer's own stock),
+    // "region" shows everything held by any distributor in the caller's region,
+    // and "everything" shows the full pool with no filter at all - genuinely every
+    // unit regardless of allocation stage, not just unclaimed warehouse stock the
+    // way the old hardcoded catch-all worked.
+    const caller = await getCallerIdentity();
+    const { scope, callerId, callerRegion } = await getMyScopeAction("purchase.inventory");
+
+    let query = supabase.from("stock").select(`
         id,
         serial_no,
         model_no,
@@ -136,14 +127,35 @@ export async function fetchStockAction() {
         import_date,
         created_at,
         product_id,
+        distributor_id,
+        sub_dealer_id,
         products (
           name,
           brand,
           model,
           price
         )
-      `)
-      .order("created_at", { ascending: false });
+      `);
+
+    if (scope === "self" && callerId) {
+      if (caller?.role === "distributor") {
+        query = query.eq("distributor_id", callerId).is("sub_dealer_id", null);
+      } else if (caller?.role === "sub_dealer") {
+        query = query.eq("sub_dealer_id", callerId);
+      } else {
+        // No ownership concept defined for this role on inventory - default-deny
+        // rather than guess, same posture as every other scope check in this system.
+        query = query.eq("id", "00000000-0000-0000-0000-000000000000");
+      }
+    } else if (scope === "region" && callerRegion) {
+      const { data: regionalDistributors } = await supabase
+        .from("profiles").select("id").eq("role", "distributor").ilike("region", callerRegion);
+      const ids = (regionalDistributors || []).map((d) => d.id);
+      query = query.in("distributor_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+    }
+    // scope === "everything": no filter - full pool, every allocation stage.
+
+    const { data, error } = await query.order("created_at", { ascending: false });
     if (error) throw error;
     return { success: true, data: data || [] };
   } catch (err: any) {
@@ -152,6 +164,13 @@ export async function fetchStockAction() {
 }
 
 export async function verifySerialNumberAction(sNo: string, currentJobId?: string) {
+  // Pure live-inventory existence check: green (success) if the serial number
+  // exists in the `stock` table, red (failure) if it doesn't. Deliberately does
+  // NOT check for other installers/jobs already using this serial — the item
+  // stays "live" in inventory until an admin approves a job against it (Stage 2),
+  // so multiple installers are allowed to submit against the same serial while
+  // pending; duplicates are surfaced to the admin for review instead of being
+  // blocked here.
   const supabase = getAdminClient();
   try {
     const cleanSNo = sNo.trim();
@@ -159,7 +178,6 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
       return { success: false, error: "Serial number is empty" };
     }
 
-    // 1. Query the stock table case-insensitively using service role key (bypasses RLS)
     const { data: stockData, error: stockError } = await supabase
       .from("stock")
       .select(`
@@ -175,44 +193,8 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
 
     if (stockError) throw stockError;
 
-    // 2. Check if the serial number is already registered or used in active (non-rejected) installer_jobs
-    let jobsQuery = supabase
-      .from("installer_jobs")
-      .select("id, job_title, status")
-      .ilike("serial_number", cleanSNo);
-
-    if (currentJobId && currentJobId !== "new") {
-      jobsQuery = jobsQuery.neq("id", currentJobId);
-    }
-
-    const { data: jobData, error: jobError } = await jobsQuery;
-
-    if (jobError) throw jobError;
-
-    // Filter for active (non-rejected) jobs
-    const activeJobs = (jobData || []).filter((j) => {
-      const s = String(j.status || "").trim().toLowerCase();
-      return s !== "rejected" && s !== "declined";
-    });
-
-    if (activeJobs.length > 0) {
-      return { 
-        success: false, 
-        error: `Serial number is already registered for an active installation: "${activeJobs[0].job_title}".` 
-      };
-    }
-
     if (!stockData) {
-      // If not in stock table but rejected job exists or custom serial number entered, allow verification fallback
-      return {
-        success: true,
-        product: {
-          product_name: "CoreTech Solar Unit",
-          brand: "CoreTech",
-          model: "NexGen",
-          warehouse_name: "Restored Inventory",
-        }
-      };
+      return { success: false, error: "Serial number not found in inventory." };
     }
 
     return {
@@ -230,10 +212,68 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
 }
 
 export async function submitInstallationAction(payload: any, siteFormJobId: string) {
+  const MIN_PHOTOS = 3;
+
+  // === SERVER-SIDE SANITIZATION: Strip ALL fake/placeholder URLs ===
+  // This runs on the server so no matter what the client sends, fake URLs NEVER reach the DB.
+  const BLOCKED_DOMAINS = ["unsplash.com", "mixkit.co", "picsum.photos", "placeholder.com", "zencdn", "gtv-videos-bucket", "lorem.space", "placehold.co"];
+
+  const isFakeUrl = (url: string) => {
+    if (!url || typeof url !== "string") return true;
+    const lower = url.trim().toLowerCase();
+    if (!lower) return true;
+    return BLOCKED_DOMAINS.some(domain => lower.includes(domain));
+  };
+
+  // Sanitize photos array
+  if (Array.isArray(payload.photos)) {
+    payload.photos = payload.photos.filter((url: string) => !isFakeUrl(url));
+  } else if (typeof payload.photos === "string") {
+    try {
+      const parsed = JSON.parse(payload.photos);
+      if (Array.isArray(parsed)) {
+        payload.photos = parsed.filter((url: string) => !isFakeUrl(url));
+      } else {
+        payload.photos = [];
+      }
+    } catch {
+      payload.photos = [];
+    }
+  } else {
+    payload.photos = [];
+  }
+
+  // Sanitize notes: remove fake video URLs from VIDEO: metadata
+  if (typeof payload.notes === "string") {
+    payload.notes = payload.notes.replace(
+      /VIDEO:https?:\/\/[^\s|]*(?:mixkit|zencdn|gtv-videos-bucket|unsplash)[^\s|]*/gi,
+      "VIDEO:"
+    );
+  }
+
+  // === SERVER-SIDE VALIDATION: required for both a brand-new submission and a
+  // resubmission of a rejected job — the client already enforces this, but the
+  // server must not trust it as the only line of defense. ===
+  const validationErrors: string[] = [];
+  if (!String(payload.job_title || "").trim()) validationErrors.push("Job title is required.");
+  if (!String(payload.address || "").trim()) validationErrors.push("Address is required.");
+  if (!String(payload.serial_number || "").trim()) validationErrors.push("Serial number is required.");
+  if (payload.photos.length < MIN_PHOTOS) {
+    validationErrors.push(`At least ${MIN_PHOTOS} real site photos are required (got ${payload.photos.length}).`);
+  }
+  const videoMatch = String(payload.notes || "").match(/VIDEO:(\S*)/i);
+  const videoUrl = videoMatch ? videoMatch[1] : "";
+  if (!videoUrl || isFakeUrl(videoUrl)) {
+    validationErrors.push("A real installation video is required.");
+  }
+
+  if (validationErrors.length > 0) {
+    return { success: false, error: validationErrors.join(" ") };
+  }
+
   const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
   const client = new Client({
-    connectionString,
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
 
@@ -241,69 +281,19 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
     await client.connect();
     await client.query("BEGIN");
 
-    // === SERVER-SIDE SANITIZATION: Strip ALL fake/placeholder URLs ===
-    // This runs on the server so no matter what the client sends, fake URLs NEVER reach the DB.
-    const BLOCKED_DOMAINS = ["unsplash.com", "mixkit.co", "picsum.photos", "placeholder.com", "zencdn", "gtv-videos-bucket", "lorem.space", "placehold.co"];
-
-    const isFakeUrl = (url: string) => {
-      if (!url || typeof url !== "string") return true;
-      const lower = url.trim().toLowerCase();
-      if (!lower) return true;
-      return BLOCKED_DOMAINS.some(domain => lower.includes(domain));
-    };
-
-    // Sanitize photos array
-    if (Array.isArray(payload.photos)) {
-      payload.photos = payload.photos.filter((url: string) => !isFakeUrl(url));
-    } else if (typeof payload.photos === "string") {
-      try {
-        const parsed = JSON.parse(payload.photos);
-        if (Array.isArray(parsed)) {
-          payload.photos = parsed.filter((url: string) => !isFakeUrl(url));
-        } else {
-          payload.photos = [];
-        }
-      } catch {
-        payload.photos = [];
-      }
-    } else {
-      payload.photos = [];
-    }
-
-    // Sanitize notes: remove fake video URLs from VIDEO: metadata
-    if (typeof payload.notes === "string") {
-      payload.notes = payload.notes.replace(
-        /VIDEO:https?:\/\/[^\s|]*(?:mixkit|zencdn|gtv-videos-bucket|unsplash)[^\s|]*/gi,
-        "VIDEO:"
-      );
-    }
-
     // 1. Optional check for stock item in active inventory
     const stockCheck = await client.query(
       "SELECT id, status, installation_id FROM public.stock WHERE LOWER(serial_no) = LOWER($1) LIMIT 1",
       [payload.serial_number]
     );
 
-    // 2. Check if another ACTIVE (non-rejected) job exists for this serial number (excluding current job if editing)
-    let activeJobQuery = `
-      SELECT id, job_title FROM public.installer_jobs 
-      WHERE LOWER(serial_number) = LOWER($1) 
-        AND LOWER(status) NOT IN ('rejected', 'declined')
-    `;
-    const queryParams = [payload.serial_number];
-    if (siteFormJobId && siteFormJobId !== "new") {
-      activeJobQuery += ` AND id != $2`;
-      queryParams.push(siteFormJobId);
-    }
-    activeJobQuery += ` LIMIT 1`;
+    // Note: deliberately NOT blocking on other active jobs sharing this serial number.
+    // The item stays live in inventory until an admin approves a job against it, so
+    // multiple installers are allowed to submit pending applications for the same
+    // serial — the admin resolves the conflict (approve one, reject the rest) using
+    // the duplicate-serial flag shown on the review screen.
 
-    const activeJobCheck = await client.query(activeJobQuery, queryParams);
-
-    if (activeJobCheck.rows.length > 0) {
-      throw new Error(`Serial number is already registered for an active installation: "${activeJobCheck.rows[0].job_title}".`);
-    }
-
-    // 3. Insert or update the installation job record
+    // 2. Insert or update the installation job record
     let jobResult;
     if (siteFormJobId && siteFormJobId !== "new") {
       jobResult = await client.query(
@@ -357,33 +347,13 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       throw new Error("Failed to insert or update the installation record.");
     }
 
-    // 3. Mark the inventory unit as sold_out if found in active inventory
-    const updateStock = await client.query(
-      `UPDATE public.stock 
-       SET status = 'sold_out',
-           sold_out_at = NOW(),
-           sold_out_by_installer_id = $1,
-           installation_id = $2,
-           installation_project_title = $3,
-           deployment_site_address = $4
-       WHERE LOWER(serial_no) = LOWER($5)
-       RETURNING id`,
-      [
-        payload.installer_id,
-        jobId,
-        payload.job_title,
-        payload.address,
-        payload.serial_number
-      ]
-    );
-
-    if (updateStock.rows.length === 0) {
-      console.warn("Stock item was not found in stock inventory table for serial:", payload.serial_number);
-    }
+    // Deliberately NOT marking stock as sold_out here. The item stays live in
+    // inventory while this job is pending — it only becomes sold_out once an
+    // admin gives final (Stage 2) approval, in handleApproveJobStage2.
 
     await client.query("COMMIT");
     await client.end();
-    return { success: true, message: "Installation submitted and stock consumed successfully!" };
+    return { success: true, message: "Installation submitted for verification!" };
   } catch (err: any) {
     await client.query("ROLLBACK");
     await client.end();
@@ -391,10 +361,164 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
   }
 }
 
+// === Job submission two-stage review ===
+// Stage 1 (verify/reject): Regional Manager, Country Head, or Admin.
+// Stage 2 (final approve/reject): Country Head or Admin only.
+
+export async function verifyJobStage1Action(jobId: string, note: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || !["retail_manager", "country_head", "admin"].includes(caller.role || "")) {
+      return { success: false, error: "You don't have permission to verify this installation" };
+    }
+
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("installer_jobs")
+      .update({
+        status: "pending_approval",
+        verified_by: caller.id,
+        verified_at: new Date().toISOString(),
+        verification_note: (note || "").trim(),
+      })
+      .eq("id", jobId);
+
+    if (error) throw error;
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to verify job" };
+  }
+}
+
+export async function approveJobStage2Action(jobId: string, serialNumber: string, note: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || !["country_head", "admin"].includes(caller.role || "")) {
+      return { success: false, error: "Only Country Head or Admin can give final approval" };
+    }
+
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("installer_jobs")
+      .update({
+        status: "approved",
+        approved_by: caller.id,
+        approved_at: new Date().toISOString(),
+        approval_note: (note || "").trim(),
+      })
+      .eq("id", jobId);
+
+    if (error) throw error;
+
+    if (serialNumber) {
+      await supabase
+        .from("stock")
+        .update({
+          status: "sold_out",
+          sold_out_at: new Date().toISOString(),
+          sold_out_by_installer_id: jobId,
+          installation_id: jobId,
+        })
+        .ilike("serial_no", serialNumber.trim());
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to approve job" };
+  }
+}
+
+// Incentive payment status: admin-only, one-way (unpaid -> paid), and only
+// once the job has cleared Stage 2 approval. Re-verified server-side rather
+// than trusting the client, since a client-only check is trivially bypassed.
+export async function setJobPaymentPaidAction(jobId: string) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || caller.role !== "admin") {
+      return { success: false, error: "Only Admin can mark incentive payments as paid" };
+    }
+
+    const supabase = getAdminClient();
+    const { data: job, error: fetchError } = await supabase
+      .from("installer_jobs")
+      .select("status, payment_status, job_title")
+      .eq("id", jobId)
+      .maybeSingle();
+    if (fetchError) throw fetchError;
+    if (!job) return { success: false, error: "Job not found" };
+    if (job.status !== "approved") {
+      return { success: false, error: "Incentive can only be marked paid after Stage 2 approval" };
+    }
+    if (job.payment_status === "paid") {
+      return { success: true };
+    }
+
+    const { error } = await supabase
+      .from("installer_jobs")
+      .update({ payment_status: "paid" })
+      .eq("id", jobId);
+    if (error) throw error;
+
+    try {
+      await supabase.from("activity_logs").insert({
+        action: "Job Payment Settlement",
+        details: `Installer incentive for job "${job.job_title}" marked as Paid by admin`,
+      });
+    } catch {
+      // Non-critical, don't fail the payment update over a log-write failure
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to update payment status" };
+  }
+}
+
+async function rejectJobInternal(jobId: string, serialNumber: string, note: string, callerId: string) {
+  try {
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("installer_jobs")
+      .update({
+        status: "rejected",
+        approved_by: callerId,
+        approved_at: new Date().toISOString(),
+        approval_note: (note || "").trim() || "Rejected during site audit.",
+      })
+      .eq("id", jobId);
+
+    if (error) throw error;
+
+    await revertRejectedInstallationStockAction(jobId, serialNumber);
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to reject job" };
+  }
+}
+
+export async function rejectJobStage1Action(jobId: string, serialNumber: string, note: string) {
+  const caller = await getCallerIdentity();
+  if (!caller || !["retail_manager", "country_head", "admin"].includes(caller.role || "")) {
+    return { success: false, error: "You don't have permission to reject this installation" };
+  }
+  return rejectJobInternal(jobId, serialNumber, note, caller.id);
+}
+
+export async function rejectJobStage2Action(jobId: string, serialNumber: string, note: string) {
+  const caller = await getCallerIdentity();
+  if (!caller || !["country_head", "admin"].includes(caller.role || "")) {
+    return { success: false, error: "Only Country Head or Admin can reject at this stage" };
+  }
+  return rejectJobInternal(jobId, serialNumber, note, caller.id);
+}
+
 export async function fetchSellOutAction() {
   const supabase = getAdminClient();
   try {
-    const { data, error } = await supabase
+    const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("sales.sellout");
+
+    let query = supabase
       .from("stock")
       .select(`
         *,
@@ -408,140 +532,233 @@ export async function fetchSellOutAction() {
           last_name
         )
       `)
-      .eq("status", "sold_out")
-      .order("sold_out_at", { ascending: false });
+      .eq("status", "sold_out");
+
+    // Self scope mirrors the ownership check submitManualSelloutAction already
+    // enforces on write - a sub-dealer (or distributor) only ever sees sellouts
+    // that were actually theirs, not the whole table.
+    if (scope === "self" && callerId) {
+      query = query.or(`distributor_id.eq.${callerId},sub_dealer_id.eq.${callerId}`);
+    }
+
+    let { data, error } = await query.order("sold_out_at", { ascending: false });
 
     if (error) throw error;
-    return { success: true, data: data || [] };
+    let rows = data || [];
+
+    // Region scope: Sell Out has no "two sides" the way ST2/Return/Transfer do -
+    // the unit was sold by whichever of sub_dealer/distributor/warehouse held it,
+    // to a walk-in consumer (no id, no region). Same shared resolver as the
+    // ledger, just against `stock`'s own columns instead of `sales`'
+    // source_type/source_id pair. See lib/regionScope.ts.
+    if (scope === "region" && callerRegion) {
+      const parties: PartyRef[] = rows.map((r: any) =>
+        r.sub_dealer_id
+          ? { type: "sub_dealer", id: r.sub_dealer_id }
+          : r.distributor_id
+          ? { type: "distributor", id: r.distributor_id }
+          : { type: "warehouse", warehouseName: r.warehouse_name }
+      );
+      const regionMap = await buildPartyRegionMap(supabase, parties);
+      rows = rows.filter((_r: any, idx: number) => regionsMatch(regionForParty(regionMap, parties[idx]), callerRegion));
+    }
+
+    // A manually-sold-out unit has no installer job, but does have a matching
+    // sales/sale_items row (type='sellout') carrying the consumer's details -
+    // enrich each stock row with that, where it exists.
+    const stockIds = rows.map((r: any) => r.id);
+    const consumerMap = new Map<string, { consumer_name: string; consumer_phone: string; site_address: string | null }>();
+    if (stockIds.length > 0) {
+      const { data: items } = await supabase.from("sale_items").select("stock_id, sale_id").in("stock_id", stockIds);
+      const saleIds = Array.from(new Set((items || []).map((i: any) => i.sale_id)));
+      if (saleIds.length > 0) {
+        const { data: salesRows } = await supabase
+          .from("sales")
+          .select("id, consumer_name, consumer_phone, site_address")
+          .in("id", saleIds)
+          .eq("type", "sellout");
+        const saleMap = new Map((salesRows || []).map((s: any) => [s.id, s]));
+        (items || []).forEach((i: any) => {
+          const sale = saleMap.get(i.sale_id);
+          if (sale) consumerMap.set(i.stock_id, sale);
+        });
+      }
+    }
+
+    // Seller Type / Seller Name: whichever entity actually held the unit right
+    // before it sold out - same priority order the region-scope resolver above
+    // already uses (sub_dealer, then distributor, then warehouse). Batched into
+    // one query for whichever profile ids show up, instead of one lookup per
+    // row - warehouse needs no lookup at all since stock already carries its
+    // name directly.
+    const sellerProfileIds = Array.from(
+      new Set(rows.flatMap((r: any) => [r.sub_dealer_id, r.distributor_id]).filter(Boolean))
+    );
+    const sellerNameByProfileId = new Map<string, string>();
+    if (sellerProfileIds.length > 0) {
+      const { data: sellerProfiles } = await supabase
+        .from("profiles")
+        .select("id, first_name, last_name")
+        .in("id", sellerProfileIds);
+      (sellerProfiles || []).forEach((p: any) => sellerNameByProfileId.set(p.id, `${p.first_name} ${p.last_name || ""}`.trim()));
+    }
+
+    const enriched = rows.map((row: any) => {
+      let sellerType: string;
+      let sellerName: string;
+      if (row.sub_dealer_id) {
+        sellerType = "Sub Dealer";
+        sellerName = sellerNameByProfileId.get(row.sub_dealer_id) || "Unknown";
+      } else if (row.distributor_id) {
+        sellerType = "Distributor";
+        sellerName = sellerNameByProfileId.get(row.distributor_id) || "Unknown";
+      } else {
+        sellerType = "Direct from Warehouse";
+        sellerName = row.warehouse_name || "Unknown Warehouse";
+      }
+      return { ...row, sellerType, sellerName, consumer: consumerMap.get(row.id) || null };
+    });
+    return { success: true, data: enriched, canWrite };
   } catch (err: any) {
-    return { success: false, error: err.message || "Failed to fetch sell out stock", data: [] };
+    return { success: false, error: err.message || "Failed to fetch sell out stock", data: [], canWrite: false };
   }
 }
 
 export async function bulkImportStockAction(
   items: Array<{
-    name?: string;
     code?: string;
     serial_no: string;
-    brand?: string;
-    category?: string;
-    model?: string;
-    price?: number;
-    cost?: number;
     warehouse_name?: string;
+    [key: string]: any; // other CSV columns (name/brand/category/model/price/cost) are accepted but ignored
   }>,
   globalImportDate?: string,
   globalWarehouse?: string
 ) {
+  const { canWrite } = await getMyScopeAction("purchase.import_stock");
+  if (!canWrite) return { success: false, error: "You have read-only access to Import Stock", count: 0, skipped: [] };
+
   if (!items || items.length === 0) {
-    return { success: true, count: 0, message: "No items to import" };
+    return { success: true, count: 0, skipped: [], message: "No items to import" };
   }
 
   const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
   const client = new Client({
-    connectionString,
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
+
+  const skipped: { serial_no?: string; code?: string; reason: string }[] = [];
 
   try {
     await client.connect();
 
-    // 1. Fetch existing products to resolve IDs
-    const prodRes = await client.query(`SELECT id, code, model FROM public.products;`);
-    const existingProducts = prodRes.rows || [];
+    // 1. Resolve every item's product strictly by Product Code — no auto-creation.
+    const prodRes = await client.query(`SELECT id, code FROM public.products WHERE code IS NOT NULL;`);
     const codeMap = new Map<string, string>();
-    const modelMap = new Map<string, string>();
-
-    existingProducts.forEach((p: any) => {
-      if (p.code) codeMap.set(p.code.toLowerCase(), p.id);
-      if (p.model) modelMap.set(p.model.toLowerCase(), p.id);
+    (prodRes.rows || []).forEach((p: any) => {
+      if (p.code) codeMap.set(p.code.toLowerCase().trim(), p.id);
     });
 
-    // 2. Identify missing products in items list
-    const missingProdsMap = new Map<string, any>();
-    items.forEach((item) => {
-      const codeKey = (item.code || "").toLowerCase();
-      const modelKey = (item.model || "").toLowerCase();
-      if (!codeMap.has(codeKey) && !modelMap.has(modelKey) && item.code) {
-        if (!missingProdsMap.has(codeKey)) {
-          missingProdsMap.set(codeKey, {
-            name: item.name || item.code,
-            code: item.code,
-            brand: item.brand || "CoreTech",
-            category: (item.category || "inverter").toLowerCase(),
-            model: item.model || item.code,
-            price: Number(item.price) || 0,
-            cost: Number(item.cost) || 0,
-            alert_quantity: 5,
-          });
-        }
-      }
+    // A warehouse must be one of the real, currently-registered warehouses (sourced
+    // from regions.warehouse - there's no separate hardcoded warehouse list, so a
+    // newly added region's warehouse is automatically accepted here too).
+    const whRes = await client.query(`SELECT DISTINCT warehouse FROM public.regions WHERE warehouse IS NOT NULL;`);
+    const canonicalWarehouses = new Map<string, string>();
+    (whRes.rows || []).forEach((r: any) => {
+      if (r.warehouse) canonicalWarehouses.set(r.warehouse.toLowerCase().trim(), r.warehouse);
     });
+    const warehouseList = Array.from(canonicalWarehouses.values()).join(", ");
 
-    // Bulk insert missing products
-    if (missingProdsMap.size > 0) {
-      const prodValues: string[] = [];
-      const prodParams: any[] = [];
-      let pIdx = 1;
+    const defaultDate = globalImportDate || new Date().toISOString().split("T")[0];
 
-      for (const prod of Array.from(missingProdsMap.values())) {
-        prodValues.push(`(gen_random_uuid(), $${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}, $${pIdx + 7}, NOW())`);
-        prodParams.push(prod.name, prod.code, prod.brand, prod.category, prod.model, prod.price, prod.cost, prod.alert_quantity);
-        pIdx += 8;
+    // 2. Validate every row: must have a serial number, must map to a real product,
+    // must have a recognized warehouse, and must not repeat a serial already seen
+    // in this file.
+    const seenInFile = new Set<string>();
+    const valid: { productId: string; serial: string; warehouse: string }[] = [];
+
+    for (const item of items) {
+      const serial = (item.serial_no || "").trim();
+      const codeKey = (item.code || "").toLowerCase().trim();
+
+      if (!serial) {
+        skipped.push({ code: item.code, reason: "Missing serial number" });
+        continue;
       }
 
-      const prodInsertQuery = `
-        INSERT INTO public.products (id, name, code, brand, category, model, price, cost, alert_quantity, created_at)
-        VALUES ${prodValues.join(",\n")}
-        ON CONFLICT (code) DO UPDATE SET model = EXCLUDED.model
-        RETURNING id, code, model;
-      `;
+      const serialKey = serial.toLowerCase();
+      if (seenInFile.has(serialKey)) {
+        skipped.push({ serial_no: serial, code: item.code, reason: "Duplicate serial number within this file" });
+        continue;
+      }
 
-      const insertedProds = await client.query(prodInsertQuery, prodParams);
-      (insertedProds.rows || []).forEach((p: any) => {
-        if (p.code) codeMap.set(p.code.toLowerCase(), p.id);
-        if (p.model) modelMap.set(p.model.toLowerCase(), p.id);
+      const productId = codeMap.get(codeKey);
+      if (!productId) {
+        skipped.push({ serial_no: serial, code: item.code, reason: `Product code "${item.code || ""}" does not exist in Product Management` });
+        continue;
+      }
+
+      const rawWarehouse = (item.warehouse_name || globalWarehouse || "").trim();
+      if (!rawWarehouse) {
+        skipped.push({ serial_no: serial, code: item.code, reason: "Missing warehouse" });
+        continue;
+      }
+      const resolvedWarehouse = canonicalWarehouses.get(rawWarehouse.toLowerCase());
+      if (!resolvedWarehouse) {
+        skipped.push({ serial_no: serial, code: item.code, reason: `Unknown warehouse "${rawWarehouse}" — must be one of: ${warehouseList}` });
+        continue;
+      }
+
+      seenInFile.add(serialKey);
+      valid.push({
+        productId,
+        serial,
+        warehouse: resolvedWarehouse,
       });
     }
 
-    const fallbackProdId = existingProducts[0]?.id || null;
-    const defaultDate = globalImportDate || new Date().toISOString().split("T")[0];
+    if (valid.length === 0) {
+      await client.end();
+      return { success: true, count: 0, skipped, message: "No valid rows to import" };
+    }
 
-    // 3. Bulk insert/upsert stock items in chunks of 2,500
+    // 3. Check which of the remaining serials already exist in stock (covers both
+    // pre-existing inventory and duplicates spanning earlier chunks of this same import).
+    const candidateSerials = valid.map((v) => v.serial);
+    const existingRes = await client.query(
+      `SELECT serial_no FROM public.stock WHERE serial_no = ANY($1);`,
+      [candidateSerials]
+    );
+    const existingSerials = new Set((existingRes.rows || []).map((r: any) => String(r.serial_no).toLowerCase()));
+
+    const toInsert = valid.filter((v) => {
+      if (existingSerials.has(v.serial.toLowerCase())) {
+        skipped.push({ serial_no: v.serial, reason: "Serial number already exists in inventory" });
+        return false;
+      }
+      return true;
+    });
+
+    // 4. Bulk insert the clean rows in chunks of 2,500
     const batchSize = 2500;
     let insertedCount = 0;
 
-    for (let i = 0; i < items.length; i += batchSize) {
-      const chunk = items.slice(i, i + batchSize);
+    for (let i = 0; i < toInsert.length; i += batchSize) {
+      const chunk = toInsert.slice(i, i + batchSize);
       const valuePlaceholders: string[] = [];
       const params: any[] = [];
       let sIdx = 1;
 
       chunk.forEach((item) => {
-        const codeKey = (item.code || "").toLowerCase();
-        const modelKey = (item.model || "").toLowerCase();
-        const prodId = codeMap.get(codeKey) || modelMap.get(modelKey) || fallbackProdId;
-        const targetWarehouse = item.warehouse_name || globalWarehouse || "Main Warehouse (275)";
-
-        valuePlaceholders.push(`(gen_random_uuid(), $${sIdx}, $${sIdx + 1}, $${sIdx + 2}, $${sIdx + 3}, $${sIdx + 4}, 1, NOW(), 'active')`);
-        params.push(
-          prodId,
-          item.model || "CoreTech Product",
-          item.serial_no,
-          targetWarehouse,
-          defaultDate
-        );
-        sIdx += 5;
+        valuePlaceholders.push(`(gen_random_uuid(), $${sIdx}, $${sIdx + 1}, $${sIdx + 2}, $${sIdx + 3}, 1, NOW(), 'active')`);
+        params.push(item.productId, item.serial, item.warehouse, defaultDate);
+        sIdx += 4;
       });
 
       const stockQuery = `
-        INSERT INTO public.stock (id, product_id, model_no, serial_no, warehouse_name, import_date, quantity, created_at, status)
+        INSERT INTO public.stock (id, product_id, serial_no, warehouse_name, import_date, quantity, created_at, status)
         VALUES ${valuePlaceholders.join(",\n")}
-        ON CONFLICT (serial_no) DO UPDATE
-        SET quantity = public.stock.quantity + EXCLUDED.quantity,
-            warehouse_name = EXCLUDED.warehouse_name,
-            import_date = EXCLUDED.import_date;
+        ON CONFLICT (serial_no) DO NOTHING;
       `;
 
       await client.query(stockQuery, params);
@@ -549,107 +766,24 @@ export async function bulkImportStockAction(
     }
 
     await client.end();
-    return { success: true, count: insertedCount, message: `Successfully imported ${insertedCount} stock entries!` };
+    return {
+      success: true,
+      count: insertedCount,
+      skipped,
+      message: `Imported ${insertedCount} stock entries${skipped.length ? `, skipped ${skipped.length}` : ""}.`,
+    };
   } catch (err: any) {
     try {
       await client.end();
     } catch {}
-    return { success: false, error: err.message || "Failed bulk stock import operation" };
-  }
-}
-
-export async function bulkDeleteStockAction(ids: string[]) {
-  if (!ids || ids.length === 0) {
-    return { success: true, count: 0 };
-  }
-
-  const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
-  const client = new Client({
-    connectionString,
-    ssl: { rejectUnauthorized: false }
-  });
-
-  try {
-    await client.connect();
-
-    // Filter out local temporary IDs
-    const dbIds = ids.filter(id => id && !id.startsWith("local-"));
-    if (dbIds.length === 0) {
-      await client.end();
-      return { success: true, count: ids.length };
-    }
-
-    const deleteQuery = `DELETE FROM public.stock WHERE id = ANY($1);`;
-    const res = await client.query(deleteQuery, [dbIds]);
-
-    await client.end();
-    return { success: true, count: res.rowCount || dbIds.length };
-  } catch (err: any) {
-    try { await client.end(); } catch {}
-    return { success: false, error: err.message || "Failed bulk delete operation" };
-  }
-}
-
-export async function bulkDeleteStockByFilterAction(filters: {
-  importDate?: string;
-  productName?: string;
-  modelNo?: string;
-  warehouseName?: string;
-}) {
-  const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
-  const client = new Client({
-    connectionString,
-    ssl: { rejectUnauthorized: false }
-  });
-
-  try {
-    await client.connect();
-
-    const conditions: string[] = [];
-    const params: any[] = [];
-    let pIdx = 1;
-
-    if (filters.importDate) {
-      conditions.push(`import_date = $${pIdx}`);
-      params.push(filters.importDate);
-      pIdx++;
-    }
-
-    if (filters.modelNo) {
-      conditions.push(`model_no ILIKE $${pIdx}`);
-      params.push(`%${filters.modelNo}%`);
-      pIdx++;
-    }
-
-    if (filters.warehouseName) {
-      conditions.push(`warehouse_name ILIKE $${pIdx}`);
-      params.push(`%${filters.warehouseName}%`);
-      pIdx++;
-    }
-
-    if (conditions.length === 0) {
-      await client.end();
-      return { success: false, error: "At least one filter criterion is required for bulk deletion" };
-    }
-
-    const query = `DELETE FROM public.stock WHERE ${conditions.join(" AND ")};`;
-    const res = await client.query(query, params);
-
-    await client.end();
-    return { success: true, count: res.rowCount || 0, message: `Bulk deleted ${res.rowCount || 0} stock items matching filter!` };
-  } catch (err: any) {
-    try { await client.end(); } catch {}
-    return { success: false, error: err.message || "Failed bulk filter delete operation" };
+    return { success: false, error: err.message || "Failed bulk stock import operation", skipped };
   }
 }
 
 export async function revertRejectedInstallationStockAction(jobId: string, serialNumber?: string) {
   const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
   const client = new Client({
-    connectionString,
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
 
@@ -703,9 +837,8 @@ export async function revertRejectedInstallationStockAction(jobId: string, seria
 
 export async function revertStockBySerialAction(serialNumber: string) {
   const { Client } = require("pg");
-  const connectionString = "postgresql://postgres.cypbnnohtipwavcwukhl:munifpaisedega@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres";
   const client = new Client({
-    connectionString,
+    connectionString: process.env.DATABASE_URL,
     ssl: { rejectUnauthorized: false }
   });
 

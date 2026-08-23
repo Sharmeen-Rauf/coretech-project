@@ -37,7 +37,7 @@ export default function RegisterPage() {
 
         <div className="bg-slate-50 border border-slate-200 rounded-[8px] p-4 text-left text-xs text-slate-600 leading-normal space-y-2">
           <p className="font-bold text-slate-700">How to get access:</p>
-          <p>• Contact your Regional Manager or Administrator to whitelist your email address.</p>
+          <p>• Contact your Regional Sales Manager or Administrator to whitelist your email address.</p>
           <p>• Once registered internally, you will receive your login credentials immediately.</p>
         </div>
 

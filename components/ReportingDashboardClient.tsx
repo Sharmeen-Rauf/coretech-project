@@ -1,17 +1,16 @@
 "use client";
 
 import React, { useState } from "react";
-import { Wrench, Calendar, MessageSquare, CreditCard, X, Clock, AlertTriangle, CheckCircle, ShieldAlert } from "lucide-react";
+import { Wrench, Calendar, X, Clock, CheckCircle } from "lucide-react";
 import toast from "react-hot-toast";
 
 interface Props {
   jobsCount: number;
   claimsCount: number;
-  ticketsCount: number;
   activeJobs: any[];
 }
 
-export default function ReportingDashboardClient({ jobsCount, claimsCount, ticketsCount, activeJobs = [] }: Props) {
+export default function ReportingDashboardClient({ jobsCount, claimsCount, activeJobs = [] }: Props) {
   const [isJobsModalOpen, setIsJobsModalOpen] = useState(false);
   const [warrantyActivated, setWarrantyActivated] = useState<Record<string, boolean>>({});
 
@@ -22,7 +21,7 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, ticke
 
   return (
     <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6 select-none">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6 select-none">
         {/* Active Jobs */}
         <div
           onClick={() => setIsJobsModalOpen(true)}
@@ -48,29 +47,6 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, ticke
           <Calendar className="w-8 h-8 text-rose-400 opacity-75" />
         </div>
 
-        {/* Outstanding Receivables Ledger */}
-        <div className="bg-[#F0FAFE] border border-cyan-200 rounded-[12px] p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-[#00B4D8] uppercase tracking-wider">Outstanding Ledger</p>
-            <h4 className="text-xl font-extrabold text-slate-800">Rs. 4.25M</h4>
-            <p className="text-[9px] text-cyan-600 font-semibold flex items-center gap-1">
-              <AlertTriangle className="w-2.5 h-2.5" /> 12 Distributors overdue
-            </p>
-          </div>
-          <CreditCard className="w-8 h-8 text-[#00B4D8] opacity-75" />
-        </div>
-
-        {/* Open Inquiries & TAT SLA Status */}
-        <div className="bg-slate-50 border border-slate-200 rounded-[12px] p-5 flex items-center justify-between">
-          <div className="space-y-1">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Open Support Tickets</p>
-            <h4 className="text-xl font-extrabold text-slate-800">{ticketsCount} Inquiries</h4>
-            <p className="text-[9px] text-rose-600 font-bold flex items-center gap-1">
-              <ShieldAlert className="w-3 h-3 animate-pulse" /> 1 ticket pending &gt; 24 hrs
-            </p>
-          </div>
-          <MessageSquare className="w-8 h-8 text-slate-400 opacity-75" />
-        </div>
       </div>
 
       {/* Live Installer Job Monitor Modal */}
@@ -106,16 +82,16 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, ticke
                 activeJobs.map((job) => {
                   const steps = [
                     { label: "Assigned", time: "Step 1", done: true },
-                    { label: "Dispatched", time: "Step 2", done: job.status === "in_progress" || job.status === "completed" || job.status === "pending_installation_approval" },
-                    { label: "In Progress", time: "Step 3", done: job.status === "in_progress" || job.status === "completed" || job.status === "pending_installation_approval" },
-                    { label: "Completed & Verified", time: job.status === "completed" ? "Verified" : "--:--", done: job.status === "completed" },
+                    { label: "Dispatched", time: "Step 2", done: job.status === "in_progress" || job.status === "approved" || job.status === "pending_installation_approval" },
+                    { label: "In Progress", time: "Step 3", done: job.status === "in_progress" || job.status === "approved" || job.status === "pending_installation_approval" },
+                    { label: "Completed & Verified", time: job.status === "approved" ? "Verified" : "--:--", done: job.status === "approved" },
                   ];
 
                   const statusColor = 
-                    job.status === "completed" ? "text-emerald-500 bg-emerald-50 border-emerald-200" :
+                    job.status === "approved" ? "text-emerald-500 bg-emerald-50 border-emerald-200" :
                     job.status === "in_progress" ? "text-blue-500 bg-blue-50 border-blue-200" :
                     job.status === "pending_installation_approval" ? "text-amber-500 bg-amber-50 border-amber-200" :
-                    "text-slate-550 bg-slate-50 border-slate-200";
+                    "text-slate-500 bg-slate-50 border-slate-200";
 
                   return (
                     <div key={job.id} className="border border-slate-100 rounded-[10px] p-4 space-y-4 hover:border-slate-200 transition-colors">
@@ -147,14 +123,14 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, ticke
                               {step.done ? "✓" : idx + 1}
                             </div>
                             <span className={`text-[9px] font-bold mt-1.5 ${step.done ? "text-slate-700" : "text-slate-400"}`}>{step.label}</span>
-                            <span className="text-[8px] text-slate-450">{step.time}</span>
+                            <span className="text-[8px] text-slate-400">{step.time}</span>
                           </div>
                         ))}
                       </div>
 
                       <div className="flex justify-between items-center border-t border-slate-50 pt-3 text-[10px] text-slate-500 font-semibold">
                         <span>Remarks: {job.remarks || "No remarks"}</span>
-                        {job.status === "completed" ? (
+                        {job.status === "approved" ? (
                           <button
                             onClick={() => handleActivateWarranty(job.id)}
                             disabled={warrantyActivated[job.id]}

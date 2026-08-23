@@ -70,7 +70,12 @@ export default function WebInstallerPage() {
   // Photos List States
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
   const [photoFiles, setPhotoFiles] = useState<File[]>([]);
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
   const [isSubmittingJob, setIsSubmittingJob] = useState(false);
+
+  // Site Form validation errors
+  const [siteFormErrors, setSiteFormErrors] = useState<Record<string, string>>({});
+  const MIN_PHOTOS = 3;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchInstallerData = async () => {
@@ -263,25 +268,10 @@ export default function WebInstallerPage() {
       const cleanSNo = sNo.trim().toLowerCase();
       const targetJobId = jobIdOverride !== undefined ? jobIdOverride : siteFormJobId;
 
-      // 1. FIRST check if this serial belongs to any rejected/declined job in installer's active list
-      const isRejectedJobInList = jobs.some((j: any) => {
-        const st = String(j.status || "").toLowerCase();
-        const matchesSerial = String(j.serial_number || "").trim().toLowerCase() === cleanSNo;
-        return (st === "rejected" || st === "declined") && matchesSerial;
-      });
-
-      if (isRejectedJobInList) {
-        setValidatedProduct({
-          product_name: "CoreTech Solar Product (Restored Inventory)",
-          brand: "CoreTech",
-          model: "NexGen 8KW",
-          warehouse_name: "Karachi Korangi",
-        });
-        setVerificationError("");
-        return;
-      }
-
-      // 2. Query Server Action (authoritative live database check)
+      // 1. Query Server Action (authoritative live database check) — always re-verify,
+      // including on resubmission of a previously rejected job. No shortcuts: a rejection
+      // is often specifically because the typed serial didn't match the photo, so this
+      // check must run for real every time.
       const res = await verifySerialNumberAction(sNo, targetJobId);
 
       if (res) {
@@ -381,22 +371,27 @@ export default function WebInstallerPage() {
   // Upload helper for files
   const uploadJobPhotos = async (): Promise<string[]> => {
     if (photoFiles.length === 0) return [];
-    const uploadedUrls: string[] = [];
-    for (const file of photoFiles) {
-      try {
-        const fileExt = file.name.split(".").pop();
-        const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
-        const filePath = `verification/${fileName}`;
-        const { error } = await supabase.storage.from("job-photos").upload(filePath, file);
-        if (error) throw error;
-        const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
-        uploadedUrls.push(pUrl.publicUrl);
-      } catch (err) {
-        console.error("Storage upload failed for photo:", err);
-        throw new Error("Failed to upload photo proof to cloud storage. Please check your network connection and try again.");
+    setIsUploadingPhotos(true);
+    try {
+      const uploadedUrls: string[] = [];
+      for (const file of photoFiles) {
+        try {
+          const fileExt = file.name.split(".").pop();
+          const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+          const filePath = `verification/${fileName}`;
+          const { error } = await supabase.storage.from("job-photos").upload(filePath, file);
+          if (error) throw error;
+          const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
+          uploadedUrls.push(pUrl.publicUrl);
+        } catch (err) {
+          console.error("Storage upload failed for photo:", err);
+          throw new Error("Failed to upload photo proof to cloud storage. Please check your network connection and try again.");
+        }
       }
+      return uploadedUrls;
+    } finally {
+      setIsUploadingPhotos(false);
     }
-    return uploadedUrls;
   };
 
   const uploadVerificationVideo = async (): Promise<string> => {
@@ -421,19 +416,51 @@ export default function WebInstallerPage() {
     }
   };
 
+  // Validation: required for both a brand-new submission and a resubmission of a
+  // rejected job — no exemptions either way.
+  const validateSiteForm = () => {
+    const errs: Record<string, string> = {};
+    const isNew = siteFormJobId === "new";
+
+    if (isNew) {
+      if (!newJobTitle.trim()) errs.newJobTitle = "Installation project title is required";
+      if (!newJobAddress.trim()) errs.newJobAddress = "Deployment site address is required";
+    } else {
+      // Read-only on resubmission, but still guard against a ticket missing this data.
+      if (!newJobTitle.trim()) errs.newJobTitle = "Job title is missing on this ticket — contact admin";
+      if (!newJobAddress.trim()) errs.newJobAddress = "Site address is missing on this ticket — contact admin";
+    }
+
+    if (!serialNo.trim()) {
+      errs.serialNo = "Product serial number is required";
+    } else if (isVerifyingSerial) {
+      errs.serialNo = "Please wait for serial verification to finish";
+    } else if (!validatedProduct) {
+      errs.serialNo = "Serial number must be verified against inventory (tap Verify) before submitting";
+    }
+
+    if (!videoFile) {
+      errs.video = "A video of the installation is required";
+    }
+
+    if (photoPreviews.length < MIN_PHOTOS) {
+      errs.photos = `At least ${MIN_PHOTOS} site photos are required (currently ${photoPreviews.length})`;
+    }
+
+    setSiteFormErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
   // Submit Site Form
   const handleSiteFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    let activeProduct = validatedProduct;
-    if (!activeProduct) {
-      activeProduct = {
-        product_name: "CoreTech Solar Product",
-        brand: "CoreTech",
-        model: "NexGen",
-        warehouse_name: "Active Stock"
-      };
+
+    if (!validateSiteForm()) {
+      toast.error("Please complete all required fields before submitting");
+      return;
     }
+
+    const activeProduct = validatedProduct;
 
     const existingPhotoUrls = photoPreviews.filter(
       (p) => typeof p === "string" && (p.startsWith("http") || p.startsWith("data:"))
@@ -447,10 +474,7 @@ export default function WebInstallerPage() {
         uploadJobPhotos(),
       ]);
 
-      let allPhotos = [...existingPhotoUrls, ...photosUrls];
-      if (allPhotos.length === 0) {
-        allPhotos = ["https://images.unsplash.com/photo-1509391365360-2e959784a276?w=600&auto=format&fit=crop"];
-      }
+      const allPhotos = [...existingPhotoUrls, ...photosUrls];
 
       const serializedNotes = `[METADATA] SN:${serialNo.trim()} | VIDEO:${videoUrl} | REM:${completionRemarks.trim()}\nCONNECTED PRODUCT: ${activeProduct.product_name} (${activeProduct.model})`;
 
@@ -528,15 +552,18 @@ export default function WebInstallerPage() {
   const openSubmitForJob = (job: any) => {
     if (!job) return;
     const st = String(job.status || "").trim().toLowerCase();
-    if (st === "completed" || st === "approved") {
-      return; // DO NOTHING ON COMPLETED OR APPROVED JOBS
+    if (st === "approved") {
+      return; // DO NOTHING ON APPROVED JOBS
     }
 
+    setSiteFormErrors({});
     setSiteFormJobId(job.id);
     setNewJobTitle(job.job_title);
     setNewJobAddress(job.address);
     setSerialNo(job.serial_number || "");
     setCompletionRemarks(job.remarks || "");
+    setVideoFile(null);
+    setVideoPreview(null);
 
     // Pre-populate existing photo URLs if available
     let existingPhotos: string[] = [];
@@ -564,7 +591,7 @@ export default function WebInstallerPage() {
   // Stats calculation
   const completedCount = jobs.filter((j) => {
     const s = String(j.status || "").toLowerCase();
-    return s === "approved" || s === "completed";
+    return s === "approved";
   }).length;
   const pendingApprovalCount = jobs.filter((j) => {
     const s = String(j.status || "").toLowerCase();
@@ -642,12 +669,17 @@ export default function WebInstallerPage() {
           </div>
           <button
             onClick={() => {
+              setSiteFormErrors({});
               setSiteFormJobId("new");
               setNewJobTitle("");
               setNewJobAddress("");
               setSerialNo("");
               setCompletionRemarks("");
               setValidatedProduct(null);
+              setVideoFile(null);
+              setVideoPreview(null);
+              setPhotoFiles([]);
+              setPhotoPreviews([]);
               setIsSiteFormOpen(true);
             }}
             className="h-8 px-3 bg-[#00B4D8] hover:bg-[#0077B6] text-white rounded-[6px] text-xs font-bold shadow-md shadow-cyan-100 flex items-center gap-1.5 transition-all hover:scale-105"
@@ -697,7 +729,7 @@ export default function WebInstallerPage() {
         ) : (
           jobs.map((job) => {
             const st = String(job.status || "").trim().toLowerCase();
-            const isApproved = st === "approved" || st === "completed";
+            const isApproved = st === "approved";
             const isPending = st === "pending_verification" || st === "pending_approval" || st === "pending_installation_approval" || st === "pending";
             const isRejected = st === "rejected" || st === "declined";
 
@@ -760,7 +792,7 @@ export default function WebInstallerPage() {
                   </div>
                 )}
 
-                <div className="mt-3 flex items-center justify-between text-[9px] text-slate-450 font-bold border-t border-slate-50 pt-2">
+                <div className="mt-3 flex items-center justify-between text-[9px] text-slate-400 font-bold border-t border-slate-50 pt-2">
                   <span className="capitalize text-slate-500">
                     Incentive: <span className="text-emerald-600 font-bold">Rs. {Number(job.incentive || 0).toLocaleString()}</span>
                   </span>
@@ -799,7 +831,7 @@ export default function WebInstallerPage() {
               </div>
               <button
                 onClick={() => setIsSiteFormOpen(false)}
-                className="p-1 hover:bg-slate-100 text-slate-450 hover:text-slate-600 rounded-full transition-colors"
+                className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-full transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -845,9 +877,12 @@ export default function WebInstallerPage() {
                       placeholder="e.g. Al-Faisal Solar Project"
                       value={newJobTitle}
                       onChange={(e) => setNewJobTitle(e.target.value)}
-                      className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white"
+                      className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white ${
+                        siteFormErrors.newJobTitle ? "border-rose-500" : "border-slate-200"
+                      }`}
                       required
                     />
+                    {siteFormErrors.newJobTitle && <p className="text-[9px] text-rose-500 mt-1 font-bold">{siteFormErrors.newJobTitle}</p>}
                   </div>
                   <div>
                     <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -858,9 +893,12 @@ export default function WebInstallerPage() {
                       placeholder="Full site deployment address"
                       value={newJobAddress}
                       onChange={(e) => setNewJobAddress(e.target.value)}
-                      className="w-full h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white"
+                      className={`w-full h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white ${
+                        siteFormErrors.newJobAddress ? "border-rose-500" : "border-slate-200"
+                      }`}
                       required
                     />
+                    {siteFormErrors.newJobAddress && <p className="text-[9px] text-rose-500 mt-1 font-bold">{siteFormErrors.newJobAddress}</p>}
                   </div>
                 </>
               ) : (
@@ -871,6 +909,11 @@ export default function WebInstallerPage() {
                   <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-[6px] text-xs font-semibold text-slate-700">
                     {newJobTitle} - <span className="text-[10px] text-slate-500">{newJobAddress}</span>
                   </div>
+                  {(siteFormErrors.newJobTitle || siteFormErrors.newJobAddress) && (
+                    <p className="text-[9px] text-rose-500 mt-1 font-bold">
+                      {siteFormErrors.newJobTitle || siteFormErrors.newJobAddress}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -889,13 +932,15 @@ export default function WebInstallerPage() {
                       setValidatedProduct(null);
                       setVerificationError("");
                     }}
-                    className="flex-1 h-9 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white"
+                    className={`flex-1 h-9 px-3 border rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] bg-white ${
+                      siteFormErrors.serialNo ? "border-rose-500" : "border-slate-200"
+                    }`}
                     required
                   />
                   <button
                     type="button"
                     onClick={() => verifySerialNumber(serialNo)}
-                    className="h-9 px-3 bg-slate-100 border border-slate-200 hover:bg-slate-200 rounded-[6px] text-xs font-bold text-slate-650"
+                    className="h-9 px-3 bg-slate-100 border border-slate-200 hover:bg-slate-200 rounded-[6px] text-xs font-bold text-slate-700"
                   >
                     Verify
                   </button>
@@ -909,8 +954,12 @@ export default function WebInstallerPage() {
                   </div>
                 )}
 
+                {siteFormErrors.serialNo && !isVerifyingSerial && (
+                  <p className="text-[9px] text-rose-500 mt-1 font-bold">{siteFormErrors.serialNo}</p>
+                )}
+
                 {validatedProduct && (
-                  <div className="mt-2 p-2.5 bg-emerald-50 border border-emerald-150 rounded-[6px] text-[10px] text-slate-650 space-y-1.5 animate-in slide-in-from-top-1 duration-150">
+                  <div className="mt-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-[6px] text-[10px] text-slate-700 space-y-1.5 animate-in slide-in-from-top-1 duration-150">
                     <p className="font-bold text-emerald-800 flex items-center gap-1">
                       <CheckCircle className="w-3.5 h-3.5 shrink-0" />
                       Connected Inventory Verified
@@ -941,13 +990,21 @@ export default function WebInstallerPage() {
                 {videoPreview ? (
                   <div className="relative w-full h-32 bg-slate-900 border rounded-[6px] overflow-hidden">
                     <video src={videoPreview} controls className="w-full h-full object-contain" />
-                    <button
-                      type="button"
-                      onClick={removeVideo}
-                      className="absolute top-1.5 right-1.5 p-1 bg-rose-600 text-white rounded-full hover:bg-rose-700"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
+                    {isUploadingVideo && (
+                      <div className="absolute inset-0 bg-slate-900/70 flex flex-col items-center justify-center gap-1.5 text-white">
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span className="text-[10px] font-bold">Uploading video...</span>
+                      </div>
+                    )}
+                    {!isUploadingVideo && (
+                      <button
+                        type="button"
+                        onClick={removeVideo}
+                        className="absolute top-1.5 right-1.5 p-1 bg-rose-600 text-white rounded-full hover:bg-rose-700"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <>
@@ -961,19 +1018,22 @@ export default function WebInstallerPage() {
                     <button
                       type="button"
                       onClick={() => videoInputRef.current?.click()}
-                      className="w-full h-10 border border-dashed border-slate-300 hover:border-[#00B4D8] text-slate-500 hover:text-[#00B4D8] rounded-[6px] text-xs font-bold flex items-center justify-center gap-1.5 transition-colors bg-slate-50/20"
+                      className={`w-full h-10 border border-dashed rounded-[6px] text-xs font-bold flex items-center justify-center gap-1.5 transition-colors bg-slate-50/20 ${
+                        siteFormErrors.video ? "border-rose-400 text-rose-500" : "border-slate-300 hover:border-[#00B4D8] text-slate-500 hover:text-[#00B4D8]"
+                      }`}
                     >
                       <Video className="w-4 h-4 text-[#00B4D8]" />
                       <span>Upload Video Proof of Installation</span>
                     </button>
                   </>
                 )}
+                {siteFormErrors.video && <p className="text-[9px] text-rose-500 mt-1 font-bold">{siteFormErrors.video}</p>}
               </div>
 
               {/* Photo Upload proof */}
               <div>
                 <label className="block text-[8px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Reference Site Photos
+                  Reference Site Photos* <span className="normal-case text-slate-400">(minimum {MIN_PHOTOS})</span>
                 </label>
 
                 {photoPreviews.length > 0 && (
@@ -981,15 +1041,24 @@ export default function WebInstallerPage() {
                     {photoPreviews.map((url, idx) => (
                       <div key={idx} className="relative w-full h-14 bg-slate-50 border border-slate-150 rounded-[6px] overflow-hidden">
                         <img src={url} alt="reference-site" className="w-full h-full object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => removePhoto(idx)}
-                          className="absolute top-0.5 right-0.5 p-0.5 bg-slate-900/60 text-white rounded-full"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                        {!isUploadingPhotos && (
+                          <button
+                            type="button"
+                            onClick={() => removePhoto(idx)}
+                            className="absolute top-0.5 right-0.5 p-0.5 bg-slate-900/60 text-white rounded-full"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {isUploadingPhotos && (
+                  <div className="flex items-center gap-1.5 mb-2 text-[10px] text-[#0077B6]">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Uploading photos...</span>
                   </div>
                 )}
 
@@ -1004,11 +1073,14 @@ export default function WebInstallerPage() {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full h-8 border border-slate-200 text-slate-500 rounded-[6px] text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-slate-50"
+                  className={`w-full h-8 border rounded-[6px] text-[10px] font-bold flex items-center justify-center gap-1 hover:bg-slate-50 ${
+                    siteFormErrors.photos ? "border-rose-400 text-rose-500" : "border-slate-200 text-slate-500"
+                  }`}
                 >
-                  <Camera className="w-3.5 h-3.5 text-slate-450" />
-                  <span>Select Images</span>
+                  <Camera className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Select Images ({photoPreviews.length}/{MIN_PHOTOS} minimum)</span>
                 </button>
+                {siteFormErrors.photos && <p className="text-[9px] text-rose-500 mt-1 font-bold">{siteFormErrors.photos}</p>}
               </div>
 
               {/* Remarks */}
@@ -1035,11 +1107,17 @@ export default function WebInstallerPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingJob || !validatedProduct}
+                  disabled={isSubmittingJob}
                   className="h-9 px-5 text-xs font-bold text-white bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-slate-200 disabled:text-slate-400 rounded-[6px] shadow-lg shadow-cyan-100 flex items-center justify-center gap-1.5 transition-all"
                 >
                   {isSubmittingJob && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Submit Installation
+                  {isUploadingVideo
+                    ? "Uploading video..."
+                    : isUploadingPhotos
+                    ? "Uploading photos..."
+                    : isSubmittingJob
+                    ? "Saving installation..."
+                    : "Submit Installation"}
                 </button>
               </div>
             </form>
