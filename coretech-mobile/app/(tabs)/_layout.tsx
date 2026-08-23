@@ -1,6 +1,6 @@
 import React from "react";
 import { Tabs } from "expo-router";
-import { Wrench, History, User } from "lucide-react-native";
+import { Wrench, History, User, LayoutDashboard } from "lucide-react-native";
 
 export default function TabsLayout() {
   return (
@@ -32,6 +32,14 @@ export default function TabsLayout() {
         },
       }}
     >
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: "Dashboard",
+          tabBarLabel: "Dashboard",
+          tabBarIcon: ({ color }) => <LayoutDashboard size={20} color={color} />,
+        }}
+      />
       <Tabs.Screen
         name="jobs"
         options={{

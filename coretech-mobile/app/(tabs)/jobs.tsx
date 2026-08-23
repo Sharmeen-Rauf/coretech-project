@@ -14,6 +14,7 @@ import { supabase } from "../../lib/supabase";
 export default function JobsScreen() {
   const router = useRouter();
   const [jobs, setJobs] = useState<any[]>([]);
+  const [filter, setFilter] = useState("all");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -26,7 +27,7 @@ export default function JobsScreen() {
         .from("installer_jobs")
         .select("*")
         .eq("installer_id", user.id)
-        .in("status", ["assigned", "in_progress"])
+        .in("status", ["assigned", "in_progress", "rejected"])
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -54,6 +55,8 @@ export default function JobsScreen() {
         return { bg: "#ECFEFF", text: "#0891B2" }; // Cyan
       case "in_progress":
         return { bg: "#FEF9C3", text: "#CA8A04" }; // Yellow
+      case "rejected":
+        return { bg: "#FEE2E2", text: "#DC2626" }; // Red
       default:
         return { bg: "#F1F5F9", text: "#475569" };
     }
@@ -65,10 +68,12 @@ export default function JobsScreen() {
       ? new Date(item.created_at).toLocaleDateString()
       : "-";
 
+    const isRejected = item.status === "rejected";
+
     return (
       <TouchableOpacity
         onPress={() => router.push(`/job/${item.id}`)}
-        style={styles.card}
+        style={[styles.card, isRejected && styles.cardRejected]}
       >
         <View style={styles.cardHeader}>
           <Text style={styles.jobTitle}>{item.job_title}</Text>
@@ -83,11 +88,18 @@ export default function JobsScreen() {
 
         <View style={styles.cardFooter}>
           <Text style={styles.dateText}>{dateFormatted}</Text>
-          <Text style={styles.actionLink}>View Details →</Text>
+          <Text style={[styles.actionLink, isRejected && { color: "#DC2626" }]}>
+            {isRejected ? "Fix & Re-submit →" : "View Details →"}
+          </Text>
         </View>
       </TouchableOpacity>
     );
   };
+
+  const filteredJobs = jobs.filter((j) => {
+    if (filter === "all") return true;
+    return j.status === filter;
+  });
 
   if (isLoading) {
     return (
@@ -99,8 +111,23 @@ export default function JobsScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Status Filter Tab Row */}
+      <View style={styles.filterRow}>
+        {["all", "assigned", "in_progress", "rejected"].map((t) => (
+          <TouchableOpacity
+            key={t}
+            onPress={() => setFilter(t)}
+            style={[styles.filterTab, filter === t && styles.filterTabActive]}
+          >
+            <Text style={[styles.filterTabText, filter === t && styles.filterTabTextActive]}>
+              {t === "in_progress" ? "Active" : t === "all" ? "All" : t.replace("_", " ")}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <FlatList
-        data={jobs}
+        data={filteredJobs}
         renderItem={renderJobCard}
         keyExtractor={(item) => item.id}
         refreshing={isRefreshing}
@@ -108,9 +135,9 @@ export default function JobsScreen() {
         contentContainerStyle={styles.list}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyTitle}>All caught up!</Text>
+            <Text style={styles.emptyTitle}>No jobs found</Text>
             <Text style={styles.emptySubtitle}>
-              No active jobs assigned at the moment.
+              There are no jobs matching this status.
             </Text>
           </View>
         }
@@ -123,6 +150,35 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F8FAFC",
+  },
+  filterRow: {
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderColor: "#E2E8F0",
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  filterTab: {
+    flex: 1,
+    height: 32,
+    borderRadius: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F1F5F9",
+  },
+  filterTabActive: {
+    backgroundColor: "#00B4D8",
+  },
+  filterTabText: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#64748B",
+    textTransform: "uppercase",
+  },
+  filterTabTextActive: {
+    color: "#FFFFFF",
   },
   center: {
     flex: 1,
@@ -144,6 +200,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.02,
     shadowRadius: 4,
     elevation: 1,
+  },
+  cardRejected: {
+    borderColor: "#FCA5A5",
+    backgroundColor: "#FFF5F5",
   },
   cardHeader: {
     flexDirection: "row",

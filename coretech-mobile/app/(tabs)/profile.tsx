@@ -42,7 +42,7 @@ export default function ProfileScreen() {
       if (jobsErr) throw jobsErr;
 
       const total = jobs?.length || 0;
-      const completed = jobs?.filter((j) => j.status === "completed").length || 0;
+      const completed = jobs?.filter((j) => j.status === "completed" || j.status === "approved").length || 0;
       const pending = total - completed;
 
       setStats({ total, completed, pending });

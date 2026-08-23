@@ -23,7 +23,7 @@ export default function HistoryScreen() {
         .from("installer_jobs")
         .select("*")
         .eq("installer_id", user.id)
-        .eq("status", "completed")
+        .in("status", ["completed", "approved"])
         .order("created_at", { ascending: false });
 
       if (error) throw error;

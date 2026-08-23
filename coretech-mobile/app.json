@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "CoreTech Installer",
+    "slug": "coretech-installer",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+    "scheme": "coretechinstaller",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.coretechsolar.installer",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "extra": {
+      "supabaseUrl": "https://cypbnnohtipwavcwukhl.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN5cGJubm9odGlwd2F2Y3d1a2hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MjQ3NTMsImV4cCI6MjA5NzIwMDc1M30.WnKhD-jy1likTKYtbdJcJ2JvzSNEPKn9M5U6NbjtCYo",
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "a8b44c98-8ccc-447a-8033-1c1bc4a906d8"
+      }
+    },
+    "owner": "ymgroupofficial"
+  }
+}

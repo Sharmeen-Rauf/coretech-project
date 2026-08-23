@@ -16,6 +16,7 @@ export default function MobileLogin() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [secureText, setSecureText] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -40,10 +41,10 @@ export default function MobileLogin() {
         .eq("id", data.user.id)
         .single();
 
-      if (profileErr || !profile || (profile.role !== "installer" && profile.role !== "admin")) {
-        // Sign out if they are not an installer/admin to prevent illegal access
+      if (profileErr || !profile || profile.role !== "installer") {
+        // Sign out if they are not an installer to prevent illegal access
         await supabase.auth.signOut();
-        Alert.alert("Access Denied", "Only installers are permitted on this application.");
+        Alert.alert("Access Denied", "This app is only available to CoreTech installers.");
         return;
       }
 
@@ -88,15 +89,25 @@ export default function MobileLogin() {
 
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>Password</Text>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Enter Password*"
-              placeholderTextColor="#94A3B8"
-              secureTextEntry
-              autoCapitalize="none"
-              style={styles.input}
-            />
+            <View style={styles.passwordContainer}>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="Enter Password*"
+                placeholderTextColor="#94A3B8"
+                secureTextEntry={secureText}
+                autoCapitalize="none"
+                style={styles.passwordInput}
+              />
+              <TouchableOpacity
+                onPress={() => setSecureText(!secureText)}
+                style={styles.showHideButton}
+              >
+                <Text style={styles.showHideText}>
+                  {secureText ? "Show" : "Hide"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           <TouchableOpacity
@@ -205,6 +216,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 13,
     color: "#1E293B",
+  },
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 6,
+    height: 44,
+  },
+  passwordInput: {
+    flex: 1,
+    height: "100%",
+    paddingHorizontal: 12,
+    fontSize: 13,
+    color: "#1E293B",
+  },
+  showHideButton: {
+    paddingHorizontal: 12,
+    justifyContent: "center",
+    height: "100%",
+  },
+  showHideText: {
+    fontSize: 11,
+    color: "#00B4D8",
+    fontWeight: "bold",
   },
   button: {
     height: 44,
