@@ -13,11 +13,13 @@
     },
     "scheme": "coretechinstaller",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "newArchEnabled": false
     },
     "android": {
       "package": "com.coretechsolar.installer",
-      "versionCode": 2,
+      "versionCode": 3,
+      "newArchEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
