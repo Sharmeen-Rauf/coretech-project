@@ -33,7 +33,7 @@ export default function RootLayout() {
       }
     } else {
       // Redirect to jobs if authenticated and in auth screen
-      if (inAuthGroup || segments.length === 0) {
+      if (inAuthGroup || !segments.length) {
         router.replace("/(tabs)/jobs");
       }
     }
