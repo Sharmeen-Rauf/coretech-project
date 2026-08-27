@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, View, StyleSheet } from "react-native";
 import { supabase } from "../lib/supabase";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
@@ -40,14 +40,6 @@ export default function RootLayout() {
     }
   };
 
-  if (isInitializing) {
-    return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#00B4D8" />
-      </View>
-    );
-  }
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Stack screenOptions={{ headerShown: false }}>
@@ -55,6 +47,11 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="job/[id]" options={{ headerShown: true, title: "Job Details" }} />
       </Stack>
+      {isInitializing && (
+        <View style={[StyleSheet.absoluteFill, { justifyContent: "center", alignItems: "center", backgroundColor: "#FFFFFF" }]}>
+          <ActivityIndicator size="large" color="#00B4D8" />
+        </View>
+      )}
     </GestureHandlerRootView>
   );
 }

@@ -1,0 +1,5 @@
+# Exclude large binary build files from cloud builds
+*.aab
+node_modules/
+.expo/
+.git/
