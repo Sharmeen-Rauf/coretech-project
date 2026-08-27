@@ -2,8 +2,8 @@ const https = require("https");
 const fs = require("fs");
 const path = require("path");
 
-const url = "https://expo.dev/artifacts/eas/3hhEYHsYUaX7U3EUzpFFcluH-qBeo-h-TU5mPX01yX8.aab";
-const dest = path.join(__dirname, "..", "coretech-mobile", "build-1.0.0-api35-version4.aab");
+const url = "https://expo.dev/artifacts/eas/DlWINi8gZPXG2R_hYknanyH96ucRCHK88cvixqriWdQ.aab";
+const dest = path.join(__dirname, "..", "coretech-mobile", "build-1.0.0-api35-version5.aab");
 
 console.log("Fetching first level redirection URL...");
 https.get(url, (res) => {
