@@ -11,10 +11,16 @@ export default function RootLayout() {
 
   useEffect(() => {
     // Check initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      handleRouting(session);
-      setIsInitializing(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        handleRouting(session);
+        setIsInitializing(false);
+      })
+      .catch((error) => {
+        console.error("Error getting session:", error);
+        handleRouting(null);
+        setIsInitializing(false);
+      });
 
     // Listen to auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -27,17 +33,23 @@ export default function RootLayout() {
   const handleRouting = (session: any) => {
     const inAuthGroup = segments[0] === "(auth)";
 
-    if (!session) {
-      // Redirect to login if not authenticated and not in auth screens
-      if (!inAuthGroup) {
-        router.replace("/(auth)/login");
+    setTimeout(() => {
+      try {
+        if (!session) {
+          // Redirect to login if not authenticated and not in auth screens
+          if (!inAuthGroup) {
+            router.replace("/(auth)/login");
+          }
+        } else {
+          // Redirect to jobs if authenticated and in auth screen
+          if (inAuthGroup || !segments.length) {
+            router.replace("/(tabs)/jobs");
+          }
+        }
+      } catch (err) {
+        console.error("Routing error:", err);
       }
-    } else {
-      // Redirect to jobs if authenticated and in auth screen
-      if (inAuthGroup || !segments.length) {
-        router.replace("/(tabs)/jobs");
-      }
-    }
+    }, 0);
   };
 
   return (

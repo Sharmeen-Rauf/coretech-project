@@ -6,11 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
-    },
+    "newArchEnabled": false,
     "scheme": "coretechinstaller",
     "ios": {
       "supportsTablet": true,
@@ -18,7 +14,7 @@
     },
     "android": {
       "package": "com.coretechsolar.installer",
-      "versionCode": 4,
+      "versionCode": 5,
       "newArchEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
@@ -30,7 +26,15 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ]
     ],
     "extra": {
       "supabaseUrl": "https://cypbnnohtipwavcwukhl.supabase.co",
