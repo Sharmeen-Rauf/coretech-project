@@ -1,58 +1,95 @@
 import "react-native-get-random-values";
 import "react-native-url-polyfill/auto";
-import React, { useEffect, useState } from "react";
-import { Stack, useRouter, useSegments } from "expo-router";
-import { ActivityIndicator, View, StyleSheet } from "react-native";
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import { Stack, useRouter, useSegments, useRootNavigationState } from "expo-router";
+import { ActivityIndicator, View, StyleSheet, LogBox } from "react-native";
 import { supabase } from "../lib/supabase";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+
+// Suppress known harmless warnings in production
+LogBox.ignoreLogs(["Require cycle"]);
 
 export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
+  const navigationState = useRootNavigationState();
   const [isInitializing, setIsInitializing] = useState(true);
+  const sessionRef = useRef<any>(null);
+  const hasNavigated = useRef(false);
 
-  useEffect(() => {
-    // Check initial session
-    supabase.auth.getSession()
-      .then(({ data: { session } }) => {
-        handleRouting(session);
-        setIsInitializing(false);
-      })
-      .catch((error) => {
-        console.error("Error getting session:", error);
-        handleRouting(null);
-        setIsInitializing(false);
-      });
+  // Safe navigation - only navigate when the navigation tree is fully ready
+  const navigateWhenReady = useCallback(
+    (session: any) => {
+      // Don't navigate until the root navigation state is loaded
+      if (!navigationState?.key) return;
 
-    // Listen to auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      handleRouting(session);
-    });
+      const inAuthGroup = segments[0] === "(auth)";
 
-    return () => subscription.unsubscribe();
-  }, [segments]);
-
-  const handleRouting = (session: any) => {
-    const inAuthGroup = segments[0] === "(auth)";
-
-    setTimeout(() => {
       try {
         if (!session) {
-          // Redirect to login if not authenticated and not in auth screens
           if (!inAuthGroup) {
             router.replace("/(auth)/login");
           }
         } else {
-          // Redirect to jobs if authenticated and in auth screen
-          if (inAuthGroup || !segments.length) {
+          if (inAuthGroup || segments.length < 1) {
             router.replace("/(tabs)/jobs");
           }
         }
       } catch (err) {
-        console.error("Routing error:", err);
+        console.warn("Navigation error (non-fatal):", err);
       }
-    }, 0);
-  };
+    },
+    [navigationState?.key, segments, router]
+  );
+
+  // Load session once on mount
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadSession = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (isMounted) {
+          sessionRef.current = session;
+          setIsInitializing(false);
+        }
+      } catch (error) {
+        console.warn("Session load error (non-fatal):", error);
+        if (isMounted) {
+          sessionRef.current = null;
+          setIsInitializing(false);
+        }
+      }
+    };
+
+    loadSession();
+
+    // Listen to auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      sessionRef.current = session;
+      if (!isInitializing) {
+        navigateWhenReady(session);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Navigate after initialization AND navigation tree is ready
+  useEffect(() => {
+    if (!isInitializing && navigationState?.key && !hasNavigated.current) {
+      hasNavigated.current = true;
+      navigateWhenReady(sessionRef.current);
+    }
+  }, [isInitializing, navigationState?.key, navigateWhenReady]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -62,7 +99,12 @@ export default function RootLayout() {
         <Stack.Screen name="job/[id]" options={{ headerShown: true, title: "Job Details" }} />
       </Stack>
       {isInitializing && (
-        <View style={[StyleSheet.absoluteFill, { justifyContent: "center", alignItems: "center", backgroundColor: "#FFFFFF" }]}>
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            { justifyContent: "center", alignItems: "center", backgroundColor: "#FFFFFF" },
+          ]}
+        >
           <ActivityIndicator size="large" color="#00B4D8" />
         </View>
       )}
