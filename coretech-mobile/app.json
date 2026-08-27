@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.coretechsolar.installer",
-      "versionCode": 5,
+      "versionCode": 6,
       "newArchEnabled": false,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
