@@ -5,7 +5,7 @@ import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
 import { createRecordAction, fetchRecordsAction } from "@/app/actions/users";
-import { fetchStockAction, fetchProductsAction } from "@/app/actions/products";
+import { fetchStockAction, fetchProductsAction, deleteStockAction } from "@/app/actions/products";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
 import { Loader2, RefreshCw, Boxes, Clock, Wallet } from "lucide-react";
 
@@ -33,6 +33,7 @@ export default function InventoryPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [localStockCount, setLocalStockCount] = useState(0);
   const [isMounted, setIsMounted] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const perPage = 10;
 
   const fetchInventory = async () => {
@@ -48,6 +49,7 @@ export default function InventoryPage() {
       if (stockRes.success && stockRes.data) {
         dbData = stockRes.data.filter((item: any) => item.status !== "sold_out");
       }
+      setIsAdmin(!!(stockRes as any).isAdmin);
 
       let productsList: any[] = [];
       if (prodRes.success && prodRes.data) {
@@ -137,6 +139,36 @@ export default function InventoryPage() {
       toast.error(err.message || "Failed to load inventory");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Admin-only, permanent - not tied to purchase.inventory's own read/write
+  // toggle in Role Management (other roles already have that on). Server side
+  // independently re-checks the caller is admin regardless of what this button
+  // shows.
+  const handleDeleteStock = async (row: StockItem) => {
+    if (!window.confirm(`Permanently delete serial "${row.serial_no}" from inventory? This cannot be undone.`)) {
+      return;
+    }
+    const res = await deleteStockAction([row.id]);
+    if (res.success) {
+      toast.success("Item permanently deleted from inventory.");
+      fetchInventory();
+    } else {
+      toast.error(res.error || "Failed to delete item.");
+    }
+  };
+
+  const handleBulkDeleteStock = async (selectedIds: string[]) => {
+    if (!window.confirm(`Permanently delete ${selectedIds.length} item(s) from inventory? This cannot be undone.`)) {
+      return;
+    }
+    const res = await deleteStockAction(selectedIds);
+    if (res.success) {
+      toast.success(`Permanently deleted ${(res as any).deletedCount ?? selectedIds.length} item(s) from inventory.`);
+      fetchInventory();
+    } else {
+      toast.error(res.error || "Failed to delete items.");
     }
   };
 
@@ -447,6 +479,8 @@ export default function InventoryPage() {
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
+        onDeleteClick={isAdmin ? handleDeleteStock : undefined}
+        onBulkDelete={isAdmin ? handleBulkDeleteStock : undefined}
       />
     </div>
   );
