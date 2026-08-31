@@ -188,9 +188,63 @@ export async function fetchStockAction() {
       from += PAGE_SIZE;
     }
 
-    return { success: true, data: allRows };
+    return { success: true, data: allRows, isAdmin: caller?.role === "admin" };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch stock", data: [] };
+  }
+}
+
+// Permanent delete, admin-only. Deliberately not wired to purchase.inventory's
+// Role Management can_write flag - country_head/employee/distributor/sub_dealer
+// all currently have that flag on, and this needs to stay true regardless of how
+// anyone configures Role Management, the same way Reset Password and Dealer
+// Assignment are hardcoded to admin elsewhere in this codebase rather than left
+// as a grantable permission.
+export async function deleteStockAction(ids: string[]) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller || caller.role !== "admin") {
+      return { success: false, error: "Only Admin can delete inventory items" };
+    }
+    if (!ids || ids.length === 0) {
+      return { success: false, error: "No items selected" };
+    }
+
+    const supabase = getAdminClient();
+
+    // Read the rows before deleting them - once gone, there's nothing left to
+    // log against. A stock row that's already sold_out and referenced by a
+    // sale_items row will have that reference silently SET NULL by the
+    // database's own foreign key on delete (not blocked) - the sale record
+    // survives, but loses which physical serial it was tied to. The UI is
+    // expected to warn about this before calling here; this action doesn't
+    // block it, since "delete anything" was the explicit ask.
+    const { data: rowsToDelete } = await supabase
+      .from("stock")
+      .select("serial_no, status")
+      .in("id", ids);
+
+    const { error, count } = await supabase
+      .from("stock")
+      .delete({ count: "exact" })
+      .in("id", ids);
+
+    if (error) throw error;
+
+    try {
+      const serials = (rowsToDelete || []).map((r: any) => r.serial_no).filter(Boolean);
+      const preview = serials.slice(0, 10).join(", ") + (serials.length > 10 ? ` and ${serials.length - 10} more` : "");
+      await supabase.from("activity_logs").insert({
+        action: "Inventory Item(s) Deleted",
+        details: `Admin permanently deleted ${ids.length} stock item(s): ${preview || "(no serial numbers on record)"}`,
+      });
+    } catch {
+      // Non-critical, don't fail the delete over a log-write failure
+    }
+
+    return { success: true, deletedCount: count ?? ids.length };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to delete inventory item(s)" };
   }
 }
 
