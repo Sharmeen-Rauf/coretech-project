@@ -117,47 +117,78 @@ export async function fetchStockAction() {
     const caller = await getCallerIdentity();
     const { scope, callerId, callerRegion } = await getMyScopeAction("purchase.inventory");
 
-    let query = supabase.from("stock").select(`
-        id,
-        serial_no,
-        model_no,
-        status,
-        warehouse_name,
-        quantity,
-        import_date,
-        created_at,
-        product_id,
-        distributor_id,
-        sub_dealer_id,
-        products (
-          name,
-          brand,
-          model,
-          price
-        )
-      `);
-
-    if (scope === "self" && callerId) {
-      if (caller?.role === "distributor") {
-        query = query.eq("distributor_id", callerId).is("sub_dealer_id", null);
-      } else if (caller?.role === "sub_dealer") {
-        query = query.eq("sub_dealer_id", callerId);
-      } else {
-        // No ownership concept defined for this role on inventory - default-deny
-        // rather than guess, same posture as every other scope check in this system.
-        query = query.eq("id", "00000000-0000-0000-0000-000000000000");
-      }
-    } else if (scope === "region" && callerRegion) {
+    // Region scope's distributor-id lookup only needs to happen once, not once
+    // per page below.
+    let regionalDistributorIds: string[] | null = null;
+    if (scope === "region" && callerRegion) {
       const { data: regionalDistributors } = await supabase
         .from("profiles").select("id").eq("role", "distributor").ilike("region", callerRegion);
-      const ids = (regionalDistributors || []).map((d) => d.id);
-      query = query.in("distributor_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+      regionalDistributorIds = (regionalDistributors || []).map((d) => d.id);
     }
-    // scope === "everything": no filter - full pool, every allocation stage.
 
-    const { data, error } = await query.order("created_at", { ascending: false });
-    if (error) throw error;
-    return { success: true, data: data || [] };
+    // A Postgrest query builder is single-use once awaited, so a fresh one has
+    // to be built for every page fetched below - this rebuilds the same
+    // select + scope filter each time, only .range() changes per iteration.
+    const buildQuery = () => {
+      let query = supabase.from("stock").select(`
+          id,
+          serial_no,
+          model_no,
+          status,
+          warehouse_name,
+          quantity,
+          import_date,
+          created_at,
+          product_id,
+          distributor_id,
+          sub_dealer_id,
+          products (
+            name,
+            brand,
+            model,
+            price
+          )
+        `);
+
+      if (scope === "self" && callerId) {
+        if (caller?.role === "distributor") {
+          query = query.eq("distributor_id", callerId).is("sub_dealer_id", null);
+        } else if (caller?.role === "sub_dealer") {
+          query = query.eq("sub_dealer_id", callerId);
+        } else {
+          // No ownership concept defined for this role on inventory - default-deny
+          // rather than guess, same posture as every other scope check in this system.
+          query = query.eq("id", "00000000-0000-0000-0000-000000000000");
+        }
+      } else if (scope === "region" && callerRegion) {
+        const ids = regionalDistributorIds || [];
+        query = query.in("distributor_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+      }
+      // scope === "everything": no filter - full pool, every allocation stage.
+
+      return query.order("created_at", { ascending: false });
+    };
+
+    // Supabase/PostgREST silently caps any single response at the project's
+    // max-rows setting (1000 by default) - a query with no explicit range was
+    // truncating this table's oldest rows with no error once stock passed 1000
+    // entries (confirmed live 2026-08-31: 1168 rows in `stock`, only the newest
+    // 1000 were ever reaching the Inventory page). Page through in fixed-size
+    // chunks until a page comes back short of the page size, so every row is
+    // always returned no matter how large the table grows.
+    const PAGE_SIZE = 1000;
+    let allRows: any[] = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const page = data || [];
+      allRows = allRows.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+
+    return { success: true, data: allRows };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch stock", data: [] };
   }
