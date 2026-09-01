@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
-import { createRecordAction, fetchRecordsAction } from "@/app/actions/users";
+import { createRecordAction, fetchRecordsAction, fetchProfilesAction } from "@/app/actions/users";
 import { fetchStockAction, fetchProductsAction, deleteStockAction } from "@/app/actions/products";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
 import { Loader2, RefreshCw, Boxes, Clock, Wallet } from "lucide-react";
@@ -21,6 +21,16 @@ interface StockItem {
   sale_price: number;
   import_date: string;
   created_at?: string;
+  distributor_id?: string | null;
+  sub_dealer_id?: string | null;
+  region?: string | null;
+}
+
+interface ProfileOption {
+  id: string;
+  first_name: string;
+  last_name: string | null;
+  distributor_id?: string | null;
 }
 
 export default function InventoryPage() {
@@ -34,6 +44,9 @@ export default function InventoryPage() {
   const [localStockCount, setLocalStockCount] = useState(0);
   const [isMounted, setIsMounted] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [scope, setScope] = useState<"self" | "region" | "everything">("self");
+  const [distributors, setDistributors] = useState<ProfileOption[]>([]);
+  const [subDealers, setSubDealers] = useState<ProfileOption[]>([]);
   const perPage = 10;
 
   const fetchInventory = async () => {
@@ -41,7 +54,7 @@ export default function InventoryPage() {
     setIsLoading(true);
     try {
       const [stockRes, prodRes, regRes] = await Promise.all([
-        fetchStockAction().catch(() => ({ success: false, data: [] })),
+        fetchStockAction().catch(() => ({ success: false, data: [], scope: "self" as const })),
         fetchProductsAction().catch(() => ({ success: false, data: [] })),
         fetchRecordsAction("regions").catch(() => ({ success: false, data: [] })),
       ]);
@@ -50,6 +63,20 @@ export default function InventoryPage() {
         dbData = stockRes.data.filter((item: any) => item.status !== "sold_out");
       }
       setIsAdmin(!!(stockRes as any).isAdmin);
+      const currentScope = ((stockRes as any).scope || "self") as "self" | "region" | "everything";
+      setScope(currentScope);
+
+      // Distributor/Sub-Dealer/Region filters are only meaningful (and only
+      // shown) to a caller whose Inventory scope is "everything" - a scoped
+      // user only ever sees their own slice anyway.
+      if (currentScope === "everything") {
+        const [distRes, subRes] = await Promise.all([
+          fetchProfilesAction("distributor").catch(() => ({ success: false, data: [] })),
+          fetchProfilesAction("sub_dealer").catch(() => ({ success: false, data: [] })),
+        ]);
+        if (distRes.success) setDistributors(distRes.data || []);
+        if (subRes.success) setSubDealers(subRes.data || []);
+      }
 
       let productsList: any[] = [];
       if (prodRes.success && prodRes.data) {
@@ -88,6 +115,9 @@ export default function InventoryPage() {
           sale_price: row.products?.price ?? 0,
           import_date: row.import_date || "-",
           created_at: row.created_at || row.import_date || "",
+          distributor_id: row.distributor_id || null,
+          sub_dealer_id: row.sub_dealer_id || null,
+          region: row.resolved_region || null,
         };
       });
 
@@ -265,11 +295,24 @@ export default function InventoryPage() {
   const [filterDate, setFilterDate] = useState("");
   const [filterProduct, setFilterProduct] = useState("");
   const [filterWarehouse, setFilterWarehouse] = useState("");
+  // Advanced filters - only shown/usable at "everything" scope.
+  const [filterDistributorId, setFilterDistributorId] = useState("");
+  const [filterSubDealerId, setFilterSubDealerId] = useState("");
+  const [filterRegion, setFilterRegion] = useState("");
+
+  const showAdvancedFilters = scope === "everything";
 
   // Derive unique products & warehouses for filter dropdowns
   const uniqueProducts = Array.from(new Set(stock.map((item) => item.product_name).filter((n) => n && n !== "Unknown Product")));
   const uniqueWarehouses = Array.from(new Set(stock.map((item) => item.warehouse_name).filter((w) => w && w !== "-")));
   const uniqueDates = Array.from(new Set(stock.map((item) => item.import_date).filter((d) => d && d !== "-"))).sort().reverse();
+  const uniqueRegions = Array.from(new Set(stock.map((item) => item.region).filter((r): r is string => !!r))).sort();
+
+  // Sub-Dealer options cascade from the selected Distributor - a sub-dealer
+  // belongs to exactly one distributor (profiles.distributor_id).
+  const filteredSubDealers = filterDistributorId
+    ? subDealers.filter((s) => s.distributor_id === filterDistributorId)
+    : subDealers;
 
   const filtered = stock.filter((item) => {
     // Search query
@@ -292,6 +335,15 @@ export default function InventoryPage() {
 
     // Warehouse filter
     if (filterWarehouse && item.warehouse_name.toLowerCase() !== filterWarehouse.toLowerCase()) return false;
+
+    // Advanced filters (everything-scope only) - Distributor matches both the
+    // distributor's own unclaimed stock and anything since passed on to one of
+    // their sub-dealers (a stock row keeps distributor_id set either way).
+    if (showAdvancedFilters) {
+      if (filterDistributorId && item.distributor_id !== filterDistributorId) return false;
+      if (filterSubDealerId && item.sub_dealer_id !== filterSubDealerId) return false;
+      if (filterRegion && (item.region || "").toLowerCase() !== filterRegion.toLowerCase()) return false;
+    }
 
     return true;
   });
@@ -445,13 +497,73 @@ export default function InventoryPage() {
               </select>
             </div>
 
+            {/* Distributor / Sub-Dealer / Region Filters - "everything" scope only */}
+            {showAdvancedFilters && (
+              <>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500">Distributor:</span>
+                  <select
+                    value={filterDistributorId}
+                    onChange={(e) => {
+                      setFilterDistributorId(e.target.value);
+                      setFilterSubDealerId("");
+                      setCurrentPage(1);
+                    }}
+                    className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-[6px] text-xs font-medium text-slate-700 focus:outline-none focus:border-[#00B4D8]"
+                  >
+                    <option value="">All Distributors</option>
+                    {distributors.map((d) => (
+                      <option key={d.id} value={d.id}>{d.first_name} {d.last_name || ""}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500">Sub-Dealer:</span>
+                  <select
+                    value={filterSubDealerId}
+                    onChange={(e) => {
+                      setFilterSubDealerId(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-[6px] text-xs font-medium text-slate-700 focus:outline-none focus:border-[#00B4D8]"
+                  >
+                    <option value="">All Sub-Dealers</option>
+                    {filteredSubDealers.map((s) => (
+                      <option key={s.id} value={s.id}>{s.first_name} {s.last_name || ""}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500">Region:</span>
+                  <select
+                    value={filterRegion}
+                    onChange={(e) => {
+                      setFilterRegion(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-[6px] text-xs font-medium text-slate-700 focus:outline-none focus:border-[#00B4D8]"
+                  >
+                    <option value="">All Regions</option>
+                    {uniqueRegions.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+
             {/* Clear Filters button */}
-            {(filterDate || filterProduct || filterWarehouse) && (
+            {(filterDate || filterProduct || filterWarehouse || filterDistributorId || filterSubDealerId || filterRegion) && (
               <button
                 onClick={() => {
                   setFilterDate("");
                   setFilterProduct("");
                   setFilterWarehouse("");
+                  setFilterDistributorId("");
+                  setFilterSubDealerId("");
+                  setFilterRegion("");
                   setCurrentPage(1);
                 }}
                 className="text-xs font-bold text-rose-600 hover:underline ml-2"

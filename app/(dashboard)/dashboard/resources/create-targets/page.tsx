@@ -10,6 +10,7 @@ import {
   createOrUpdateTargetAction,
   deleteTargetAction,
 } from "@/app/actions/targets";
+import { fetchProductsAction } from "@/app/actions/products";
 import { getMyScopeAction } from "@/app/actions/roles";
 
 interface AssignableUser {
@@ -19,16 +20,24 @@ interface AssignableUser {
   role: string;
 }
 
+interface ProductOption {
+  id: string;
+  name: string;
+  brand?: string;
+}
+
 export default function CreateTargetsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [canWrite, setCanWrite] = useState(false);
 
   const [allTargets, setAllTargets] = useState<any[]>([]);
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
+  const [productId, setProductId] = useState("");
   const [targetUnits, setTargetUnits] = useState("");
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
@@ -40,9 +49,14 @@ export default function CreateTargetsPage() {
       const writeRes = await getMyScopeAction("resources.create_targets");
       setCanWrite(writeRes.canWrite);
 
-      const [all, users] = await Promise.all([fetchAllTargetsAction(), fetchAssignableUsersAction()]);
+      const [all, users, prods] = await Promise.all([
+        fetchAllTargetsAction(),
+        fetchAssignableUsersAction(),
+        fetchProductsAction(),
+      ]);
       if (all.success) setAllTargets(all.data);
       if (users.success) setAssignableUsers(users.data);
+      if (prods.success) setProducts(prods.data);
     } catch (err: any) {
       toast.error(err.message || "Failed to load Create Targets");
     } finally {
@@ -63,10 +77,23 @@ export default function CreateTargetsPage() {
     [assignableUsers, roleFilter]
   );
 
+  // Rows grouped visually by assignee (name shown once per group), each
+  // still its own independent (assignee, product, period) target underneath -
+  // sorted by assignee name, then most-recent period first within each group.
+  const sortedTargets = useMemo(() => {
+    return [...allTargets].sort((a, b) => {
+      const nameA = `${a.assignee?.first_name || ""} ${a.assignee?.last_name || ""}`.trim().toLowerCase();
+      const nameB = `${b.assignee?.first_name || ""} ${b.assignee?.last_name || ""}`.trim().toLowerCase();
+      if (nameA !== nameB) return nameA.localeCompare(nameB);
+      return (b.period_start || "").localeCompare(a.period_start || "");
+    });
+  }, [allTargets]);
+
   const openAssignModal = () => {
     setEditingTargetId(null);
     setRoleFilter("");
     setAssigneeId("");
+    setProductId("");
     setTargetUnits("");
     setPeriodStart("");
     setPeriodEnd("");
@@ -77,6 +104,7 @@ export default function CreateTargetsPage() {
     setEditingTargetId(row.id);
     setRoleFilter(row.assignee?.role || "");
     setAssigneeId(row.assignee_id);
+    setProductId(row.product_id);
     setTargetUnits(String(row.target_units));
     setPeriodStart(row.period_start);
     setPeriodEnd(row.period_end);
@@ -85,7 +113,7 @@ export default function CreateTargetsPage() {
 
   const handleSaveTarget = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!assigneeId || !targetUnits || !periodStart || !periodEnd) {
+    if (!assigneeId || !productId || !targetUnits || !periodStart || !periodEnd) {
       toast.error("Please fill in all fields");
       return;
     }
@@ -95,6 +123,7 @@ export default function CreateTargetsPage() {
       const res = await createOrUpdateTargetAction({
         targetId: editingTargetId || undefined,
         assigneeId,
+        productId,
         targetUnits: parseInt(targetUnits, 10),
         periodStart,
         periodEnd,
@@ -136,6 +165,16 @@ export default function CreateTargetsPage() {
         <div>
           <span className="font-bold text-slate-800">{val ? `${val.first_name} ${val.last_name || ""}`.trim() : "Unknown"}</span>
           <span className="block text-[10px] text-slate-400 capitalize">{val?.role || ""}</span>
+        </div>
+      ),
+    },
+    {
+      key: "product",
+      label: "Product",
+      render: (val: any) => (
+        <div>
+          <span className="font-semibold text-slate-700">{val?.name || "Unknown Product"}</span>
+          {val?.brand && <span className="block text-[10px] text-slate-400">{val.brand}</span>}
         </div>
       ),
     },
@@ -206,14 +245,16 @@ export default function CreateTargetsPage() {
 
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 10;
-  const paginatedTargets = allTargets.slice((currentPage - 1) * perPage, currentPage * perPage);
+  const paginatedTargets = sortedTargets.slice((currentPage - 1) * perPage, currentPage * perPage);
 
   return (
     <div className="space-y-6 select-none">
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Create Targets</h1>
-          <p className="text-xs text-slate-500">Assign and manage sales targets across the team.</p>
+          <p className="text-xs text-slate-500">
+            Assign per-product sales targets across the team. Each employee can have one target per product per period.
+          </p>
         </div>
 
         {canWrite && (
@@ -232,7 +273,7 @@ export default function CreateTargetsPage() {
           <Loader2 className="w-8 h-8 text-[#00B4D8] animate-spin" />
         </div>
       ) : (
-        <DataTable allData={allTargets}
+        <DataTable allData={sortedTargets}
           title="Sales Targets"
           columns={targetColumns}
           data={paginatedTargets}
@@ -240,7 +281,7 @@ export default function CreateTargetsPage() {
           searchPlaceholder="Search assignee..."
           pagination={{
             current: currentPage,
-            total: allTargets.length,
+            total: sortedTargets.length,
             perPage: perPage,
             onChange: (page) => setCurrentPage(page),
           }}
@@ -306,6 +347,26 @@ export default function CreateTargetsPage() {
                   {filteredAssignees.map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.first_name} {u.last_name || ""} ({u.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                  Product*
+                </label>
+                <select
+                  value={productId}
+                  onChange={(e) => setProductId(e.target.value)}
+                  disabled={!!editingTargetId}
+                  className="w-full h-9 px-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 bg-white focus:outline-none focus:border-[#00B4D8] disabled:bg-slate-50 disabled:text-slate-400"
+                  required
+                >
+                  <option value="">Select a product</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} {p.brand ? `(${p.brand})` : ""}
                     </option>
                   ))}
                 </select>
