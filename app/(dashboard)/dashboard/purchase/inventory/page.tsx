@@ -23,7 +23,6 @@ interface StockItem {
   created_at?: string;
   distributor_id?: string | null;
   sub_dealer_id?: string | null;
-  region?: string | null;
 }
 
 interface ProfileOption {
@@ -117,7 +116,6 @@ export default function InventoryPage() {
           created_at: row.created_at || row.import_date || "",
           distributor_id: row.distributor_id || null,
           sub_dealer_id: row.sub_dealer_id || null,
-          region: row.resolved_region || null,
         };
       });
 
@@ -298,7 +296,6 @@ export default function InventoryPage() {
   // Advanced filters - only shown/usable at "everything" scope.
   const [filterDistributorId, setFilterDistributorId] = useState("");
   const [filterSubDealerId, setFilterSubDealerId] = useState("");
-  const [filterRegion, setFilterRegion] = useState("");
 
   const showAdvancedFilters = scope === "everything";
 
@@ -306,7 +303,6 @@ export default function InventoryPage() {
   const uniqueProducts = Array.from(new Set(stock.map((item) => item.product_name).filter((n) => n && n !== "Unknown Product")));
   const uniqueWarehouses = Array.from(new Set(stock.map((item) => item.warehouse_name).filter((w) => w && w !== "-")));
   const uniqueDates = Array.from(new Set(stock.map((item) => item.import_date).filter((d) => d && d !== "-"))).sort().reverse();
-  const uniqueRegions = Array.from(new Set(stock.map((item) => item.region).filter((r): r is string => !!r))).sort();
 
   // Sub-Dealer options cascade from the selected Distributor - a sub-dealer
   // belongs to exactly one distributor (profiles.distributor_id).
@@ -342,7 +338,6 @@ export default function InventoryPage() {
     if (showAdvancedFilters) {
       if (filterDistributorId && item.distributor_id !== filterDistributorId) return false;
       if (filterSubDealerId && item.sub_dealer_id !== filterSubDealerId) return false;
-      if (filterRegion && (item.region || "").toLowerCase() !== filterRegion.toLowerCase()) return false;
     }
 
     return true;
@@ -497,7 +492,7 @@ export default function InventoryPage() {
               </select>
             </div>
 
-            {/* Distributor / Sub-Dealer / Region Filters - "everything" scope only */}
+            {/* Distributor / Sub-Dealer Filters - "everything" scope only */}
             {showAdvancedFilters && (
               <>
                 <div className="flex items-center gap-1.5">
@@ -534,28 +529,11 @@ export default function InventoryPage() {
                     ))}
                   </select>
                 </div>
-
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-semibold text-slate-500">Region:</span>
-                  <select
-                    value={filterRegion}
-                    onChange={(e) => {
-                      setFilterRegion(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-[6px] text-xs font-medium text-slate-700 focus:outline-none focus:border-[#00B4D8]"
-                  >
-                    <option value="">All Regions</option>
-                    {uniqueRegions.map((r) => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
-                </div>
               </>
             )}
 
             {/* Clear Filters button */}
-            {(filterDate || filterProduct || filterWarehouse || filterDistributorId || filterSubDealerId || filterRegion) && (
+            {(filterDate || filterProduct || filterWarehouse || filterDistributorId || filterSubDealerId) && (
               <button
                 onClick={() => {
                   setFilterDate("");
@@ -563,7 +541,6 @@ export default function InventoryPage() {
                   setFilterWarehouse("");
                   setFilterDistributorId("");
                   setFilterSubDealerId("");
-                  setFilterRegion("");
                   setCurrentPage(1);
                 }}
                 className="text-xs font-bold text-rose-600 hover:underline ml-2"

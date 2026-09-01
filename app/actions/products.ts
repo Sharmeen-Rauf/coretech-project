@@ -188,27 +188,12 @@ export async function fetchStockAction() {
       from += PAGE_SIZE;
     }
 
-    // Attach each row's resolved region so the Inventory page's Distributor/
-    // Sub-Dealer/Region filters (shown only at "everything" scope) can filter
-    // client-side without re-fetching. Region is derived, not a stored column:
-    // an allocated unit's region follows whoever currently holds it
-    // (distributor/sub-dealer's own profile region); an unallocated unit
-    // still sitting in a central warehouse follows the warehouse's region.
-    // Same resolver already used for Sell Out / Sales region-scoping, so this
-    // can never disagree with how region is defined everywhere else in the app.
-    // Only computed for "everything" scope - the other scopes' UI never shows
-    // a region filter, so there's no reason to pay for the extra lookups.
-    if (scope === "everything" && allRows.length > 0) {
-      const parties: PartyRef[] = allRows.map((r) =>
-        r.sub_dealer_id
-          ? { type: "sub_dealer", id: r.sub_dealer_id }
-          : r.distributor_id
-          ? { type: "distributor", id: r.distributor_id }
-          : { type: "warehouse", warehouseName: r.warehouse_name }
-      );
-      const regionMap = await buildPartyRegionMap(supabase, parties);
-      allRows = allRows.map((r, idx) => ({ ...r, resolved_region: regionForParty(regionMap, parties[idx]) }));
-    }
+    // Region filtering was removed (Inventory page) - with every current
+    // stock row sitting in a single warehouse that itself serves 4 different
+    // regions, and nothing yet allocated to a distributor/sub-dealer, there
+    // was no way to resolve a region for any row without guessing. Revisit if
+    // region ever becomes resolvable (e.g. captured explicitly at import time
+    // instead of inferred from a shared warehouse).
 
     return { success: true, data: allRows, isAdmin: caller?.role === "admin", scope };
   } catch (err: any) {
