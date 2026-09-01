@@ -1,5 +1,5 @@
 // Shared "Region" scope resolver for Sales (ST-1, ST-2, Return, Transfer, Sell
-// Out). Confirmed rule (ROLE-MANAGEMENT-PLAN.md, "Sales region-scoping"): a
+// Out). Confirmed rule (notes/ROLE-MANAGEMENT-PLAN.md, "Sales region-scoping"): a
 // caller sees a transaction under Region scope if AT LEAST ONE side (source or
 // destination) resolves to their own region - not both. One shared helper so
 // every sub-tab resolves "which region does this transaction touch" the same
@@ -62,7 +62,7 @@ export async function buildPartyRegionMap(supabase: any, parties: PartyRef[]): P
     // "belongs to" isn't derivable from the warehouse alone - leave it
     // unresolved (never wrongly matched) rather than silently picking one region
     // arbitrarily, which is worse than not resolving it at all. Caught via a
-    // live end-to-end test 2026-08-19 - see ROLE-MANAGEMENT-PLAN.md.
+    // live end-to-end test 2026-08-19 - see notes/ROLE-MANAGEMENT-PLAN.md.
     const namesByWarehouse = new Map<string, Set<string>>();
     (regions || []).forEach((r: any) => {
       if (!r.warehouse || !r.name) return;
