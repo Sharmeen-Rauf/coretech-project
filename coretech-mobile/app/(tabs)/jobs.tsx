@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import { syncOfflineSubmissions } from "../../lib/offlineQueue";
 
 export default function JobsScreen() {
   const router = useRouter();
@@ -22,6 +23,20 @@ export default function JobsScreen() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+
+      // Retry anything that failed to submit while offline, same as the web
+      // page's own local-save-and-sync behavior, before showing the list.
+      try {
+        const { synced } = await syncOfflineSubmissions();
+        if (synced > 0) {
+          Alert.alert(
+            "Synced",
+            `${synced} previously offline submission${synced > 1 ? "s" : ""} sent successfully.`
+          );
+        }
+      } catch {
+        // Sync is best-effort - a failure here shouldn't block loading jobs.
+      }
 
       const { data, error } = await supabase
         .from("installer_jobs")

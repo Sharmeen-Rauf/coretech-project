@@ -11,21 +11,43 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { CameraView, useCameraPermissions } from "expo-camera";
 import { supabase } from "../../lib/supabase";
-import { Camera, Video, Trash2, CheckCircle, ChevronLeft, Plus } from "lucide-react-native";
+import { API_BASE_URL } from "../../lib/installerAccess";
+import { queueOfflineSubmission } from "../../lib/offlineQueue";
+import {
+  Camera,
+  Video,
+  Trash2,
+  CheckCircle,
+  ChevronLeft,
+  Plus,
+  ScanLine,
+  Type as TypeIcon,
+  X,
+} from "lucide-react-native";
+
+const MIN_PHOTOS = 3;
 
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const isNew = id === "new";
 
   const [job, setJob] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!isNew);
   const [isVerifyingSerial, setIsVerifyingSerial] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [status, setStatus] = useState("assigned");
+
+  // New-installation (self-report) fields - only used when isNew
+  const [newJobTitle, setNewJobTitle] = useState("");
+  const [newJobAddress, setNewJobAddress] = useState("");
+  const [newFieldErrors, setNewFieldErrors] = useState<{ title?: string; address?: string }>({});
 
   // Site Form fields
   const [serialNo, setSerialNo] = useState("");
@@ -36,6 +58,12 @@ export default function JobDetailScreen() {
   const [videoUrl, setVideoUrl] = useState("");
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+
+  // Serial entry mode: typed (existing) or scanned (new)
+  const [serialEntryMode, setSerialEntryMode] = useState<"type" | "scan">("type");
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [hasScannedOnce, setHasScannedOnce] = useState(false);
 
   const fetchJobDetails = async () => {
     try {
@@ -52,7 +80,6 @@ export default function JobDetailScreen() {
       setRemarks(data.remarks || "");
       setPhotos(data.photos || []);
 
-      // Extract video URL if notes contains [METADATA]
       if (data.notes && data.notes.includes("[METADATA]")) {
         const match = data.notes.match(/VIDEO:([^\s|]*)/);
         if (match && match[1]) {
@@ -68,8 +95,13 @@ export default function JobDetailScreen() {
   };
 
   useEffect(() => {
-    fetchJobDetails();
+    if (!isNew) fetchJobDetails();
   }, [id]);
+
+  const getAccessToken = async (): Promise<string | null> => {
+    const { data } = await supabase.auth.getSession();
+    return data?.session?.access_token || null;
+  };
 
   const handleStartJob = async () => {
     try {
@@ -101,61 +133,55 @@ export default function JobDetailScreen() {
     setValidatedProduct(null);
 
     try {
-      const cleanSNo = serialNo.trim();
-
-      // 1. Check database for serial number usage in active installer jobs
-      const { data: activeJobs, error: activeError } = await supabase
-        .from("installer_jobs")
-        .select("id, job_title, status")
-        .ilike("serial_number", cleanSNo);
-
-      const conflicts = (activeJobs || []).filter(
-        (j) => j.id !== id && j.status !== "rejected" && j.status !== "declined"
-      );
-
-      if (conflicts.length > 0) {
-        setSerialError(`Serial number already registered for: "${conflicts[0].job_title}".`);
-        setIsVerifyingSerial(false);
+      const token = await getAccessToken();
+      if (!token) {
+        setSerialError("Your session has expired. Please sign in again.");
         return;
       }
 
-      // 2. Query stock table to see if it is in inventory
-      const { data: stockData, error: stockError } = await supabase
-        .from("stock")
-        .select("*, products(name, brand, model)")
-        .ilike("serial_no", cleanSNo)
-        .maybeSingle();
-
-      if (stockError) throw stockError;
-
-      if (!stockData) {
-        // Fallback for custom products or non-catalog items
-        setValidatedProduct({
-          product_name: "CoreTech Solar Product",
-          brand: "CoreTech",
-          model: "NexGen",
-          warehouse_name: "Active Inventory",
-        });
-      } else {
-        setValidatedProduct({
-          product_name: stockData.products?.name || "CoreTech Solar Unit",
-          brand: stockData.products?.brand || "CoreTech",
-          model: stockData.model_no || stockData.products?.model || "NexGen",
-          warehouse_name: stockData.warehouse_name || "Active Stock",
-        });
-      }
-    } catch (err: any) {
-      console.warn("Serial verification error:", err);
-      // Fallback
-      setValidatedProduct({
-        product_name: "CoreTech Solar Product (Manual Fallback)",
-        brand: "CoreTech",
-        model: "NexGen",
-        warehouse_name: "Active Inventory",
+      const res = await fetch(`${API_BASE_URL}/api/installer/verify-serial`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ serialNumber: serialNo.trim(), jobId: isNew ? undefined : id }),
       });
+      const json = await res.json();
+
+      // Fails closed - an unmatched or errored lookup is a real rejection,
+      // never a fabricated "verified" result.
+      if (!json.success || !json.product) {
+        setValidatedProduct(null);
+        setSerialError(json.error || "Serial number not found in inventory.");
+        return;
+      }
+
+      setValidatedProduct(json.product);
+    } catch (err: any) {
+      setValidatedProduct(null);
+      setSerialError("Could not reach the server. Check your connection and try again.");
     } finally {
       setIsVerifyingSerial(false);
     }
+  };
+
+  const openScanner = async () => {
+    if (!cameraPermission?.granted) {
+      const res = await requestCameraPermission();
+      if (!res.granted) {
+        Alert.alert("Permission Denied", "Camera access is required to scan a barcode.");
+        return;
+      }
+    }
+    setHasScannedOnce(false);
+    setIsScannerOpen(true);
+  };
+
+  const handleBarcodeScanned = ({ data }: { data: string }) => {
+    if (hasScannedOnce) return; // debounce - CameraView fires repeatedly while a code stays in frame
+    setHasScannedOnce(true);
+    setIsScannerOpen(false);
+    setSerialNo(data);
+    setValidatedProduct(null);
+    setSerialError("");
   };
 
   const uploadFileToStorage = async (uri: string, isVideo: boolean): Promise<string> => {
@@ -259,6 +285,13 @@ export default function JobDetailScreen() {
   };
 
   const handleSubmitProof = async () => {
+    if (isNew) {
+      const errs: { title?: string; address?: string } = {};
+      if (!newJobTitle.trim()) errs.title = "Installation project title is required";
+      if (!newJobAddress.trim()) errs.address = "Deployment site address is required";
+      setNewFieldErrors(errs);
+      if (Object.keys(errs).length > 0) return;
+    }
     if (!serialNo.trim()) {
       Alert.alert("Validation Error", "Please fill in the Serial Number.");
       return;
@@ -267,56 +300,47 @@ export default function JobDetailScreen() {
       Alert.alert("Validation Error", "Please validate the Serial Number before submission.");
       return;
     }
-    if (photos.length === 0) {
-      Alert.alert("Validation Error", "Please capture and upload at least one photo proof.");
+    if (photos.length < MIN_PHOTOS) {
+      Alert.alert(
+        "Validation Error",
+        `Please capture and upload at least ${MIN_PHOTOS} photo proofs (currently ${photos.length}).`
+      );
+      return;
+    }
+    if (!videoUrl) {
+      Alert.alert("Validation Error", "A video of the installation is required.");
       return;
     }
 
     setIsSubmitting(true);
+    const metadata = `[METADATA] SN:${serialNo.trim()} | VIDEO:${videoUrl} | REM:${remarks.trim()}`;
+    const cleanNotes = isNew ? "" : (job?.notes || "").replace(/\[METADATA\][^\n]*\n?/g, "");
+    const finalNotes = `${metadata}\n${cleanNotes}`;
+
+    const payload = {
+      job_title: isNew ? newJobTitle.trim() : job.job_title,
+      address: isNew ? newJobAddress.trim() : job.address,
+      serial_number: serialNo.trim(),
+      remarks: remarks.trim(),
+      photos,
+      notes: finalNotes,
+    };
+    const siteFormJobId = isNew ? "new" : (id as string);
+
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No active user session found.");
+      const token = await getAccessToken();
+      if (!token) throw new Error("No active session");
 
-      const isRejected = status === "rejected" || status === "declined";
+      const res = await fetch(`${API_BASE_URL}/api/installer/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ payload, siteFormJobId }),
+      });
+      const json = await res.json();
 
-      // Prepend metadata matching web structure:
-      const metadata = `[METADATA] SN:${serialNo.trim()} | VIDEO:${videoUrl} | REM:${remarks.trim()}`;
-      // Clean notes of any older metadata blocks if they exist
-      const cleanNotes = (job.notes || "").replace(/\[METADATA\][^\n]*\n?/g, "");
-      const finalNotes = `${metadata}\n${cleanNotes}`;
-
-      // 1. Update installer_jobs record
-      const { error: jobErr } = await supabase
-        .from("installer_jobs")
-        .update({
-          status: "pending_verification",
-          serial_number: serialNo.trim(),
-          remarks: remarks.trim(),
-          photos: photos,
-          notes: finalNotes,
-          approval_note: null,
-          verification_note: null,
-          is_resubmitted: isRejected,
-        })
-        .eq("id", id);
-
-      if (jobErr) throw jobErr;
-
-      // 2. Consume stock inventory item by marking it as sold_out
-      try {
-        await supabase
-          .from("stock")
-          .update({
-            status: "sold_out",
-            sold_out_at: new Date().toISOString(),
-            sold_out_by_installer_id: user.id,
-            installation_id: id,
-            installation_project_title: job.job_title,
-            deployment_site_address: job.address,
-          })
-          .ilike("serial_no", serialNo.trim());
-      } catch (stockErr) {
-        console.warn("Stock update bypassed or restricted by RLS:", stockErr);
+      if (!json.success) {
+        Alert.alert("Submission Error", json.error || "Failed to submit job.");
+        return;
       }
 
       Alert.alert(
@@ -325,7 +349,15 @@ export default function JobDetailScreen() {
         [{ text: "OK", onPress: () => router.back() }]
       );
     } catch (err: any) {
-      Alert.alert("Submission Error", err.message || "Failed to submit job.");
+      // Couldn't reach the server - save locally and retry automatically next
+      // time the Jobs tab loads with a connection, mirroring the web page's
+      // own localStorage fallback rather than losing the submission outright.
+      await queueOfflineSubmission({ payload, siteFormJobId });
+      Alert.alert(
+        "Saved Locally",
+        "No connection right now - this will be submitted automatically once you're back online.",
+        [{ text: "OK", onPress: () => router.back() }]
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -339,8 +371,9 @@ export default function JobDetailScreen() {
     );
   }
 
-  const isEditable = status === "assigned" || status === "in_progress" || status === "rejected";
-  const isRejected = status === "rejected";
+  const isEditable = isNew || status === "assigned" || status === "in_progress" || status === "rejected";
+  const isRejected = !isNew && status === "rejected";
+  const showSubmissionForm = isNew || status === "in_progress" || isRejected;
 
   return (
     <KeyboardAvoidingView
@@ -348,96 +381,158 @@ export default function JobDetailScreen() {
       style={styles.keyboardContainer}
     >
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        {/* Navigation Back */}
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <ChevronLeft size={16} color="#64748B" />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
 
-        {/* Customer Information */}
-        <View style={[styles.card, isRejected && styles.cardRejected]}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.jobTitle}>{job.job_title}</Text>
-            <View
-              style={[
-                styles.badge,
-                {
-                  backgroundColor:
-                    status === "approved"
-                      ? "#ECFDF5"
-                      : status === "pending_verification"
-                      ? "#FFF7ED"
-                      : status === "rejected"
-                      ? "#FEE2E2"
-                      : "#ECFEFF",
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.badgeText,
-                  {
-                    color:
-                      status === "approved"
-                        ? "#059669"
-                        : status === "pending_verification"
-                        ? "#EA580C"
-                        : status === "rejected"
-                        ? "#DC2626"
-                        : "#0891B2",
-                  },
-                ]}
-              >
-                {status.replace("_", " ").toUpperCase()}
-              </Text>
-            </View>
-          </View>
-
-          {isRejected && job.verification_note && (
-            <View style={styles.rejectionBox}>
-              <Text style={styles.rejectionTitle}>Admin Feedback / Rejection Note:</Text>
-              <Text style={styles.rejectionText}>{job.verification_note}</Text>
-            </View>
-          )}
-
-          <View style={styles.metaRow}>
-            <Text style={styles.metaLabel}>Client Address:</Text>
-            <Text style={styles.metaValue}>{job.address}</Text>
-          </View>
-
-          <View style={styles.metaRow}>
-            <Text style={styles.metaLabel}>Assigned Incentive:</Text>
-            <Text style={[styles.metaValue, { color: "#059669", fontWeight: "bold" }]}>
-              PKR {job.incentive || 5000}
-            </Text>
-          </View>
-        </View>
-
-        {/* Notes/Instructions */}
-        {job.notes && (
+        {isNew ? (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Client Instructions & Notes</Text>
+            <Text style={styles.sectionTitle}>New Installation Record</Text>
             <Text style={styles.notesText}>
-              {job.notes.replace(/\[METADATA\][^\n]*\n?/g, "") || "No special instructions registered."}
+              Report an installation that wasn't assigned to you by an admin.
             </Text>
+
+            <View style={[styles.formGroup, { marginTop: 12 }]}>
+              <Text style={styles.formLabel}>Installation Project Title</Text>
+              <TextInput
+                value={newJobTitle}
+                onChangeText={setNewJobTitle}
+                placeholder="e.g. Al-Faisal Solar Project"
+                placeholderTextColor="#94A3B8"
+                style={styles.input}
+              />
+              {newFieldErrors.title ? <Text style={styles.errorText}>{newFieldErrors.title}</Text> : null}
+            </View>
+
+            <View style={styles.formGroup}>
+              <Text style={styles.formLabel}>Deployment Site Address</Text>
+              <TextInput
+                value={newJobAddress}
+                onChangeText={setNewJobAddress}
+                placeholder="Full site deployment address"
+                placeholderTextColor="#94A3B8"
+                style={styles.input}
+              />
+              {newFieldErrors.address ? <Text style={styles.errorText}>{newFieldErrors.address}</Text> : null}
+            </View>
           </View>
+        ) : (
+          <>
+            <View style={[styles.card, isRejected && styles.cardRejected]}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.jobTitle}>{job.job_title}</Text>
+                <View
+                  style={[
+                    styles.badge,
+                    {
+                      backgroundColor:
+                        status === "approved"
+                          ? "#ECFDF5"
+                          : status === "pending_verification"
+                          ? "#FFF7ED"
+                          : status === "rejected"
+                          ? "#FEE2E2"
+                          : "#ECFEFF",
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.badgeText,
+                      {
+                        color:
+                          status === "approved"
+                            ? "#059669"
+                            : status === "pending_verification"
+                            ? "#EA580C"
+                            : status === "rejected"
+                            ? "#DC2626"
+                            : "#0891B2",
+                      },
+                    ]}
+                  >
+                    {status.replace("_", " ").toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+
+              {isRejected && job.verification_note && (
+                <View style={styles.rejectionBox}>
+                  <Text style={styles.rejectionTitle}>Admin Feedback / Rejection Note:</Text>
+                  <Text style={styles.rejectionText}>{job.verification_note}</Text>
+                </View>
+              )}
+
+              <View style={styles.metaRow}>
+                <Text style={styles.metaLabel}>Client Address:</Text>
+                <Text style={styles.metaValue}>{job.address}</Text>
+              </View>
+
+              <View style={styles.metaRow}>
+                <Text style={styles.metaLabel}>Assigned Incentive:</Text>
+                <Text style={[styles.metaValue, { color: "#059669", fontWeight: "bold" }]}>
+                  PKR {job.incentive || 5000}
+                </Text>
+              </View>
+            </View>
+
+            {job.notes && (
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Client Instructions & Notes</Text>
+                <Text style={styles.notesText}>
+                  {job.notes.replace(/\[METADATA\][^\n]*\n?/g, "") || "No special instructions registered."}
+                </Text>
+              </View>
+            )}
+
+            {status === "assigned" && (
+              <TouchableOpacity onPress={handleStartJob} style={styles.primaryButton}>
+                <Text style={styles.primaryButtonText}>Start Job (In Progress)</Text>
+              </TouchableOpacity>
+            )}
+          </>
         )}
 
-        {/* Action button to Start Job */}
-        {status === "assigned" && (
-          <TouchableOpacity onPress={handleStartJob} style={styles.primaryButton}>
-            <Text style={styles.primaryButtonText}>Start Job (In Progress)</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Completion & Submission Form (Editable if In Progress or Rejected) */}
-        {(status === "in_progress" || isRejected) && (
+        {showSubmissionForm && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Submit Installation Proof</Text>
 
             {/* Serial Number & Verification */}
             <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Product Serial Number (from Barcode/Label)</Text>
+              <View style={styles.serialHeaderRow}>
+                <Text style={styles.formLabel}>Product Serial Number</Text>
+                <View style={styles.modeToggle}>
+                  <TouchableOpacity
+                    onPress={() => setSerialEntryMode("type")}
+                    style={[styles.modeButton, serialEntryMode === "type" && styles.modeButtonActive]}
+                  >
+                    <TypeIcon size={12} color={serialEntryMode === "type" ? "#FFFFFF" : "#64748B"} />
+                    <Text style={[styles.modeButtonText, serialEntryMode === "type" && styles.modeButtonTextActive]}>
+                      Type
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setSerialEntryMode("scan")}
+                    style={[styles.modeButton, serialEntryMode === "scan" && styles.modeButtonActive]}
+                  >
+                    <ScanLine size={12} color={serialEntryMode === "scan" ? "#FFFFFF" : "#64748B"} />
+                    <Text style={[styles.modeButtonText, serialEntryMode === "scan" && styles.modeButtonTextActive]}>
+                      Scan
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {serialEntryMode === "scan" && (
+                <TouchableOpacity onPress={openScanner} style={styles.scanButton}>
+                  <ScanLine size={18} color="#00B4D8" />
+                  <Text style={styles.scanButtonText}>
+                    {serialNo ? "Scan Again" : "Open Barcode Scanner"}
+                  </Text>
+                </TouchableOpacity>
+              )}
+
               <View style={styles.verifyRow}>
                 <TextInput
                   value={serialNo}
@@ -446,10 +541,11 @@ export default function JobDetailScreen() {
                     setValidatedProduct(null);
                     setSerialError("");
                   }}
+                  editable={serialEntryMode === "type"}
                   placeholder="e.g. CTNX-8kW-XXXXX"
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="characters"
-                  style={styles.input}
+                  style={[styles.input, serialEntryMode === "scan" && styles.inputReadOnly]}
                 />
                 <TouchableOpacity
                   onPress={handleVerifySerial}
@@ -481,7 +577,9 @@ export default function JobDetailScreen() {
 
             {/* Photos Upload */}
             <View style={styles.formGroup}>
-              <Text style={styles.formLabel}>Installation Photos (Evidence)</Text>
+              <Text style={styles.formLabel}>
+                Installation Photos (Evidence) - minimum {MIN_PHOTOS}
+              </Text>
 
               <View style={styles.photoUploadRow}>
                 <TouchableOpacity
@@ -582,7 +680,6 @@ export default function JobDetailScreen() {
               />
             </View>
 
-            {/* Final Submission Button */}
             <TouchableOpacity
               onPress={handleSubmitProof}
               disabled={isSubmitting}
@@ -593,15 +690,16 @@ export default function JobDetailScreen() {
               ) : (
                 <>
                   <CheckCircle size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
-                  <Text style={styles.submitButtonText}>Submit Verification Proof</Text>
+                  <Text style={styles.submitButtonText}>
+                    {isNew ? "Submit New Installation" : "Submit Verification Proof"}
+                  </Text>
                 </>
               )}
             </TouchableOpacity>
           </View>
         )}
 
-        {/* Read-Only Proof Info if already submitted/approved */}
-        {!isEditable && (
+        {!isNew && !isEditable && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Submitted Proof Details</Text>
             <View style={styles.metaRow}>
@@ -635,6 +733,28 @@ export default function JobDetailScreen() {
           </View>
         )}
       </ScrollView>
+
+      <Modal visible={isScannerOpen} animationType="slide" onRequestClose={() => setIsScannerOpen(false)}>
+        <View style={styles.scannerContainer}>
+          {cameraPermission?.granted && (
+            <CameraView
+              style={StyleSheet.absoluteFillObject}
+              facing="back"
+              barcodeScannerSettings={{
+                barcodeTypes: ["qr", "ean13", "code128", "code39", "upc_a", "upc_e"],
+              }}
+              onBarcodeScanned={handleBarcodeScanned}
+            />
+          )}
+          <View style={styles.scannerOverlay}>
+            <View style={styles.scannerFrame} />
+            <Text style={styles.scannerHint}>Align the barcode within the frame</Text>
+          </View>
+          <TouchableOpacity onPress={() => setIsScannerOpen(false)} style={styles.scannerCloseButton}>
+            <X size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -786,6 +906,55 @@ const styles = StyleSheet.create({
     color: "#475569",
     marginBottom: 6,
   },
+  serialHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  modeToggle: {
+    flexDirection: "row",
+    backgroundColor: "#F1F5F9",
+    borderRadius: 6,
+    padding: 2,
+    gap: 2,
+  },
+  modeButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 5,
+  },
+  modeButtonActive: {
+    backgroundColor: "#00B4D8",
+  },
+  modeButtonText: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#64748B",
+  },
+  modeButtonTextActive: {
+    color: "#FFFFFF",
+  },
+  scanButton: {
+    height: 40,
+    borderWidth: 1.5,
+    borderColor: "#00B4D8",
+    borderStyle: "dashed",
+    borderRadius: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  scanButtonText: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#00B4D8",
+  },
   input: {
     height: 44,
     backgroundColor: "#FFFFFF",
@@ -795,6 +964,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     fontSize: 13,
     color: "#1E293B",
+  },
+  inputReadOnly: {
+    backgroundColor: "#F8FAFC",
+    color: "#64748B",
   },
   verifyRow: {
     flexDirection: "row",
@@ -944,5 +1117,39 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "bold",
     fontSize: 14,
+  },
+  scannerContainer: {
+    flex: 1,
+    backgroundColor: "#000000",
+  },
+  scannerOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scannerFrame: {
+    width: 260,
+    height: 160,
+    borderWidth: 2,
+    borderColor: "#00B4D8",
+    borderRadius: 12,
+    backgroundColor: "transparent",
+  },
+  scannerHint: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "bold",
+    marginTop: 16,
+  },
+  scannerCloseButton: {
+    position: "absolute",
+    top: 50,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
