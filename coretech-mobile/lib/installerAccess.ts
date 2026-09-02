@@ -2,7 +2,7 @@ import Constants from "expo-constants";
 import { supabase } from "./supabase";
 
 export const API_BASE_URL: string =
-  Constants.expoConfig?.extra?.apiBaseUrl || "https://coretechsolar.com";
+  Constants.expoConfig?.extra?.apiBaseUrl || "https://www.coretechsolar.com";
 
 export type InstallerAccess =
   | { allowed: true; state: "approved" }
