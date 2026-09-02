@@ -28,6 +28,12 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "CoreTech Installer needs camera access to scan product serial number barcodes and capture installation photos."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash.png",
@@ -47,6 +53,12 @@
         "projectId": "a8b44c98-8ccc-447a-8033-1c1bc4a906d8"
       }
     },
-    "owner": "ymgroupofficial"
+    "owner": "ymgroupofficial",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/a8b44c98-8ccc-447a-8033-1c1bc4a906d8"
+    }
   }
 }

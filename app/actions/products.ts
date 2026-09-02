@@ -8,6 +8,15 @@ import { getCallerIdentity } from "@/app/actions/users";
 import { getMyScopeAction } from "@/app/actions/roles";
 import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
+// Escapes SQL LIKE/ILIKE wildcard characters in user-supplied input before it
+// reaches an .ilike() call. Without this, a serial number containing a
+// literal % or _ is treated as a search pattern instead of literal text -
+// case-insensitive matching is still the point (ilike over eq), this only
+// stops the two wildcard characters from being interpreted as wildcards.
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -280,7 +289,7 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
           model
         )
       `)
-      .ilike("serial_no", cleanSNo)
+      .ilike("serial_no", escapeLikePattern(cleanSNo))
       .maybeSingle();
 
     if (stockError) throw stockError;
@@ -539,7 +548,7 @@ export async function approveJobStage2Action(jobId: string, serialNumber: string
           sold_out_by_installer_id: jobId,
           installation_id: jobId,
         })
-        .ilike("serial_no", serialNumber.trim());
+        .ilike("serial_no", escapeLikePattern(serialNumber.trim()));
     }
 
     return { success: true };
