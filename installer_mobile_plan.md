@@ -172,27 +172,53 @@ Once Phase 1's registration endpoint exists:
 
 ## Phase 3 — Upgrade the Job submission screen
 
-Once Phase 1's submission endpoint exists:
+Scope finalized 2026-09-03 (expanded twice from the original plan — barcode scanning and the
+self-report "+" entry point were both added after the initial version below). Once Phase 1's
+submission endpoint exists:
 
 - Route `handleSubmitProof` (`app/job/[id].tsx`) through it instead of the current raw
   client-side `supabase.from(...).update(...)` call — this is what actually gives mobile the
-  server-side re-validation it's missing today.
+  server-side re-validation it's missing today. Foundational change everything else in this
+  phase builds on.
+- **Add barcode/QR scanning as a second way to enter the serial number**, alongside the
+  existing typing option. A "Scan" mode opens the phone's camera in a scanner view; the moment
+  it reads a barcode, that value fills the same text field manual typing already uses —
+  Verify and the server-side check work identically either way, since the backend only ever
+  sees a string, not whether it was typed or scanned. Needs a real native camera/barcode
+  module (`expo-camera`'s built-in scanning, since the older standalone
+  `expo-barcode-scanner` package is deprecated on this Expo SDK version) — a genuinely new
+  native dependency, not just new screens.
+- **Add a "+" button, centered at the bottom of the main screens, to start a self-reported,
+  unassigned installation** — matching web's "New Installation Record" mode. The installer
+  fills in their own job title and address first (no existing assigned job to attach to), then
+  goes through the same serial (typed or scanned), photo, and video flow as normal. The
+  backend already supports this — `submitInstallationAction` already has a branch for a
+  brand-new job (not just updating an existing one), and the ownership fix from Phase 1 works
+  the same way for both cases — so this is pure mobile UI work, no backend changes needed.
+  Resolves the "self-report an unassigned installation?" open decision from the original plan.
+- **Preserve the existing camera/gallery and record/library options for photos and video** —
+  these already exist in the current screen (separate "Camera"/"Gallery" buttons for photos,
+  "Record"/"Library" for video, via `expo-image-picker`'s two launch modes) and already meet
+  what was asked for here; the job in this phase is making sure they survive the refactor
+  around the new submission call, not rebuilding them.
 - Raise the photo minimum to match web (3, not 1), and actually enforce the video requirement
   the screen already labels "Required" but never checks.
 - Fix the fail-open serial-verification fallback so an unmatched or errored lookup is a real
   rejection, not a fabricated "verified" result (today it falls back to a
-  `"CoreTech Solar Product (Manual Fallback)"` object even on error).
+  `"CoreTech Solar Product (Manual Fallback)"` object even on error) — matters even more now
+  that a bad barcode scan needs to fail honestly too, not get papered over.
 - Fix bug 5 from `bug_mobile.md` (unsafe `ilike` wildcard matching on serial numbers) in the
   same pass, since it's the same code being touched — escape `%`/`_`, or switch to an exact,
   case-folded match.
 - Add an offline-save fallback (AsyncStorage), mirroring what the web page already does with
   `localStorage`, so a failed submit isn't silently lost.
 - Set up `expo-updates` (OTA), added to this phase's scope 2026-09-03 rather than as separate
-  work, since Phase 3 already needs one more full native build regardless (`expo-updates`
-  itself is a native change) and everything after this phase (Phase 4's crash fixes, Phase 5's
-  visibility fix) is pure JavaScript — once this is in place, those can ship via `eas update`
-  in seconds instead of another 10-35 minute cloud build each time. Not currently installed at
-  all (`expo-updates` isn't in `package.json`), so this is net-new setup, not a config change.
+  work, since Phase 3 already needs one more full native build regardless — and now for two
+  reasons, not one: this OTA setup, and the new barcode-scanning native module above. Not
+  currently installed at all (`expo-updates` isn't in `package.json`), so this is net-new
+  setup, not a config change. Once both land in this one build, everything after this phase
+  (Phase 4's crash fixes, Phase 5's visibility fix) is pure JavaScript and can ship via
+  `eas update` in seconds instead of another 10-35 minute cloud build each time.
 
 ## Phase 4 — The standalone crash fixes + error boundary
 
@@ -214,12 +240,13 @@ the in-review statuses (`pending_verification`, `pending_approval`,
 from the installer's own view the moment they submit it. More important than ever once real
 submission (Phase 3) is live and installers are actively watching this state.
 
-## Open decision — self-report an unassigned installation?
+## Resolved decision — self-report an unassigned installation
 
-Web's form has a "New Installation Record" mode (installer reports something nobody assigned
-them). Mobile has no equivalent today. This changes what Phase 1's submission endpoint needs
-to accept (an installer-typed job title/address, not just an existing job ID), so it needs an
-explicit yes/no before Phase 1 is built, rather than being assumed into scope.
+Decided 2026-09-03: yes, build it — see Phase 3's "+" button item above. Turned out not to
+need a separate yes/no ahead of Phase 1 after all: `submitInstallationAction` already had a
+branch for a brand-new job (not just updating an existing one) from the original web-supporting
+logic, untouched by the Phase 1 ownership fix, so Phase 1's endpoint already supported this
+without any changes — the only real work is the mobile-side entry point in Phase 3.
 
 ## Deployment — no new infrastructure
 
