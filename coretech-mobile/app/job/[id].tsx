@@ -223,7 +223,6 @@ export default function JobDetailScreen() {
       const permission = useCamera
         ? await ImagePicker.requestCameraPermissionsAsync()
         : await ImagePicker.requestMediaLibraryPermissionsAsync();
-      console.log("[photo] permission result:", JSON.stringify(permission));
 
       if (!permission.granted) {
         Alert.alert("Permission Denied", "Camera/gallery access is required to upload photos.");
@@ -244,7 +243,6 @@ export default function JobDetailScreen() {
               quality: 0.7,
             });
       } catch (launchErr: any) {
-        console.log("[photo] launch error:", launchErr?.message, launchErr?.code);
         Alert.alert(
           "Camera Error",
           launchErr?.message || "Could not open the camera/gallery. Please try again."
@@ -275,7 +273,6 @@ export default function JobDetailScreen() {
       const permission = useCamera
         ? await ImagePicker.requestCameraPermissionsAsync()
         : await ImagePicker.requestMediaLibraryPermissionsAsync();
-      console.log("[video] permission result:", JSON.stringify(permission));
 
       if (!permission.granted) {
         Alert.alert("Permission Denied", "Access is required to record video.");
@@ -296,7 +293,6 @@ export default function JobDetailScreen() {
               quality: 0.7,
             });
       } catch (launchErr: any) {
-        console.log("[video] launch error:", launchErr?.message, launchErr?.code);
         Alert.alert(
           "Camera Error",
           launchErr?.message || "Could not open the camera/gallery. Please try again."
