@@ -303,7 +303,21 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
   }
 }
 
-export async function submitInstallationAction(payload: any, siteFormJobId: string) {
+export async function submitInstallationAction(payload: any, siteFormJobId: string, accessToken?: string) {
+  // === SERVER-SIDE IDENTITY CHECK ===
+  // This action previously trusted payload.installer_id outright on a new
+  // submission, and matched an update by job id alone — no verification
+  // anywhere that the caller was actually the installer they claimed to be,
+  // or actually owned the job they were editing. accessToken lets a caller
+  // with no cookie session (the mobile app) prove identity the same way a
+  // web caller's cookie does; either way, everything below is now scoped to
+  // whoever this resolves to, never to whatever the client claims in payload.
+  const caller = await getCallerIdentity(accessToken);
+  if (!caller || caller.role !== "installer") {
+    return { success: false, error: "Not authorized to submit an installation." };
+  }
+  payload.installer_id = caller.id;
+
   const MIN_PHOTOS = 3;
 
   // === SERVER-SIDE SANITIZATION: Strip ALL fake/placeholder URLs ===
@@ -388,8 +402,21 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
     // 2. Insert or update the installation job record
     let jobResult;
     if (siteFormJobId && siteFormJobId !== "new") {
+      // Ownership check: an installer may only resubmit their own job, never
+      // one belonging to someone else, no matter what siteFormJobId points to.
+      const ownerCheck = await client.query(
+        "SELECT installer_id FROM public.installer_jobs WHERE id = $1 LIMIT 1",
+        [siteFormJobId]
+      );
+      if (!ownerCheck.rows[0]) {
+        throw new Error("Installation record not found.");
+      }
+      if (ownerCheck.rows[0].installer_id !== caller.id) {
+        throw new Error("Not authorized to modify this installation record.");
+      }
+
       jobResult = await client.query(
-        `UPDATE public.installer_jobs 
+        `UPDATE public.installer_jobs
          SET status = 'pending_verification',
              job_title = $1,
              address = $2,
@@ -400,7 +427,7 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
              approval_note = NULL,
              verification_note = NULL,
              is_resubmitted = TRUE
-         WHERE id = $7
+         WHERE id = $7 AND installer_id = $8
          RETURNING id`,
         [
           payload.job_title,
@@ -409,7 +436,8 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
           payload.remarks || "",
           Array.isArray(payload.photos) ? payload.photos : [],
           payload.notes || "",
-          siteFormJobId
+          siteFormJobId,
+          caller.id
         ]
       );
     } else {

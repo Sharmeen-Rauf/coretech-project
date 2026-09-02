@@ -1,6 +1,11 @@
 # Installer Mobile Consolidation Plan
 
-Status: planning, not started. Branch: `installer-mobile-consolidation`.
+Status: Phase 0 deferred (see note below). **Phase 1 built and tested, 2026-09-02** — three
+API routes live (`/api/installer/register`, `/api/installer/verify-serial`,
+`/api/installer/submit`), a token-based caller-identity path added alongside the existing
+cookie-based one, and a real pre-existing vulnerability in `submitInstallationAction` fixed
+along the way (see Phase 1 section below for detail). Phase 2 (native Sign-Up screen) next.
+Branch: `installer-mobile-consolidation`.
 
 ## Goal
 
@@ -25,9 +30,30 @@ and the "no server-side backstop on submission" gap exist.
 `coretech-project` Next.js app, reusing the same validation logic already proven on web,
 rather than duplicating a second, weaker copy of it inside the mobile app.
 
-## Phase 0 — Security foundation (starts first, independent of everything else)
+## Phase 0 — Security foundation — DEFERRED 2026-09-02, not started
 
-Pure database/policy work, no app code changes, can begin immediately:
+Decision: deferred at the client's explicit call, not a technical blocker. The mobile app
+(and the web installer page it mirrors) never asks for anyone else's data — every query is
+already self-scoped by convention (`.eq("id", session.user.id)` /
+`.eq("installer_id", session.user.id)`), so nothing in Phases 1-5 depends on this being done
+first. What stays true while deferred: the three exposures already confirmed live in
+`bug_mobile.md` (#6-8) remain real — any authenticated account could, via a direct API call
+(not through any app screen), read/edit another installer's job record, read another
+installer's CNIC/payout info, or overwrite/delete another installer's uploaded proof photo or
+video. Accepted as a known, existing risk for now, not newly introduced by anything in this
+plan. Can be picked up independently at any later point — it's a pure database change with no
+dependency on, or from, any of the app-side phases below.
+
+Design notes from the investigation already done, kept here for whenever this is picked back
+up: `installer_jobs` should defer to the real Role Management system (`role_permissions` /
+`installer.verify_installer` / `installer.verify_installation`) rather than a hardcoded role
+list, confirmed live-granted today to admin, country_head, employee, and retail_manager only
+(not marketing_manager or rsm, despite being "office" roles). `profiles` has no single
+permission key to defer to (read from too many unrelated pages/features), so self + the six
+office roles as a group remains the fallback design there. `job-photos`: only the uploader
+should be able to replace/delete their own file; public read stays untouched either way.
+
+Pure database/policy work, no app code changes, whenever it's picked back up:
 
 - Enable RLS on `installer_jobs` with real per-role policies (installer sees/writes only
   their own rows; admin/RM/CH see what their role should).
@@ -59,6 +85,56 @@ than rewriting it from scratch. Design constraints for this phase:
   latency on this infrastructure is a real factor regardless of how lean the route's own
   logic is.
 
+### Built and tested — 2026-09-02
+
+Three routes shipped, each a thin transport wrapper around the existing server actions rather
+than a rewrite:
+
+- `POST /api/installer/register` — public, no auth (mirrors `createUserAction`'s existing
+  `allowAnonymousInstallerCreate` allowance). Added real input validation at the route
+  boundary — `createUserAction` assumes its caller already validated required fields (true
+  for the web form, which checks client-side first), and crashed with a raw JS error
+  (`Cannot read properties of undefined`) on a missing field instead of a clean message. Not
+  a new bug, just a gap this route is a more direct, unguarded path into than the web form
+  was — fixed by validating the same fields the web form's own `validate()` already checks
+  before calling the action.
+- `POST /api/installer/verify-serial` — requires a Bearer token, wraps
+  `verifySerialNumberAction` unchanged (already safe, fails closed, no identity concern for a
+  read-only inventory lookup).
+- `POST /api/installer/submit` — requires a Bearer token, wraps `submitInstallationAction`.
+
+**Real vulnerability found and fixed while building this, not before:**
+`submitInstallationAction` had no caller-identity check at all — it trusted whatever
+`installer_id` the client sent on a new submission, and matched an update by job id alone,
+never checking the job actually belonged to whoever was calling. Fixed by:
+- Extending `getCallerSessionId`/`getCallerIdentity` (`app/actions/users.ts`) to accept an
+  optional access token, verified via `supabase.auth.getUser(token)`, alongside the existing
+  cookie-based path — backward compatible, every existing call site is unaffected since the
+  parameter is optional and defaults to the old cookie behavior.
+- `submitInstallationAction` now resolves the caller via this (accepting the same optional
+  token, threaded through from the new route), requires `caller.role === "installer"`, and
+  overrides `payload.installer_id` with the verified caller's id rather than trusting the
+  client's value.
+- Resubmission of an existing job now checks the job's real `installer_id` against the
+  caller before allowing the update, both as a pre-check and as an added `AND installer_id =
+  $N` clause on the `UPDATE` itself (defense in depth, not just the pre-check).
+
+**Verified end-to-end against production**, not just unit-tested in isolation: registered two
+real test installer accounts through the new route, signed in as each to get a real access
+token, confirmed a legitimate submission correctly stamps the real caller's id (not whatever
+the client sent), then confirmed the second test installer's token was refused
+(`"Not authorized to modify this installation record"`) when it tried to hijack the first
+installer's job by id — the exact attack the old code was vulnerable to. Job's title was
+confirmed unchanged after the failed attempt. All test accounts, the test job, and their
+`allowed_users` whitelist entries were deleted afterward — nothing test-related left in
+production.
+
+**Also found, not yet fixed, flagged separately:** `app/api/test-db/route.ts` — a pre-existing,
+unrelated route — has a hardcoded production database password as a fallback default and is a
+public, unauthenticated endpoint that also triggers a PostgREST schema reload on every `GET`.
+Live and deployed today, not just old git history like the `scratch_*` files. Worth its own
+fix, out of scope for this plan.
+
 ## Phase 2 — Native Sign-Up screen
 
 Once Phase 1's registration endpoint exists:
@@ -70,10 +146,26 @@ Once Phase 1's registration endpoint exists:
   plain `<Text>` with no `onPress` and no screen to navigate to).
 - Submit through the new API route — new accounts land in `pending_verification`, same as
   web.
-- Add the missing `profile.status` check to `handleLogin`, so a not-yet-approved installer is
-  actually blocked from getting in, matching web's behavior (web's `app/installer/page.tsx`
-  reads and gates on `profileStatus`; mobile's login today only checks `role`, never
-  `status`).
+- Add the missing `profile.status` check to `handleLogin` (today it only checks `role`, never
+  `status`, so a not-yet-approved installer can currently get straight into the app). Exact
+  behavior per status, decided 2026-09-02:
+  - `pending_verification`: login succeeds, but the installer lands on a "Profile Under
+    Review" screen instead of the normal app (mirroring web's `app/installer/page.tsx`,
+    which reads and displays `profileStatus` rather than blocking the login outright).
+  - `rejected` / blocked: login is refused entirely — same outcome and same generic message
+    as the role-mismatch/wrong-password case below, not a distinct "your account was
+    rejected" message (that would leak the same kind of account-existence information a
+    rejected applicant's own credentials shouldn't reveal any more precisely than a stranger's
+    wrong password does).
+  - This is purely app-side login logic — no change needed to Phase 0's RLS design, since the
+    self-read policy there (`auth.uid() = id`) already lets an installer read their own
+    `status` regardless of its value; RLS was never what would have blocked this.
+- Unify login error presentation: today, a wrong password and a correct-password-but-wrong-role
+  attempt show two different `Alert.alert` popups ("Login Error" vs. "Access Denied") — which
+  leaks account-existence/role information to anyone probing credentials, since the two cases
+  are distinguishable from outside. Replace both with a single generic inline red-text error
+  on the login screen itself (not a native popup), identical wording and appearance regardless
+  of which of the two actually happened.
 
 ## Phase 3 — Upgrade the Job submission screen
 
