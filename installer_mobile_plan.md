@@ -1,11 +1,12 @@
 # Installer Mobile Consolidation Plan
 
-Status: Phase 0 deferred (see note below). **Phase 1 built and tested, 2026-09-02** — three
-API routes live (`/api/installer/register`, `/api/installer/verify-serial`,
-`/api/installer/submit`), a token-based caller-identity path added alongside the existing
-cookie-based one, and a real pre-existing vulnerability in `submitInstallationAction` fixed
-along the way (see Phase 1 section below for detail). Phase 2 (native Sign-Up screen) next.
-Branch: `installer-mobile-consolidation`.
+Status: Phase 0 deferred (see note below). Phase 1 built and tested, 2026-09-02 (see Phase 1
+section for detail — three API routes live, plus a real vulnerability found and fixed in
+`submitInstallationAction`). **Phase 2 code built 2026-09-02** (Sign-Up screen, Profile Under
+Review screen, login unification, app-launch access re-check) — type-checked and Metro-bundled
+clean, but **not yet tested end-to-end on a real device**, since the mobile app calls
+`coretechsolar.com` and Phase 1's routes only exist on this branch so far, not deployed to
+production. Branch: `installer-mobile-consolidation`.
 
 ## Goal
 
