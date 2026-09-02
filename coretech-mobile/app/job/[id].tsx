@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -64,6 +64,12 @@ export default function JobDetailScreen() {
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [hasScannedOnce, setHasScannedOnce] = useState(false);
+
+  // Guards handlePickPhoto/handlePickVideo against firing twice for one tap
+  // (a fast double-tap before the button's own busy state was set could
+  // trigger two concurrent permission requests, which raced each other and
+  // dismissed both permission dialogs before either could be answered).
+  const isMediaPickerBusyRef = useRef(false);
 
   const fetchJobDetails = async () => {
     try {
@@ -211,72 +217,84 @@ export default function JobDetailScreen() {
   };
 
   const handlePickPhoto = async (useCamera: boolean) => {
-    const permission = useCamera
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert("Permission Denied", "Camera/gallery access is required to upload photos.");
-      return;
-    }
-
-    const result = useCamera
-      ? await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: true,
-          quality: 0.7,
-        })
-      : await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: true,
-          quality: 0.7,
-        });
-
-    if (result.canceled) return;
-
-    setIsUploadingPhoto(true);
+    if (isMediaPickerBusyRef.current) return;
+    isMediaPickerBusyRef.current = true;
     try {
-      const publicUrl = await uploadFileToStorage(result.assets[0].uri, false);
-      setPhotos((prev) => [...prev, publicUrl]);
-    } catch (err: any) {
-      Alert.alert("Upload Failed", err.message || "Failed to upload photo.");
+      const permission = useCamera
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert("Permission Denied", "Camera/gallery access is required to upload photos.");
+        return;
+      }
+
+      const result = useCamera
+        ? await ImagePicker.launchCameraAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            quality: 0.7,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            quality: 0.7,
+          });
+
+      if (result.canceled) return;
+
+      setIsUploadingPhoto(true);
+      try {
+        const publicUrl = await uploadFileToStorage(result.assets[0].uri, false);
+        setPhotos((prev) => [...prev, publicUrl]);
+      } catch (err: any) {
+        Alert.alert("Upload Failed", err.message || "Failed to upload photo.");
+      } finally {
+        setIsUploadingPhoto(false);
+      }
     } finally {
-      setIsUploadingPhoto(false);
+      isMediaPickerBusyRef.current = false;
     }
   };
 
   const handlePickVideo = async (useCamera: boolean) => {
-    const permission = useCamera
-      ? await ImagePicker.requestCameraPermissionsAsync()
-      : await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert("Permission Denied", "Access is required to record video.");
-      return;
-    }
-
-    const result = useCamera
-      ? await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-          allowsEditing: true,
-          quality: 0.7,
-        })
-      : await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
-          allowsEditing: true,
-          quality: 0.7,
-        });
-
-    if (result.canceled) return;
-
-    setIsUploadingVideo(true);
+    if (isMediaPickerBusyRef.current) return;
+    isMediaPickerBusyRef.current = true;
     try {
-      const publicUrl = await uploadFileToStorage(result.assets[0].uri, true);
-      setVideoUrl(publicUrl);
-    } catch (err: any) {
-      Alert.alert("Upload Failed", err.message || "Failed to upload video.");
+      const permission = useCamera
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        Alert.alert("Permission Denied", "Access is required to record video.");
+        return;
+      }
+
+      const result = useCamera
+        ? await ImagePicker.launchCameraAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+            allowsEditing: true,
+            quality: 0.7,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+            allowsEditing: true,
+            quality: 0.7,
+          });
+
+      if (result.canceled) return;
+
+      setIsUploadingVideo(true);
+      try {
+        const publicUrl = await uploadFileToStorage(result.assets[0].uri, true);
+        setVideoUrl(publicUrl);
+      } catch (err: any) {
+        Alert.alert("Upload Failed", err.message || "Failed to upload video.");
+      } finally {
+        setIsUploadingVideo(false);
+      }
     } finally {
-      setIsUploadingVideo(false);
+      isMediaPickerBusyRef.current = false;
     }
   };
 
