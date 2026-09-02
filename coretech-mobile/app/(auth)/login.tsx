@@ -7,10 +7,18 @@ import {
   StyleSheet,
   SafeAreaView,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
+import { resolveInstallerAccess } from "../../lib/installerAccess";
+
+// Every rejection shows this same wording, no matter the real reason (wrong
+// password, correct password but not an installer, or a rejected/blocked
+// installer account). Distinguishing them would tell anyone probing
+// credentials whether they'd just found a real, valid account - even one
+// they can't use - which a stranger's wrong-password attempt should never
+// reveal.
+const GENERIC_LOGIN_ERROR = "Invalid email or password.";
 
 export default function MobileLogin() {
   const router = useRouter();
@@ -18,10 +26,12 @@ export default function MobileLogin() {
   const [password, setPassword] = useState("");
   const [secureText, setSecureText] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorText, setErrorText] = useState("");
 
   const handleLogin = async () => {
+    setErrorText("");
     if (!email || !password) {
-      Alert.alert("Required fields", "Please fill in all inputs.");
+      setErrorText("Please fill in all fields.");
       return;
     }
 
@@ -32,25 +42,21 @@ export default function MobileLogin() {
         password,
       });
 
-      if (error) throw error;
-
-      // Verify the role is installer
-      const { data: profile, error: profileErr } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", data.user.id)
-        .single();
-
-      if (profileErr || !profile || profile.role !== "installer") {
-        // Sign out if they are not an installer to prevent illegal access
-        await supabase.auth.signOut();
-        Alert.alert("Access Denied", "This app is only available to CoreTech installers.");
+      if (error) {
+        setErrorText(GENERIC_LOGIN_ERROR);
         return;
       }
 
-      router.replace("/(tabs)/jobs");
+      const access = await resolveInstallerAccess(data.user.id);
+      if (!access.allowed) {
+        await supabase.auth.signOut();
+        setErrorText(GENERIC_LOGIN_ERROR);
+        return;
+      }
+
+      router.replace(access.state === "pending" ? "/(auth)/pending" : "/(tabs)/jobs");
     } catch (err: any) {
-      Alert.alert("Login Error", err.message || "Failed to authenticate.");
+      setErrorText(GENERIC_LOGIN_ERROR);
     } finally {
       setIsLoading(false);
     }
@@ -110,6 +116,8 @@ export default function MobileLogin() {
             </View>
           </View>
 
+          {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
+
           <TouchableOpacity
             onPress={handleLogin}
             disabled={isLoading}
@@ -123,10 +131,12 @@ export default function MobileLogin() {
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.footerText}>
-          Don't have an account yet?{" "}
-          <Text style={{ color: "#00B4D8", fontWeight: "bold" }}>Register for free</Text>
-        </Text>
+        <TouchableOpacity onPress={() => router.push("/(auth)/register")}>
+          <Text style={styles.footerText}>
+            Don't have an account yet?{" "}
+            <Text style={{ color: "#00B4D8", fontWeight: "bold" }}>Register for free</Text>
+          </Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -190,6 +200,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 3,
+  },
+  errorText: {
+    color: "#DC2626",
+    fontSize: 12,
+    fontWeight: "bold",
+    textAlign: "center",
+    marginBottom: 12,
   },
   heading: {
     fontSize: 20,

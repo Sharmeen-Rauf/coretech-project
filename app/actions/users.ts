@@ -742,7 +742,19 @@ export async function fetchUsersAction(activeRole: string) {
 
 // Resolves the logged-in caller's own role from their session cookie, independent of
 // whatever the client claims - the password reset actions below must never trust the client.
-async function getCallerSessionId(): Promise<string | null> {
+// Web callers (Server Actions from a browser session) are identified via the
+// Supabase auth cookie the browser client already set - no token needed. The
+// mobile app has no cookies at all, so API routes it calls pass its Supabase
+// session's access token explicitly instead; verifying that token against the
+// admin client resolves the same caller identity through a different channel.
+async function getCallerSessionId(accessToken?: string): Promise<string | null> {
+  if (accessToken) {
+    const supabase = getAdminClient();
+    const { data, error } = await supabase.auth.getUser(accessToken);
+    if (error || !data?.user) return null;
+    return data.user.id;
+  }
+
   const cookieStore = cookies();
   const serverClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || "",
@@ -785,8 +797,8 @@ export async function getCallerRole(): Promise<string | null> {
 // Same lookup as getCallerRole, but also returns the caller's own id — needed
 // wherever an action must both authorize the caller AND stamp who performed it
 // (e.g. verified_by/approved_by columns).
-export async function getCallerIdentity(): Promise<{ id: string; role: string | null } | null> {
-  const callerId = await getCallerSessionId();
+export async function getCallerIdentity(accessToken?: string): Promise<{ id: string; role: string | null } | null> {
+  const callerId = await getCallerSessionId(accessToken);
   if (!callerId) return null;
 
   const supabase = getAdminClient();

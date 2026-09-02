@@ -5,3 +5,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .env*
+
+# Build artifacts - these belong in EAS's own build history (eas build:list),
+# not the repo. 8 old .aab files already got committed before this rule
+# existed; this only stops the pile from growing further.
+*.aab
+*.apk
+*.apks

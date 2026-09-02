@@ -37,6 +37,7 @@
       ]
     ],
     "extra": {
+      "apiBaseUrl": "https://coretechsolar.com",
       "supabaseUrl": "https://cypbnnohtipwavcwukhl.supabase.co",
       "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN5cGJubm9odGlwd2F2Y3d1a2hsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2MjQ3NTMsImV4cCI6MjA5NzIwMDc1M30.WnKhD-jy1likTKYtbdJcJ2JvzSNEPKn9M5U6NbjtCYo",
       "router": {

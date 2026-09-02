@@ -1,0 +1,241 @@
+# Installer Mobile Consolidation Plan
+
+Status: Phase 0 deferred (see note below). Phase 1 built and tested, 2026-09-02 (see Phase 1
+section for detail — three API routes live, plus a real vulnerability found and fixed in
+`submitInstallationAction`). **Phase 2 code built 2026-09-02** (Sign-Up screen, Profile Under
+Review screen, login unification, app-launch access re-check) — type-checked and Metro-bundled
+clean, but **not yet tested end-to-end on a real device**, since the mobile app calls
+`coretechsolar.com` and Phase 1's routes only exist on this branch so far, not deployed to
+production. Branch: `installer-mobile-consolidation`.
+
+## Goal
+
+Retire the temporary web installer experience — `app/installer/page.tsx` (submission form)
+and `app/installer/register/page.tsx` (signup), plus the "Installer QR Code" button on the
+admin Installer List page that opens the signup page — by giving the native `coretech-mobile`
+app everything those pages do, and fixing every bug currently logged in `bug_mobile.md` along
+the way. Once the native app has full parity, verified on-device, it becomes the sole
+installer-facing surface and the web pages come out.
+
+## The architecture decision this plan is built around
+
+The mobile app can't safely absorb signup + submission by just copying the web forms' UI
+into React Native, because the web forms work as well as they do thanks to server-side
+re-validation (`createUserAction`, `submitInstallationAction`) that runs with privileged
+access, invisible to the client. The mobile app has no equivalent today — it writes straight
+to Supabase with the public anon key, which is exactly why bugs 6-8 in `bug_mobile.md` (RLS
+off on `installer_jobs`, wide-open `profiles` read policy, fully public `job-photos` bucket)
+and the "no server-side backstop on submission" gap exist.
+
+**Confirmed direction:** build that missing backend as new API routes inside the existing
+`coretech-project` Next.js app, reusing the same validation logic already proven on web,
+rather than duplicating a second, weaker copy of it inside the mobile app.
+
+## Phase 0 — Security foundation — DEFERRED 2026-09-02, not started
+
+Decision: deferred at the client's explicit call, not a technical blocker. The mobile app
+(and the web installer page it mirrors) never asks for anyone else's data — every query is
+already self-scoped by convention (`.eq("id", session.user.id)` /
+`.eq("installer_id", session.user.id)`), so nothing in Phases 1-5 depends on this being done
+first. What stays true while deferred: the three exposures already confirmed live in
+`bug_mobile.md` (#6-8) remain real — any authenticated account could, via a direct API call
+(not through any app screen), read/edit another installer's job record, read another
+installer's CNIC/payout info, or overwrite/delete another installer's uploaded proof photo or
+video. Accepted as a known, existing risk for now, not newly introduced by anything in this
+plan. Can be picked up independently at any later point — it's a pure database change with no
+dependency on, or from, any of the app-side phases below.
+
+Design notes from the investigation already done, kept here for whenever this is picked back
+up: `installer_jobs` should defer to the real Role Management system (`role_permissions` /
+`installer.verify_installer` / `installer.verify_installation`) rather than a hardcoded role
+list, confirmed live-granted today to admin, country_head, employee, and retail_manager only
+(not marketing_manager or rsm, despite being "office" roles). `profiles` has no single
+permission key to defer to (read from too many unrelated pages/features), so self + the six
+office roles as a group remains the fallback design there. `job-photos`: only the uploader
+should be able to replace/delete their own file; public read stays untouched either way.
+
+Pure database/policy work, no app code changes, whenever it's picked back up:
+
+- Enable RLS on `installer_jobs` with real per-role policies (installer sees/writes only
+  their own rows; admin/RM/CH see what their role should).
+- Tighten the wide-open `profiles` read policy so installers can't read every other
+  installer's CNIC and payout details.
+- Make the `job-photos` storage bucket private and ownership-scoped instead of fully public
+  read/write/update/delete.
+
+Prerequisite for trusting the mobile app's *existing* direct-to-Supabase reads (job lists,
+dashboard stats, profile data) once real user data is flowing through a more heavily-used app.
+
+## Phase 1 — Build the backend API routes
+
+New routes inside the same Next.js codebase already deployed at coretechsolar.com — e.g.
+registration, serial verification, and installation submission endpoints — reusing the logic
+behind `createUserAction`, `verifySerialNumberAction`, and `submitInstallationAction` rather
+than rewriting it from scratch. Design constraints for this phase:
+
+- **Authentication:** mobile has no browser session/cookies, so each request needs to carry
+  the installer's Supabase-issued JWT, verified server-side on every call — not the
+  cookie-based auth the web pages currently rely on.
+- **Connection handling:** `submitInstallationAction` currently opens a brand-new raw
+  Postgres connection (`new pg.Client(...)`) on every single call — a real, verified latency
+  and connection-exhaustion risk on serverless infrastructure. The new routes need a
+  pooled/reused connection instead of copy-pasting that exact pattern.
+- **Keep each route narrow and lean** — purpose-built for exactly what it needs to check, not
+  a grab-bag, so it isn't exposed to unrelated inefficiency elsewhere in the app.
+- **Test each route's own response time** before wiring the mobile app to it — cold-start
+  latency on this infrastructure is a real factor regardless of how lean the route's own
+  logic is.
+
+### Built and tested — 2026-09-02
+
+Three routes shipped, each a thin transport wrapper around the existing server actions rather
+than a rewrite:
+
+- `POST /api/installer/register` — public, no auth (mirrors `createUserAction`'s existing
+  `allowAnonymousInstallerCreate` allowance). Added real input validation at the route
+  boundary — `createUserAction` assumes its caller already validated required fields (true
+  for the web form, which checks client-side first), and crashed with a raw JS error
+  (`Cannot read properties of undefined`) on a missing field instead of a clean message. Not
+  a new bug, just a gap this route is a more direct, unguarded path into than the web form
+  was — fixed by validating the same fields the web form's own `validate()` already checks
+  before calling the action.
+- `POST /api/installer/verify-serial` — requires a Bearer token, wraps
+  `verifySerialNumberAction` unchanged (already safe, fails closed, no identity concern for a
+  read-only inventory lookup).
+- `POST /api/installer/submit` — requires a Bearer token, wraps `submitInstallationAction`.
+
+**Real vulnerability found and fixed while building this, not before:**
+`submitInstallationAction` had no caller-identity check at all — it trusted whatever
+`installer_id` the client sent on a new submission, and matched an update by job id alone,
+never checking the job actually belonged to whoever was calling. Fixed by:
+- Extending `getCallerSessionId`/`getCallerIdentity` (`app/actions/users.ts`) to accept an
+  optional access token, verified via `supabase.auth.getUser(token)`, alongside the existing
+  cookie-based path — backward compatible, every existing call site is unaffected since the
+  parameter is optional and defaults to the old cookie behavior.
+- `submitInstallationAction` now resolves the caller via this (accepting the same optional
+  token, threaded through from the new route), requires `caller.role === "installer"`, and
+  overrides `payload.installer_id` with the verified caller's id rather than trusting the
+  client's value.
+- Resubmission of an existing job now checks the job's real `installer_id` against the
+  caller before allowing the update, both as a pre-check and as an added `AND installer_id =
+  $N` clause on the `UPDATE` itself (defense in depth, not just the pre-check).
+
+**Verified end-to-end against production**, not just unit-tested in isolation: registered two
+real test installer accounts through the new route, signed in as each to get a real access
+token, confirmed a legitimate submission correctly stamps the real caller's id (not whatever
+the client sent), then confirmed the second test installer's token was refused
+(`"Not authorized to modify this installation record"`) when it tried to hijack the first
+installer's job by id — the exact attack the old code was vulnerable to. Job's title was
+confirmed unchanged after the failed attempt. All test accounts, the test job, and their
+`allowed_users` whitelist entries were deleted afterward — nothing test-related left in
+production.
+
+**Also found, not yet fixed, flagged separately:** `app/api/test-db/route.ts` — a pre-existing,
+unrelated route — has a hardcoded production database password as a fallback default and is a
+public, unauthenticated endpoint that also triggers a PostgREST schema reload on every `GET`.
+Live and deployed today, not just old git history like the `scratch_*` files. Worth its own
+fix, out of scope for this plan.
+
+## Phase 2 — Native Sign-Up screen
+
+Once Phase 1's registration endpoint exists:
+
+- Build the missing `register.tsx` in `app/(auth)/`, with the same field set as web (name,
+  contact, email, password, CNIC with the same format+validate behavior, address, city,
+  state dropdown, marital status, payment provider, payout account).
+- Wire up the currently-dead "Register for free" link on the login screen to it (today it's
+  plain `<Text>` with no `onPress` and no screen to navigate to).
+- Submit through the new API route — new accounts land in `pending_verification`, same as
+  web.
+- Add the missing `profile.status` check to `handleLogin` (today it only checks `role`, never
+  `status`, so a not-yet-approved installer can currently get straight into the app). Exact
+  behavior per status, decided 2026-09-02:
+  - `pending_verification`: login succeeds, but the installer lands on a "Profile Under
+    Review" screen instead of the normal app (mirroring web's `app/installer/page.tsx`,
+    which reads and displays `profileStatus` rather than blocking the login outright).
+  - `rejected` / blocked: login is refused entirely — same outcome and same generic message
+    as the role-mismatch/wrong-password case below, not a distinct "your account was
+    rejected" message (that would leak the same kind of account-existence information a
+    rejected applicant's own credentials shouldn't reveal any more precisely than a stranger's
+    wrong password does).
+  - This is purely app-side login logic — no change needed to Phase 0's RLS design, since the
+    self-read policy there (`auth.uid() = id`) already lets an installer read their own
+    `status` regardless of its value; RLS was never what would have blocked this.
+- Unify login error presentation: today, a wrong password and a correct-password-but-wrong-role
+  attempt show two different `Alert.alert` popups ("Login Error" vs. "Access Denied") — which
+  leaks account-existence/role information to anyone probing credentials, since the two cases
+  are distinguishable from outside. Replace both with a single generic inline red-text error
+  on the login screen itself (not a native popup), identical wording and appearance regardless
+  of which of the two actually happened.
+
+## Phase 3 — Upgrade the Job submission screen
+
+Once Phase 1's submission endpoint exists:
+
+- Route `handleSubmitProof` (`app/job/[id].tsx`) through it instead of the current raw
+  client-side `supabase.from(...).update(...)` call — this is what actually gives mobile the
+  server-side re-validation it's missing today.
+- Raise the photo minimum to match web (3, not 1), and actually enforce the video requirement
+  the screen already labels "Required" but never checks.
+- Fix the fail-open serial-verification fallback so an unmatched or errored lookup is a real
+  rejection, not a fabricated "verified" result (today it falls back to a
+  `"CoreTech Solar Product (Manual Fallback)"` object even on error).
+- Fix bug 5 from `bug_mobile.md` (unsafe `ilike` wildcard matching on serial numbers) in the
+  same pass, since it's the same code being touched — escape `%`/`_`, or switch to an exact,
+  case-folded match.
+- Add an offline-save fallback (AsyncStorage), mirroring what the web page already does with
+  `localStorage`, so a failed submit isn't silently lost.
+
+## Phase 4 — The standalone crash fixes + error boundary
+
+Independent of Phases 1-3, cheap, can run in parallel with the backend work:
+
+- Job Details screen: guard against rendering with no job data mid-navigation-back
+  (`bug_mobile.md` #1).
+- Profile screen: safe-guard the initials computation against a missing `first_name`
+  (`bug_mobile.md` #3).
+- Root-level error boundary so any other unhandled error shows a recoverable screen instead
+  of killing the whole app outright (`bug_mobile.md` #4) — also a safety net for anything the
+  earlier phases miss.
+
+## Phase 5 — Fix the "My Jobs" / "History" visibility gap
+
+Update both tabs' status filters (`app/(tabs)/jobs.tsx`, `app/(tabs)/history.tsx`) to include
+the in-review statuses (`pending_verification`, `pending_approval`,
+`pending_installation_approval`) — `bug_mobile.md` #2 — so a submitted job doesn't vanish
+from the installer's own view the moment they submit it. More important than ever once real
+submission (Phase 3) is live and installers are actively watching this state.
+
+## Open decision — self-report an unassigned installation?
+
+Web's form has a "New Installation Record" mode (installer reports something nobody assigned
+them). Mobile has no equivalent today. This changes what Phase 1's submission endpoint needs
+to accept (an installer-typed job title/address, not just an existing job ID), so it needs an
+explicit yes/no before Phase 1 is built, rather than being assumed into scope.
+
+## Deployment — no new infrastructure
+
+The new API routes live in the same repo already deployed to Vercel from `master`. Process is
+the one already established in this project: build on a branch -> `npm run build && npm run
+start` locally to verify (`npm run dev` is the known-broken workflow here, see main
+`CLAUDE.md`) -> PR -> merge to `master` -> Vercel auto-deploys. The mobile app needs one new
+EAS build to learn the new API URL (baked into `app.json`'s `extra`, same as `supabaseUrl`
+already is today) — but after that, most future changes to the validation logic behind these
+routes are just a normal Vercel deploy, no new mobile build or reinstall required, unless the
+request/response shape itself changes.
+
+## Execution approach
+
+- Phased delivery on this branch — each phase built, tested on a real device (same
+  `adb`/Logcat + EAS-build discipline used for the `expo-asset` crash fix), and committed
+  separately, not one giant PR spanning backend + signup + submission + five bug fixes at
+  once.
+- Phase 0 (security) and Phase 4 (crash fixes) have no dependency on anything else and can
+  start in parallel with Phase 1's backend work.
+- Everything from Phase 2 onward is blocked on Phase 1 existing.
+
+## Only after all of the above is verified on-device — retire the web pages
+
+`app/installer/page.tsx`, `app/installer/register/page.tsx`, and the "Installer QR Code"
+button on the admin Installer List page get removed only once the native app is confirmed, on
+a real phone, to actually do everything they did. Not before.
