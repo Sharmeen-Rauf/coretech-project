@@ -1,12 +1,14 @@
 # Installer Mobile Consolidation Plan
 
-Status: Phase 0 deferred (see note below). Phase 1 built and tested, 2026-09-02 (see Phase 1
-section for detail — three API routes live, plus a real vulnerability found and fixed in
-`submitInstallationAction`). **Phase 2 code built 2026-09-02** (Sign-Up screen, Profile Under
-Review screen, login unification, app-launch access re-check) — type-checked and Metro-bundled
-clean, but **not yet tested end-to-end on a real device**, since the mobile app calls
-`coretechsolar.com` and Phase 1's routes only exist on this branch so far, not deployed to
-production. Branch: `installer-mobile-consolidation`.
+Status: Phase 0 deferred (see note below). Phase 1 and Phase 2 merged to `master` and
+**verified end-to-end on a real physical device against live production**, 2026-09-02/03 —
+registered a real test account through the actual Sign-Up screen, confirmed it landed
+correctly as `pending_verification` in the database, logged in with it and confirmed it
+correctly showed the "Profile Under Review" screen rather than the normal app, then deleted
+all test data from production afterward. `installer-mobile-consolidation` was merged to
+`master` via PR #21 (still exists as a remote branch, not deleted). Phase 3 next (see that
+section — job submission screen, plus setting up `expo-updates`/OTA so future JS-only phases
+skip the full native rebuild cycle).
 
 ## Goal
 
@@ -185,6 +187,12 @@ Once Phase 1's submission endpoint exists:
   case-folded match.
 - Add an offline-save fallback (AsyncStorage), mirroring what the web page already does with
   `localStorage`, so a failed submit isn't silently lost.
+- Set up `expo-updates` (OTA), added to this phase's scope 2026-09-03 rather than as separate
+  work, since Phase 3 already needs one more full native build regardless (`expo-updates`
+  itself is a native change) and everything after this phase (Phase 4's crash fixes, Phase 5's
+  visibility fix) is pure JavaScript — once this is in place, those can ship via `eas update`
+  in seconds instead of another 10-35 minute cloud build each time. Not currently installed at
+  all (`expo-updates` isn't in `package.json`), so this is net-new setup, not a config change.
 
 ## Phase 4 — The standalone crash fixes + error boundary
 
