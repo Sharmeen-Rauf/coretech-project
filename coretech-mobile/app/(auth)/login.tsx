@@ -11,6 +11,8 @@ import {
 import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { resolveInstallerAccess } from "../../lib/installerAccess";
+import AnimatedPressable from "../../components/AnimatedPressable";
+import FadeInView from "../../components/FadeInView";
 
 // Every rejection shows this same wording, no matter the real reason (wrong
 // password, correct password but not an installer, or a rejected/blocked
@@ -66,7 +68,7 @@ export default function MobileLogin() {
     <SafeAreaView style={styles.container}>
       <View style={styles.inner}>
         {/* Brand Area */}
-        <View style={styles.brandContainer}>
+        <FadeInView style={styles.brandContainer}>
           <View style={styles.logoBadge}>
             <Text style={styles.logoBadgeText}>CT</Text>
           </View>
@@ -74,10 +76,10 @@ export default function MobileLogin() {
             Core<Text style={{ color: "#00B4D8" }}>TECH</Text>
           </Text>
           <Text style={styles.tagline}>YOUR CORE PARTNER IN TECH</Text>
-        </View>
+        </FadeInView>
 
         {/* Auth Card */}
-        <View style={styles.card}>
+        <FadeInView delay={80} style={styles.card}>
           <Text style={styles.heading}>Login</Text>
 
           <View style={styles.fieldGroup}>
@@ -118,7 +120,7 @@ export default function MobileLogin() {
 
           {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
 
-          <TouchableOpacity
+          <AnimatedPressable
             onPress={handleLogin}
             disabled={isLoading}
             style={[styles.button, isLoading && styles.buttonDisabled]}
@@ -128,8 +130,8 @@ export default function MobileLogin() {
             ) : (
               <Text style={styles.buttonText}>Sign in</Text>
             )}
-          </TouchableOpacity>
-        </View>
+          </AnimatedPressable>
+        </FadeInView>
 
         <TouchableOpacity onPress={() => router.push("/(auth)/register")}>
           <Text style={styles.footerText}>

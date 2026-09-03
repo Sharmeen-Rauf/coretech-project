@@ -21,6 +21,8 @@ import { decode as decodeBase64 } from "base64-arraybuffer";
 import { supabase } from "../../lib/supabase";
 import { API_BASE_URL } from "../../lib/installerAccess";
 import { queueOfflineSubmission } from "../../lib/offlineQueue";
+import AnimatedPressable from "../../components/AnimatedPressable";
+import FadeInView from "../../components/FadeInView";
 import {
   Camera,
   Video,
@@ -515,10 +517,16 @@ export default function JobDetailScreen() {
                 </View>
               </View>
 
-              {isRejected && job.verification_note && (
+              {isRejected && (
                 <View style={styles.rejectionBox}>
                   <Text style={styles.rejectionTitle}>Admin Feedback / Rejection Note:</Text>
-                  <Text style={styles.rejectionText}>{job.verification_note}</Text>
+                  <Text style={styles.rejectionText}>
+                    {/* rejection reason is written to approval_note (see
+                        rejectJobStage1Action/rejectJobStage2Action) - not
+                        verification_note, which rejection never populates.
+                        Same fallback chain web's installer portal uses. */}
+                    {job.approval_note || job.verification_note || job.remarks || "Rejected during audit review."}
+                  </Text>
                 </View>
               )}
 
@@ -545,9 +553,9 @@ export default function JobDetailScreen() {
             )}
 
             {status === "assigned" && (
-              <TouchableOpacity onPress={handleStartJob} style={styles.primaryButton}>
+              <AnimatedPressable onPress={handleStartJob} style={styles.primaryButton}>
                 <Text style={styles.primaryButtonText}>Start Job (In Progress)</Text>
-              </TouchableOpacity>
+              </AnimatedPressable>
             )}
           </>
         )}
@@ -605,7 +613,7 @@ export default function JobDetailScreen() {
                   autoCapitalize="characters"
                   style={[styles.input, serialEntryMode === "scan" && styles.inputReadOnly]}
                 />
-                <TouchableOpacity
+                <AnimatedPressable
                   onPress={handleVerifySerial}
                   disabled={isVerifyingSerial}
                   style={styles.verifyButton}
@@ -615,7 +623,7 @@ export default function JobDetailScreen() {
                   ) : (
                     <Text style={styles.verifyButtonText}>Verify</Text>
                   )}
-                </TouchableOpacity>
+                </AnimatedPressable>
               </View>
 
               {validatedProduct && (
@@ -738,7 +746,7 @@ export default function JobDetailScreen() {
               />
             </View>
 
-            <TouchableOpacity
+            <AnimatedPressable
               onPress={handleSubmitProof}
               disabled={isSubmitting}
               style={[styles.submitButton, isSubmitting && styles.buttonDisabled]}
@@ -753,7 +761,7 @@ export default function JobDetailScreen() {
                   </Text>
                 </>
               )}
-            </TouchableOpacity>
+            </AnimatedPressable>
           </View>
         )}
 

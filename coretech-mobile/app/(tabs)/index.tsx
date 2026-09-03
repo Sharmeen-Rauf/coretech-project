@@ -5,25 +5,28 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   SafeAreaView,
-  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { Wrench, CheckCircle, Clock, AlertTriangle, ChevronRight, User } from "lucide-react-native";
+import { Plus, CheckCircle, AlertTriangle, Clock, ChevronRight } from "lucide-react-native";
+import AnimatedPressable from "../../components/AnimatedPressable";
+import FadeInView from "../../components/FadeInView";
+import SkeletonBlock from "../../components/SkeletonBlock";
 
 export default function InstallerDashboard() {
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
+  // Only counts that reflect what actually happens in this app: a job never
+  // exists until the installer has already finished the work and submitted
+  // proof, so there is no "assigned, not started yet" state to show here.
   const [stats, setStats] = useState({
-    assigned: 0,
-    inProgress: 0,
-    pendingVerification: 0,
+    underReview: 0,
+    rejected: 0,
     completed: 0,
   });
-  const [activeJobs, setActiveJobs] = useState<any[]>([]);
+  const [recentJobs, setRecentJobs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -32,7 +35,6 @@ export default function InstallerDashboard() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Fetch Profile Info
       const { data: profData, error: profErr } = await supabase
         .from("profiles")
         .select("*")
@@ -42,38 +44,27 @@ export default function InstallerDashboard() {
       if (profErr) throw profErr;
       setProfile(profData);
 
-      // 2. Fetch Installer's Jobs to compute stats
       const { data: jobs, error: jobsErr } = await supabase
         .from("installer_jobs")
         .select("*")
-        .eq("installer_id", user.id);
+        .eq("installer_id", user.id)
+        .order("created_at", { ascending: false });
 
       if (jobsErr) throw jobsErr;
 
       const list = jobs || [];
-      const assigned = list.filter((j) => j.status === "assigned").length;
-      const inProgress = list.filter((j) => j.status === "in_progress").length;
-      const pendingVerification = list.filter(
+      const underReview = list.filter(
         (j) =>
           j.status === "pending_verification" ||
           j.status === "pending_approval" ||
           j.status === "pending_installation_approval" ||
           j.status === "pending"
       ).length;
+      const rejected = list.filter((j) => j.status === "rejected").length;
       const completed = list.filter((j) => j.status === "approved" || j.status === "completed").length;
 
-      setStats({
-        assigned,
-        inProgress,
-        pendingVerification,
-        completed,
-      });
-
-      // Show up to 3 active/assigned jobs for quick dashboard access
-      const active = list
-        .filter((j) => j.status === "assigned" || j.status === "in_progress" || j.status === "rejected")
-        .slice(0, 3);
-      setActiveJobs(active);
+      setStats({ underReview, rejected, completed });
+      setRecentJobs(list.slice(0, 3));
     } catch (err: any) {
       console.warn("Failed to load dashboard data", err);
     } finally {
@@ -91,11 +82,27 @@ export default function InstallerDashboard() {
     fetchDashboardData();
   };
 
+  const getStatusVisual = (status: string) => {
+    if (status === "rejected") return { bg: "#FEE2E2", text: "#DC2626", label: "Rejected" };
+    if (status === "approved" || status === "completed") return { bg: "#ECFDF5", text: "#059669", label: "Completed" };
+    return { bg: "#ECFEFF", text: "#0891B2", label: "Under Review" };
+  };
+
   if (isLoading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#00B4D8" />
-      </View>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.scrollContent}>
+          <SkeletonBlock style={{ height: 84, marginBottom: 20 }} />
+          <SkeletonBlock style={{ height: 56, marginBottom: 20 }} />
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 24 }}>
+            <SkeletonBlock style={{ flex: 1, height: 84 }} />
+            <SkeletonBlock style={{ flex: 1, height: 84 }} />
+            <SkeletonBlock style={{ flex: 1, height: 84 }} />
+          </View>
+          <SkeletonBlock style={{ height: 90, marginBottom: 12 }} />
+          <SkeletonBlock style={{ height: 90 }} />
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -108,97 +115,100 @@ export default function InstallerDashboard() {
         }
       >
         {/* Welcome Area */}
-        <View style={styles.welcomeBanner}>
-          <Text style={styles.welcomeSubtitle}>Installer Portal</Text>
-          <Text style={styles.welcomeTitle}>
-            Hi, {profile?.first_name || "Installer"} {profile?.last_name || ""}
-          </Text>
-          <Text style={styles.locationText}>{profile?.designation || "Solar Installation Expert"}</Text>
-        </View>
+        <FadeInView>
+          <View style={styles.welcomeBanner}>
+            <Text style={styles.welcomeSubtitle}>Installer Portal</Text>
+            <Text style={styles.welcomeTitle}>
+              Hi, {profile?.first_name || "Installer"} {profile?.last_name || ""}
+            </Text>
+            <Text style={styles.locationText}>{profile?.designation || "Solar Installation Expert"}</Text>
+          </View>
+        </FadeInView>
+
+        {/* Primary action - this is the only real flow the app has: an
+            installer completes a job on their own, then reports it here. */}
+        <FadeInView delay={40}>
+          <AnimatedPressable onPress={() => router.push("/job/new")} style={styles.primaryCta}>
+            <View style={styles.primaryCtaIcon}>
+              <Plus size={20} color="#FFFFFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.primaryCtaTitle}>Submit New Installation</Text>
+              <Text style={styles.primaryCtaSubtitle}>Report a job you've already completed</Text>
+            </View>
+            <ChevronRight size={18} color="#FFFFFF" />
+          </AnimatedPressable>
+        </FadeInView>
 
         {/* Stats Grid */}
-        <Text style={styles.sectionHeader}>Today's Status Summary</Text>
+        <Text style={styles.sectionHeader}>Submission Summary</Text>
         <View style={styles.grid}>
-          <View style={styles.gridCard}>
-            <Wrench size={20} color="#00B4D8" style={styles.statIcon} />
-            <Text style={styles.statNumber}>{stats.assigned}</Text>
-            <Text style={styles.statLabel}>Assigned</Text>
-          </View>
-          <View style={styles.gridCard}>
-            <Clock size={20} color="#CA8A04" style={styles.statIcon} />
-            <Text style={[styles.statNumber, { color: "#CA8A04" }]}>{stats.inProgress}</Text>
-            <Text style={styles.statLabel}>In Progress</Text>
-          </View>
-          <View style={styles.gridCard}>
-            <AlertTriangle size={20} color="#EA580C" style={styles.statIcon} />
-            <Text style={[styles.statNumber, { color: "#EA580C" }]}>{stats.pendingVerification}</Text>
-            <Text style={styles.statLabel}>Pending Review</Text>
-          </View>
-          <View style={styles.gridCard}>
-            <CheckCircle size={20} color="#059669" style={styles.statIcon} />
-            <Text style={[styles.statNumber, { color: "#059669" }]}>{stats.completed}</Text>
-            <Text style={styles.statLabel}>Approved</Text>
-          </View>
+          <FadeInView delay={80} style={styles.gridItem}>
+            <View style={styles.gridCard}>
+              <Clock size={20} color="#0891B2" style={styles.statIcon} />
+              <Text style={[styles.statNumber, { color: "#0891B2" }]}>{stats.underReview}</Text>
+              <Text style={styles.statLabel}>Under Review</Text>
+            </View>
+          </FadeInView>
+          <FadeInView delay={120} style={styles.gridItem}>
+            <View style={styles.gridCard}>
+              <AlertTriangle size={20} color="#DC2626" style={styles.statIcon} />
+              <Text style={[styles.statNumber, { color: "#DC2626" }]}>{stats.rejected}</Text>
+              <Text style={styles.statLabel}>Rejected</Text>
+            </View>
+          </FadeInView>
+          <FadeInView delay={160} style={styles.gridItem}>
+            <View style={styles.gridCard}>
+              <CheckCircle size={20} color="#059669" style={styles.statIcon} />
+              <Text style={[styles.statNumber, { color: "#059669" }]}>{stats.completed}</Text>
+              <Text style={styles.statLabel}>Completed</Text>
+            </View>
+          </FadeInView>
         </View>
 
-        {/* Active Assignments */}
+        {/* Recent Submissions */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeader}>Active Assignments</Text>
+          <Text style={styles.sectionHeader}>Recent Submissions</Text>
           <TouchableOpacity onPress={() => router.push("/(tabs)/jobs")}>
-            <Text style={styles.seeAllText}>See All ({stats.assigned + stats.inProgress})</Text>
+            <Text style={styles.seeAllText}>See All →</Text>
           </TouchableOpacity>
         </View>
 
-        {activeJobs.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <CheckCircle size={32} color="#94A3B8" />
-            <Text style={styles.emptyText}>All caught up! No active jobs assigned.</Text>
-          </View>
+        {recentJobs.length === 0 ? (
+          <FadeInView delay={200}>
+            <View style={styles.emptyCard}>
+              <CheckCircle size={32} color="#94A3B8" />
+              <Text style={styles.emptyText}>No submissions yet - report your first completed job above.</Text>
+            </View>
+          </FadeInView>
         ) : (
-          activeJobs.map((item) => {
-            const isRejected = item.status === "rejected";
-            const inProgress = item.status === "in_progress";
-
+          recentJobs.map((item, idx) => {
+            const visual = getStatusVisual(item.status);
             return (
-              <TouchableOpacity
-                key={item.id}
-                onPress={() => router.push(`/job/${item.id}`)}
-                style={[styles.jobCard, isRejected && styles.jobCardRejected]}
-              >
-                <View style={styles.jobCardMain}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.jobTitle}>{item.job_title}</Text>
-                    <Text style={styles.jobAddress} numberOfLines={1}>
-                      {item.address}
-                    </Text>
+              <FadeInView key={item.id} delay={200 + idx * 60}>
+                <AnimatedPressable
+                  onPress={() => router.push(`/job/${item.id}`)}
+                  style={[styles.jobCard, item.status === "rejected" && styles.jobCardRejected]}
+                >
+                  <View style={styles.jobCardMain}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.jobTitle}>{item.job_title}</Text>
+                      <Text style={styles.jobAddress} numberOfLines={1}>
+                        {item.address}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: visual.bg }]}>
+                      <Text style={[styles.statusText, { color: visual.text }]}>{visual.label}</Text>
+                    </View>
                   </View>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      {
-                        backgroundColor: isRejected ? "#FEE2E2" : inProgress ? "#FEF9C3" : "#ECFEFF",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusText,
-                        {
-                          color: isRejected ? "#DC2626" : inProgress ? "#CA8A04" : "#0891B2",
-                        },
-                      ]}
-                    >
-                      {item.status.toUpperCase()}
+                  <View style={styles.jobCardFooter}>
+                    <Text style={styles.footerDate}>
+                      Submitted: {item.created_at ? new Date(item.created_at).toLocaleDateString() : "-"}
                     </Text>
+                    <ChevronRight size={16} color="#94A3B8" />
                   </View>
-                </View>
-                <View style={styles.jobCardFooter}>
-                  <Text style={styles.footerDate}>
-                    Assigned: {item.created_at ? new Date(item.created_at).toLocaleDateString() : "-"}
-                  </Text>
-                  <ChevronRight size={16} color="#94A3B8" />
-                </View>
-              </TouchableOpacity>
+                </AnimatedPressable>
+              </FadeInView>
             );
           })
         )}
@@ -215,19 +225,13 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
   },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-  },
   welcomeBanner: {
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     padding: 20,
-    marginBottom: 20,
+    marginBottom: 16,
     shadowColor: "#0F172A",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.02,
@@ -253,6 +257,39 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: "600",
   },
+  primaryCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#00B4D8",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: "#00B4D8",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  primaryCtaIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  primaryCtaTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+  },
+  primaryCtaSubtitle: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.85)",
+    fontWeight: "600",
+    marginTop: 2,
+  },
   sectionHeader: {
     fontSize: 12,
     fontWeight: "bold",
@@ -275,32 +312,33 @@ const styles = StyleSheet.create({
   },
   grid: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
     marginBottom: 24,
   },
+  gridItem: {
+    flex: 1,
+  },
   gridCard: {
-    width: "48%",
     backgroundColor: "#FFFFFF",
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    padding: 16,
+    padding: 14,
     alignItems: "center",
   },
   statIcon: {
     marginBottom: 8,
   },
   statNumber: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "bold",
-    color: "#00B4D8",
   },
   statLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "bold",
     color: "#64748B",
     marginTop: 2,
+    textAlign: "center",
   },
   emptyCard: {
     backgroundColor: "#FFFFFF",
@@ -316,6 +354,7 @@ const styles = StyleSheet.create({
     color: "#94A3B8",
     fontWeight: "bold",
     marginTop: 8,
+    textAlign: "center",
   },
   jobCard: {
     backgroundColor: "#FFFFFF",

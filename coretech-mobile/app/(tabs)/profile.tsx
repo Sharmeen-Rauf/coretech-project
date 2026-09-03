@@ -3,13 +3,14 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
   Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { LogOut, Phone, MapPin, CreditCard, BadgeCheck, Heart } from "lucide-react-native";
+import AnimatedPressable from "../../components/AnimatedPressable";
+import FadeInView from "../../components/FadeInView";
+import SkeletonBlock from "../../components/SkeletonBlock";
 
 const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> = {
   approved: { label: "Approved", bg: "#ECFDF5", text: "#059669" },
@@ -79,8 +80,10 @@ export default function ProfileScreen() {
 
   if (isLoading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#00B4D8" />
+      <View style={styles.container}>
+        <SkeletonBlock style={{ height: 180, marginBottom: 16 }} />
+        <SkeletonBlock style={{ height: 160, marginBottom: 16 }} />
+        <SkeletonBlock style={{ height: 100 }} />
       </View>
     );
   }
@@ -102,79 +105,85 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       {/* Profile Header Card */}
-      <View style={styles.headerCard}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{initials}</Text>
-        </View>
+      <FadeInView>
+        <View style={styles.headerCard}>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{initials}</Text>
+          </View>
 
-        <Text style={styles.fullName}>
-          {profile?.first_name || "Installer"} {profile?.last_name || ""}
-        </Text>
-        <Text style={styles.designation}>{profile?.designation || "Installation Tech"}</Text>
-
-        <View style={[styles.statusBadge, { backgroundColor: statusBadge.bg }]}>
-          <Text style={[styles.statusBadgeText, { color: statusBadge.text }]}>
-            {statusBadge.label}
+          <Text style={styles.fullName}>
+            {profile?.first_name || "Installer"} {profile?.last_name || ""}
           </Text>
-        </View>
+          <Text style={styles.designation}>{profile?.designation || "Installation Tech"}</Text>
 
-        <View style={styles.contactRow}>
-          <Phone size={14} color="#64748B" style={{ marginRight: 6 }} />
-          <Text style={styles.contactText}>{profile?.contact || "No Phone Recorded"}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: statusBadge.bg }]}>
+            <Text style={[styles.statusBadgeText, { color: statusBadge.text }]}>
+              {statusBadge.label}
+            </Text>
+          </View>
+
+          <View style={styles.contactRow}>
+            <Phone size={14} color="#64748B" style={{ marginRight: 6 }} />
+            <Text style={styles.contactText}>{profile?.contact || "No Phone Recorded"}</Text>
+          </View>
         </View>
-      </View>
+      </FadeInView>
 
       {/* Full Account Detail */}
-      <View style={styles.detailCard}>
-        <Text style={styles.detailTitle}>Account Detail</Text>
+      <FadeInView delay={60}>
+        <View style={styles.detailCard}>
+          <Text style={styles.detailTitle}>Account Detail</Text>
 
-        <DetailRow icon={<BadgeCheck size={14} color="#64748B" />} label="CNIC" value={profile?.cnic} />
-        <DetailRow
-          icon={<MapPin size={14} color="#64748B" />}
-          label="Address"
-          value={[profile?.address, profile?.city, profile?.state].filter(Boolean).join(", ")}
-        />
-        <DetailRow icon={<Heart size={14} color="#64748B" />} label="Marital Status" value={profile?.marital_status} />
-        <DetailRow
-          icon={<CreditCard size={14} color="#64748B" />}
-          label="Payment Account"
-          value={
-            profile?.payment_account_no
-              ? `${profile?.payment_provider || ""} - ${profile.payment_account_no}`.trim()
-              : undefined
-          }
-        />
-      </View>
+          <DetailRow icon={<BadgeCheck size={14} color="#64748B" />} label="CNIC" value={profile?.cnic} />
+          <DetailRow
+            icon={<MapPin size={14} color="#64748B" />}
+            label="Address"
+            value={[profile?.address, profile?.city, profile?.state].filter(Boolean).join(", ")}
+          />
+          <DetailRow icon={<Heart size={14} color="#64748B" />} label="Marital Status" value={profile?.marital_status} />
+          <DetailRow
+            icon={<CreditCard size={14} color="#64748B" />}
+            label="Payment Account"
+            value={
+              profile?.payment_account_no
+                ? `${profile?.payment_provider || ""} - ${profile.payment_account_no}`.trim()
+                : undefined
+            }
+          />
+        </View>
+      </FadeInView>
 
       {/* Stats Counter Section */}
-      <View style={styles.statsCard}>
-        <Text style={styles.statsTitle}>Job Report Summary</Text>
+      <FadeInView delay={120}>
+        <View style={styles.statsCard}>
+          <Text style={styles.statsTitle}>Job Report Summary</Text>
 
-        <View style={styles.statsRow}>
-          <View style={styles.statColumn}>
-            <Text style={styles.statNumber}>{stats.total}</Text>
-            <Text style={styles.statLabel}>Total Jobs</Text>
-          </View>
-          <View style={[styles.statColumn, styles.statBorder]}>
-            <Text style={[styles.statNumber, { color: "#059669" }]}>
-              {stats.completed}
-            </Text>
-            <Text style={styles.statLabel}>Completed</Text>
-          </View>
-          <View style={styles.statColumn}>
-            <Text style={[styles.statNumber, { color: "#EA580C" }]}>
-              {stats.pending}
-            </Text>
-            <Text style={styles.statLabel}>Pending</Text>
+          <View style={styles.statsRow}>
+            <View style={styles.statColumn}>
+              <Text style={styles.statNumber}>{stats.total}</Text>
+              <Text style={styles.statLabel}>Total Jobs</Text>
+            </View>
+            <View style={[styles.statColumn, styles.statBorder]}>
+              <Text style={[styles.statNumber, { color: "#059669" }]}>
+                {stats.completed}
+              </Text>
+              <Text style={styles.statLabel}>Completed</Text>
+            </View>
+            <View style={styles.statColumn}>
+              <Text style={[styles.statNumber, { color: "#EA580C" }]}>
+                {stats.pending}
+              </Text>
+              <Text style={styles.statLabel}>Pending</Text>
+            </View>
           </View>
         </View>
-      </View>
+      </FadeInView>
 
       {/* Action Buttons */}
-      <TouchableOpacity onPress={handleSignOut} style={styles.logoutButton}>
+      <AnimatedPressable onPress={handleSignOut} style={styles.logoutButton}>
         <LogOut size={16} color="#DC2626" style={{ marginRight: 8 }} />
         <Text style={styles.logoutButtonText}>Sign Out Account</Text>
-      </TouchableOpacity>
+      </AnimatedPressable>
     </View>
   );
 }
