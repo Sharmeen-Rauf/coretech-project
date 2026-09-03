@@ -26,7 +26,7 @@ const STATES = [
   "Azad Kashmir",
   "Islamabad Capital Territory",
 ];
-const MARITAL_STATUSES = ["Single", "Married", "Divorced", "Widowed"];
+const MARITAL_STATUSES = ["Single", "Married"];
 const PAYMENT_PROVIDERS = ["EasyPaisa", "JazzCash"];
 
 function formatCNIC(value: string) {

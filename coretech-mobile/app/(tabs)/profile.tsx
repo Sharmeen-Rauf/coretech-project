@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   Alert,
+  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
@@ -103,7 +104,11 @@ export default function ProfileScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Profile Header Card */}
       <FadeInView>
         <View style={styles.headerCard}>
@@ -181,10 +186,17 @@ export default function ProfileScreen() {
 
       {/* Action Buttons */}
       <AnimatedPressable onPress={handleSignOut} style={styles.logoutButton}>
-        <LogOut size={16} color="#DC2626" style={{ marginRight: 8 }} />
-        <Text style={styles.logoutButtonText}>Sign Out Account</Text>
+        {/* Wrapped as one child (not two siblings) so AnimatedPressable's
+            inner Animated.View - which has no flexDirection of its own -
+            never has to arrange them; the row layout is decided here,
+            before it reaches that component. Scoped fix: AnimatedPressable
+            itself is untouched, so nothing else using it is affected. */}
+        <View style={styles.logoutButtonContent}>
+          <LogOut size={16} color="#DC2626" style={{ marginRight: 8 }} />
+          <Text style={styles.logoutButtonText}>Sign Out Account</Text>
+        </View>
       </AnimatedPressable>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -204,7 +216,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F8FAFC",
+  },
+  scrollContent: {
     padding: 16,
+    // Clears the floating "+" button (bottom: 80, 56px tall - see
+    // (tabs)/_layout.tsx) so Sign Out isn't sitting underneath it.
+    paddingBottom: 160,
   },
   center: {
     flex: 1,
@@ -367,5 +384,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "bold",
     color: "#DC2626",
+  },
+  logoutButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
   },
 });
