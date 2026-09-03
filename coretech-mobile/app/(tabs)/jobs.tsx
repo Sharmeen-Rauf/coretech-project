@@ -5,12 +5,13 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { syncOfflineSubmissions } from "../../lib/offlineQueue";
+import AnimatedPressable from "../../components/AnimatedPressable";
+import SkeletonBlock from "../../components/SkeletonBlock";
 
 // Groups every real status value onto one of the four tabs. "Active" covers
 // anything not yet finally decided - assigned/in_progress work, and both
@@ -120,7 +121,7 @@ export default function JobsScreen() {
     const label = STATUS_LABELS[item.status] || item.status.replace(/_/g, " ");
 
     return (
-      <TouchableOpacity
+      <AnimatedPressable
         onPress={() => router.push(`/job/${item.id}`)}
         style={[styles.card, isRejected && styles.cardRejected]}
       >
@@ -139,7 +140,7 @@ export default function JobsScreen() {
             {isRejected ? "Fix & Re-submit →" : "View Details →"}
           </Text>
         </View>
-      </TouchableOpacity>
+      </AnimatedPressable>
     );
   };
 
@@ -150,8 +151,17 @@ export default function JobsScreen() {
 
   if (isLoading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#00B4D8" />
+      <View style={styles.container}>
+        <View style={styles.filterRow}>
+          {FILTERS.map((t) => (
+            <SkeletonBlock key={t} style={{ flex: 1, height: 32 }} />
+          ))}
+        </View>
+        <View style={styles.list}>
+          <SkeletonBlock style={{ height: 92, marginBottom: 12 }} />
+          <SkeletonBlock style={{ height: 92, marginBottom: 12 }} />
+          <SkeletonBlock style={{ height: 92 }} />
+        </View>
       </View>
     );
   }
@@ -161,7 +171,7 @@ export default function JobsScreen() {
       {/* Status Filter Tab Row */}
       <View style={styles.filterRow}>
         {FILTERS.map((t) => (
-          <TouchableOpacity
+          <AnimatedPressable
             key={t}
             onPress={() => setFilter(t)}
             style={[styles.filterTab, filter === t && styles.filterTabActive]}
@@ -169,7 +179,7 @@ export default function JobsScreen() {
             <Text style={[styles.filterTabText, filter === t && styles.filterTabTextActive]}>
               {t === "all" ? "All" : t.charAt(0).toUpperCase() + t.slice(1)}
             </Text>
-          </TouchableOpacity>
+          </AnimatedPressable>
         ))}
       </View>
 

@@ -14,6 +14,8 @@ import {
 import { useRouter } from "expo-router";
 import { ChevronLeft, CheckCircle } from "lucide-react-native";
 import { API_BASE_URL } from "../../lib/installerAccess";
+import AnimatedPressable from "../../components/AnimatedPressable";
+import FadeInView from "../../components/FadeInView";
 
 const STATES = [
   "Punjab",
@@ -124,7 +126,7 @@ export default function RegisterScreen() {
   if (isSuccess) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.successInner}>
+        <FadeInView style={styles.successInner}>
           <View style={styles.successIcon}>
             <CheckCircle size={40} color="#059669" />
           </View>
@@ -133,10 +135,10 @@ export default function RegisterScreen() {
             Thank you for registering, {firstName} {lastName}. Your application is under
             review - please wait for an Owner to approve your account before signing in.
           </Text>
-          <TouchableOpacity onPress={() => router.replace("/login")} style={styles.primaryButton}>
+          <AnimatedPressable onPress={() => router.replace("/login")} style={styles.primaryButton}>
             <Text style={styles.primaryButtonText}>Go to Login</Text>
-          </TouchableOpacity>
-        </View>
+          </AnimatedPressable>
+        </FadeInView>
       </SafeAreaView>
     );
   }
@@ -213,7 +215,7 @@ export default function RegisterScreen() {
             keyboardType="phone-pad"
           />
 
-          <TouchableOpacity
+          <AnimatedPressable
             onPress={handleRegister}
             disabled={isLoading}
             style={[styles.primaryButton, isLoading && styles.buttonDisabled, { marginTop: 8 }]}
@@ -223,7 +225,7 @@ export default function RegisterScreen() {
             ) : (
               <Text style={styles.primaryButtonText}>Submit Registration</Text>
             )}
-          </TouchableOpacity>
+          </AnimatedPressable>
         </ScrollView>
       </SafeAreaView>
     </KeyboardAvoidingView>
