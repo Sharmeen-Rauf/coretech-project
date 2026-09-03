@@ -212,9 +212,9 @@ submission endpoint exists:
   work, since Phase 3 already needs one more full native build regardless — and now for two
   reasons, not one: this OTA setup, and the new barcode-scanning native module above. Not
   currently installed at all (`expo-updates` isn't in `package.json`), so this is net-new
-  setup, not a config change. Once both land in this one build, everything after this phase
-  (Phase 4's crash fixes, Phase 5's visibility fix) is pure JavaScript and can ship via
-  `eas update` in seconds instead of another 10-35 minute cloud build each time.
+  setup, not a config change. Once both land in this one build, everything in Phase 4 is pure
+  JavaScript and can ship via `eas update` in seconds instead of another 10-35 minute cloud
+  build each time.
 
 ### Built and verified end-to-end on a real device — 2026-09-02/03
 
@@ -265,25 +265,60 @@ this class of "native module silently missing" bug is structurally invisible to 
 checks, and React Native's file-handling APIs (`fetch().blob()` here) can behave differently
 enough from their web equivalents to fail in ways that only show up on-device too.
 
-## Phase 4 — The standalone crash fixes + error boundary
+## Phase 4 — Navigation, Jobs/History consolidation, and Profile detail
 
-Independent of Phases 1-3, cheap, can run in parallel with the backend work:
+Scope finalized 2026-09-03, from client-facing UX gaps found during Phase 3's live testing
+(not from `bug_mobile.md` originally, except where noted) plus the two standalone crash fixes
+and error boundary already planned. Absorbs what was previously a separate "Phase 5" — the
+visibility fix below is the same underlying problem as that phase, just grouped here since
+it's the same screen as the rest of this work, not a reason to touch it twice.
 
-- Job Details screen: guard against rendering with no job data mid-navigation-back
-  (`bug_mobile.md` #1).
-- Profile screen: safe-guard the initials computation against a missing `first_name`
-  (`bug_mobile.md` #3).
-- Root-level error boundary so any other unhandled error shows a recoverable screen instead
-  of killing the whole app outright (`bug_mobile.md` #4) — also a safety net for anything the
-  earlier phases miss.
+1. **Launch/login destination:** an approved installer currently lands on the Jobs tab both
+   on cold app launch (`index.tsx`) and right after signing in (`login.tsx`) — a choice made
+   during Phase 2 without checking first. Both change to land on the Dashboard tab
+   (`/(tabs)/index`) instead.
 
-## Phase 5 — Fix the "My Jobs" / "History" visibility gap
+2. **Combine the separate Jobs and History screens into one Jobs screen with four filter
+   tabs: All, Active, Rejected, Completed.** Today they're two different tab-bar
+   destinations with two separate queries; this merges them into a single screen where the
+   tab row changes what's shown, not what route you're on.
+   - **All** — every job the installer has, regardless of status. New addition per this
+     conversation, alongside the three status-grouped tabs below.
+   - **Active** — `assigned`, `in_progress`, `pending_verification`, and `pending_approval`
+     all together: anything not yet finally decided one way or the other. This is what fixes
+     the actual bug behind it — a submitted job currently vanishes completely the moment it
+     moves into review, because the underlying database query
+     (`.in("status", ["assigned", "in_progress", "rejected"])` in `app/(tabs)/jobs.tsx`)
+     never even asks for `pending_verification`/`pending_approval` rows in the first place.
+     Folding those two statuses into Active fixes this at the query level, not just the tab
+     label. This is `bug_mobile.md` #2.
+   - **Rejected** — unchanged from today's behavior, already works correctly.
+   - **Completed** — `approved` jobs; this is today's separate History tab's data, renamed
+     to match how the client actually described it (not a generic "History" label) and
+     folded into this same screen instead of being a distinct tab-bar destination.
+   - **"Assigned" stops being its own user-facing filter category** — per the client's actual
+     spec, it was never meant to be a distinct tab an installer picks; it becomes just one of
+     the statuses grouped into Active.
 
-Update both tabs' status filters (`app/(tabs)/jobs.tsx`, `app/(tabs)/history.tsx`) to include
-the in-review statuses (`pending_verification`, `pending_approval`,
-`pending_installation_approval`) — `bug_mobile.md` #2 — so a submitted job doesn't vanish
-from the installer's own view the moment they submit it. More important than ever once real
-submission (Phase 3) is live and installers are actively watching this state.
+3. **Expand the Profile tab to show real installer detail.** Today it shows four things —
+   name, designation, phone number, and a job-count summary (total/completed/pending) — while
+   the account actually has CNIC, address, city, state, marital status, payment provider, and
+   payout account number sitting in the database from registration, none of it surfaced here.
+   Expand the screen to show the fuller picture, matching what the Sign-Up screen (Phase 2)
+   actually collects, plus the account's own approval status (mirroring the "Pending
+   Review"/"Approved"/"Rejected" badge web's installer portal already shows).
+
+4. **Job Details screen:** guard against rendering with no job data mid-navigation-back
+   (`bug_mobile.md` #1) — a real crash if the fetch fails and the screen renders once more
+   before the "go back" navigation actually completes.
+
+5. **Profile screen:** safe-guard the initials computation against a missing `first_name`
+   (`bug_mobile.md` #3) — directly relevant now since item 3 above is already touching this
+   exact screen.
+
+6. **Root-level error boundary** so any other unhandled error shows a recoverable screen
+   instead of killing the whole app outright (`bug_mobile.md` #4) — a safety net for anything
+   the earlier phases, or this one, miss.
 
 ## Resolved decision — self-report an unassigned installation
 
