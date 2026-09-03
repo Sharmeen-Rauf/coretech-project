@@ -12,10 +12,40 @@ import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { syncOfflineSubmissions } from "../../lib/offlineQueue";
 
+// Groups every real status value onto one of the four tabs. "Active" covers
+// anything not yet finally decided - assigned/in_progress work, and both
+// in-review statuses, which previously had nowhere to display at all (the
+// installer_jobs query used to only ask for assigned/in_progress/rejected,
+// so a submitted-and-under-review job simply vanished from the app).
+const STATUS_GROUPS: Record<string, "active" | "rejected" | "completed"> = {
+  assigned: "active",
+  in_progress: "active",
+  pending_verification: "active",
+  pending_approval: "active",
+  pending_installation_approval: "active",
+  rejected: "rejected",
+  approved: "completed",
+  completed: "completed",
+};
+
+const FILTERS = ["all", "active", "rejected", "completed"] as const;
+type Filter = (typeof FILTERS)[number];
+
+const STATUS_LABELS: Record<string, string> = {
+  assigned: "Assigned",
+  in_progress: "In Progress",
+  pending_verification: "Pending Review",
+  pending_approval: "Pending Review",
+  pending_installation_approval: "Pending Review",
+  rejected: "Rejected",
+  approved: "Completed",
+  completed: "Completed",
+};
+
 export default function JobsScreen() {
   const router = useRouter();
   const [jobs, setJobs] = useState<any[]>([]);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState<Filter>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -38,11 +68,13 @@ export default function JobsScreen() {
         // Sync is best-effort - a failure here shouldn't block loading jobs.
       }
 
+      // No status filter here at all - every job the installer has, so the
+      // tabs below can group and count them client-side instead of a
+      // separate query per status hiding rows that don't fit any of them.
       const { data, error } = await supabase
         .from("installer_jobs")
         .select("*")
         .eq("installer_id", user.id)
-        .in("status", ["assigned", "in_progress", "rejected"])
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -65,15 +97,16 @@ export default function JobsScreen() {
   };
 
   const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case "assigned":
-        return { bg: "#ECFEFF", text: "#0891B2" }; // Cyan
-      case "in_progress":
-        return { bg: "#FEF9C3", text: "#CA8A04" }; // Yellow
+    const group = STATUS_GROUPS[status] || "active";
+    switch (group) {
       case "rejected":
         return { bg: "#FEE2E2", text: "#DC2626" }; // Red
+      case "completed":
+        return { bg: "#ECFDF5", text: "#059669" }; // Green
       default:
-        return { bg: "#F1F5F9", text: "#475569" };
+        return status === "in_progress"
+          ? { bg: "#FEF9C3", text: "#CA8A04" } // Yellow
+          : { bg: "#ECFEFF", text: "#0891B2" }; // Cyan
     }
   };
 
@@ -84,6 +117,7 @@ export default function JobsScreen() {
       : "-";
 
     const isRejected = item.status === "rejected";
+    const label = STATUS_LABELS[item.status] || item.status.replace(/_/g, " ");
 
     return (
       <TouchableOpacity
@@ -93,9 +127,7 @@ export default function JobsScreen() {
         <View style={styles.cardHeader}>
           <Text style={styles.jobTitle}>{item.job_title}</Text>
           <View style={[styles.badge, { backgroundColor: colors.bg }]}>
-            <Text style={[styles.badgeText, { color: colors.text }]}>
-              {item.status.replace("_", " ")}
-            </Text>
+            <Text style={[styles.badgeText, { color: colors.text }]}>{label}</Text>
           </View>
         </View>
 
@@ -113,7 +145,7 @@ export default function JobsScreen() {
 
   const filteredJobs = jobs.filter((j) => {
     if (filter === "all") return true;
-    return j.status === filter;
+    return (STATUS_GROUPS[j.status] || "active") === filter;
   });
 
   if (isLoading) {
@@ -128,14 +160,14 @@ export default function JobsScreen() {
     <View style={styles.container}>
       {/* Status Filter Tab Row */}
       <View style={styles.filterRow}>
-        {["all", "assigned", "in_progress", "rejected"].map((t) => (
+        {FILTERS.map((t) => (
           <TouchableOpacity
             key={t}
             onPress={() => setFilter(t)}
             style={[styles.filterTab, filter === t && styles.filterTabActive]}
           >
             <Text style={[styles.filterTabText, filter === t && styles.filterTabTextActive]}>
-              {t === "in_progress" ? "Active" : t === "all" ? "All" : t.replace("_", " ")}
+              {t === "all" ? "All" : t.charAt(0).toUpperCase() + t.slice(1)}
             </Text>
           </TouchableOpacity>
         ))}

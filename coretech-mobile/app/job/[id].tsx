@@ -415,7 +415,13 @@ export default function JobDetailScreen() {
     }
   };
 
-  if (isLoading) {
+  // Covers both the normal loading spinner and the brief window after a
+  // failed fetch, between fetchJobDetails() alerting + calling router.back()
+  // and that navigation actually completing - job stays null in that gap,
+  // and the render below assumes job.* exists once past this guard, so
+  // rendering through it crashed instead of just waiting for the back
+  // navigation to finish.
+  if (isLoading || (!isNew && !job)) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#00B4D8" />

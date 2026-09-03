@@ -31,7 +31,7 @@ export default function PendingReviewScreen() {
         return;
       }
       if (access.state === "approved") {
-        router.replace("/(tabs)/jobs");
+        router.replace("/(tabs)");
       }
       // Still pending - stay on this screen, nothing else to do.
     } finally {

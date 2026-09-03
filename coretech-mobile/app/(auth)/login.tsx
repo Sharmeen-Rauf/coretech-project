@@ -54,7 +54,7 @@ export default function MobileLogin() {
         return;
       }
 
-      router.replace(access.state === "pending" ? "/(auth)/pending" : "/(tabs)/jobs");
+      router.replace(access.state === "pending" ? "/(auth)/pending" : "/(tabs)");
     } catch (err: any) {
       setErrorText(GENERIC_LOGIN_ERROR);
     } finally {
