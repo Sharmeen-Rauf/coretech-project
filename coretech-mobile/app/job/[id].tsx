@@ -193,9 +193,18 @@ export default function JobDetailScreen() {
   const uploadFileToStorage = async (uri: string, isVideo: boolean): Promise<string> => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("No active user session.");
+    console.log("[upload] step 1 ok, user:", user.id, "uri:", uri);
 
-    const response = await fetch(uri);
-    const blob = await response.blob();
+    let blob: Blob;
+    try {
+      const response = await fetch(uri);
+      blob = await response.blob();
+      console.log("[upload] step 2 ok, blob size:", (blob as any).size);
+    } catch (fetchErr: any) {
+      console.log("[upload] step 2 FAILED (reading local file):", fetchErr?.message, JSON.stringify(fetchErr));
+      throw new Error(`Could not read the captured file: ${fetchErr?.message || "unknown error"}`);
+    }
+
     const fileExt = uri.split(".").pop() || (isVideo ? "mp4" : "jpg");
     const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
     const filePath = isVideo ? `installer-videos/${fileName}` : `verification/${fileName}`;
@@ -207,7 +216,11 @@ export default function JobDetailScreen() {
         upsert: true,
       });
 
-    if (uploadErr) throw uploadErr;
+    if (uploadErr) {
+      console.log("[upload] step 3 FAILED (Supabase storage upload):", uploadErr.message, JSON.stringify(uploadErr));
+      throw uploadErr;
+    }
+    console.log("[upload] step 3 ok");
 
     const { data: pUrl } = supabase.storage
       .from("job-photos")
