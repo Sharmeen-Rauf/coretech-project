@@ -11,16 +11,16 @@ filter tabs and every other Phase-5-polished button/card) found in that same rou
 testing and fixed via a second OTA update — see "Post-Phase-5 fix" below. User confirmed
 "all working fine now" after that second update, 2026-09-03.
 
-**Phase 6 scoped 2026-09-03**, not yet started — six items from live-testing feedback (crop
-UX, multi-select, upload speed, the floating "+" button, Jobs tab renames, and a real
-inventory-accuracy bug found and confirmed live in production), plus folding in the
-previously-scoped Paid/Unpaid visibility and real app icon/splash work. See its section below —
-one item (6.6, the stock/sold_out bug) is flagged urgent and web-affecting, worth fixing ahead
-of the rest of this phase rather than waiting on a mobile build.
+**Phase 6 built and merged to `master`, 2026-09-03/04** — all nine items (6.1-6.9: crop UX,
+gallery multi-select, upload performance, the floating "+" button, Jobs tab renames, the
+stock/sold_out bug + backfill, Paid/Unpaid visibility, and the real app icon/splash) shipped on
+one branch, verified via `tsc`/`expo-doctor`/Metro export before merge, then built via EAS
+(`preview` profile) and installed for client testing. **Client testing surfaced four real UI
+bugs**, all diagnosed and explained but not yet fixed — see "Post-Phase-6 UI fixes" below.
 
-**What's genuinely still outstanding, as of 2026-09-03:**
+**What's genuinely still outstanding, as of 2026-09-04:**
 - Phase 0 (security/RLS) — still deferred, not started, see its section below.
-- Phase 6 (see below) — not started.
+- Post-Phase-6 UI fixes (see below) — four client-reported issues, diagnosed, not yet built.
 - `app/api/test-db/route.ts`'s hardcoded production DB password + unauthenticated schema-reload
   endpoint — flagged in Phase 1, never fixed, explicitly out of scope for this plan.
 - Retiring the two web installer pages + QR button (see the final section below) — the plan's
@@ -583,6 +583,75 @@ integrity problem affecting installations already approved. Then, in one native-
 (FAB reposition), 6.8 (icon/splash). 6.3 (the `getUser()` removal) and 6.5/6.7 (tab
 renames + Paid tab + status badge) are pure JS and can ship via OTA either in the same pass or
 ahead of it.
+
+### Actually shipped — 2026-09-03/04
+
+All nine items built on one branch, verified (`tsc` clean, `expo-doctor` 18/18, Metro bundle
+export clean, main Next.js app's `npm run build` still clean), merged to `master`. 6.6's backfill
+ran for real against production: 36 already-approved jobs corrected, 1 (a genuine duplicate-serial
+case, "Apna solar.pk") left for manual review rather than guessed. EAS `preview` build (APK,
+matching how every prior on-device test build has been distributed — not `production`, which
+outputs a Play-Store-only `.aab` that can't be sideloaded; an initial `production` build was
+caught and canceled before it consumed real build time) installed and handed to the client for
+testing.
+
+## Post-Phase-6 UI fixes — client-reported, 2026-09-04
+
+Four real UI bugs found by the client testing the Phase 6 build, each diagnosed against the
+actual code (not guessed) but not yet built.
+
+1. **System splash screen shows a small icon on black instead of a plain white screen.** Not
+   the app's own custom splash image — this is Android 12+'s mandatory OS-level splash layer,
+   which renders *before* the app's JS or its own splash screen loads. `expo-splash-screen`
+   (`0.30.10`) supports separate light/dark configuration; `app.json` currently only sets one
+   flat `backgroundColor: "#FFFFFF"` with no explicit dark-mode variant, so a phone in system
+   dark mode (the client's is) falls back to Android's own dark default for that brief phase -
+   black background, small boxed icon. Fix: explicitly set the dark-mode variant to the same
+   white background so the very first frame is white regardless of the phone's theme. Native
+   config only, no screen code involved - still needs a real rebuild (splash config is baked in
+   at build time).
+
+2. **Profile screen doesn't scroll, cutting off "Sign Out Account."** Confirmed in
+   `profile.tsx`: the screen's content sits in a plain `View`, not a `ScrollView`, so anything
+   below the visible fold - worse now that the floating "+" button from 6.4 also sits over the
+   same bottom-right corner - is clipped rather than scrollable. Fix: wrap the content in a
+   `ScrollView` like every other screen already does, with enough bottom padding to clear the
+   floating button. (Jobs history itself is already fine - `jobs.tsx` is built on a `FlatList`,
+   which scrolls by default, so a long job history was never actually at risk here.)
+
+3. **Sign Out button's icon and text stack vertically instead of sitting side by side** - a
+   real, separate bug from the `AnimatedPressable` fix that shipped after Phase 5, found by
+   reading the component again. That earlier fix corrected which element receives *sizing*
+   (`style`, e.g. `flex: 1`) - it now correctly lands on the outer `Pressable`. This is a
+   different property: *row-vs-column arrangement of multiple children*. `logoutButton`'s
+   `flexDirection: "row"` is on the outer `Pressable`, but the `LogOut` icon and the text are
+   both nested one level deeper, inside the inner `Animated.View` that exists only to hold the
+   press-scale animation - and that inner view has no `flexDirection` of its own, so React
+   Native's default (`column`) applies to its children regardless of what the outer `Pressable`
+   is set to. Confirmed this also affects the Dashboard's "Submit New Installation" button
+   (`app/(tabs)/index.tsx`), which has the same shape (an icon `View` and a text-block `View` as
+   two direct children) - its icon is very likely also stacked above its title/subtitle instead
+   of beside them, just not separately reported. Every other `AnimatedPressable` usage in the
+   app only ever passes a single child (one `Text`, or one wrapping `View` that manages its own
+   internal layout), so this specific bug is scoped to just these two buttons, not universal.
+   **Real fix, not a patch:** stop nesting a second, unstyled `Animated.View` between the
+   `Pressable` and its children - merge the caller's `style` directly onto the same
+   `Animated.View` that holds the scale transform, and leave `Pressable` itself unstyled (touch
+   handling only). One styled container instead of two mismatched ones removes this whole class
+   of "which layer does this style prop need to reach" bug, rather than fixing properties one at
+   a time as they're separately discovered.
+
+4. **Marital Status should drop "Divorced" and "Widowed."** Confirmed in `register.tsx`:
+   `MARITAL_STATUSES = ["Single", "Married", "Divorced", "Widowed"]`. Fix: trim the array down to
+   `["Single", "Married"]`.
+
+5. **Login email field placeholder text.** Confirmed in `login.tsx`: `placeholder="enter
+   email/admin/user"` - leftover wording with no admin/user concept relevant to this app. Fix:
+   replace with plain `"Enter email"`.
+
+All five are small and low-risk, no new native dependency among them - only item 1 (the splash
+dark-mode fix) strictly requires a native rebuild on its own; items 2-5 are pure JS/UI and could
+ship in the same rebuild pass or via OTA.
 
 ## Resolved decision — self-report an unassigned installation
 

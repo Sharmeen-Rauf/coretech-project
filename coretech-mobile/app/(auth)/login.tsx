@@ -87,7 +87,7 @@ export default function MobileLogin() {
             <TextInput
               value={email}
               onChangeText={setEmail}
-              placeholder="enter email/admin/user"
+              placeholder="Enter email"
               placeholderTextColor="#94A3B8"
               keyboardType="email-address"
               autoCapitalize="none"
