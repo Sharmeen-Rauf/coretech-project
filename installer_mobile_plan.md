@@ -1,12 +1,38 @@
 # Installer Mobile Consolidation Plan
 
-Status: Phase 0 deferred (see note below). Phases 1-4 all merged to `master` and verified
-working, 2026-09-02/03. Phase 3 in particular took several live-testing round trips to
-actually get working — see its section below for the full list of real bugs found only by
-testing on a real device, not by review. **Phase 5 scoped 2026-09-03**, not yet started — a
-significant reframing from the client of how this app is actually used in practice (see that
-section) plus a real bug found while scoping it, a UI/animation polish pass, and simplifying
-what Phase 4 built around a workflow that turns out not to apply here.
+Status: Phase 0 deferred (see note below). **Phases 1-5 all built, merged to `master`, and
+verified working on a real device, 2026-09-02/03.** Phase 3 in particular took several
+live-testing round trips to actually get working — see its section below for the full list of
+real bugs found only by testing on a real device, not by review. Phase 5 (see its section
+below) shipped the client's self-report-only reframing, the rejection-message fix, and the
+UI/animation polish pass — confirmed working via OTA update, followed by one more real bug
+(`AnimatedPressable` collapsing its child to near-zero size, breaking the Jobs screen's four
+filter tabs and every other Phase-5-polished button/card) found in that same round of live
+testing and fixed via a second OTA update — see "Post-Phase-5 fix" below. User confirmed
+"all working fine now" after that second update, 2026-09-03.
+
+**Phase 6 scoped 2026-09-03**, not yet started — six items from live-testing feedback (crop
+UX, multi-select, upload speed, the floating "+" button, Jobs tab renames, and a real
+inventory-accuracy bug found and confirmed live in production), plus folding in the
+previously-scoped Paid/Unpaid visibility and real app icon/splash work. See its section below —
+one item (6.6, the stock/sold_out bug) is flagged urgent and web-affecting, worth fixing ahead
+of the rest of this phase rather than waiting on a mobile build.
+
+**What's genuinely still outstanding, as of 2026-09-03:**
+- Phase 0 (security/RLS) — still deferred, not started, see its section below.
+- Phase 6 (see below) — not started.
+- `app/api/test-db/route.ts`'s hardcoded production DB password + unauthenticated schema-reload
+  endpoint — flagged in Phase 1, never fixed, explicitly out of scope for this plan.
+- Retiring the two web installer pages + QR button (see the final section below) — the plan's
+  own gate condition (native app verified on-device to do everything they did) is now actually
+  true, but this hasn't been done yet.
+
+**Housekeeping done, 2026-09-03:** the 8 old `.aab` EAS build artifacts (~284 MB) that had been
+committed directly to `coretech-mobile/` were removed from the working tree and all future
+commits (`chore/remove-old-aab-builds`, merged to `master`). `.gitignore` already excluded new
+ones from Phase 3 onward; this cleaned up the 8 that predated that fix. Note: this does not
+rewrite git history — the ~284 MB remains in already-existing commits until/unless a separate,
+more disruptive history rewrite (`git filter-repo` + force-push) is explicitly requested.
 
 ## Goal
 
@@ -372,6 +398,192 @@ below for how this changes that earlier framing.
    in kind from the bug-fixing and structural work in Phases 1-4 — treated as its own focused
    effort within this phase rather than a quick pass tacked onto the other four items.
 
+### Built and verified end-to-end on a real device — 2026-09-03
+
+All five items above shipped, on their own branch, merged to `master`, shipped as a pure-JS
+OTA update (no new native dependency — `Animated` is React Native's own built-in API, chosen
+specifically to avoid a fourth instance of the "library needs special native/babel setup we
+didn't verify" class of bug that hit `expo-asset`, `expo-file-system`, and the Blob upload
+earlier in this project). New shared components: `AnimatedPressable.tsx` (press/feedback
+scale animation), `FadeInView.tsx` (entrance fade + slide), `SkeletonBlock.tsx` (pulsing
+loading placeholder) — applied across the Dashboard, Jobs, Profile, Login, Sign-Up, and Job
+Details screens per item 5, plus the rejection-message fallback-chain fix from item 1 and the
+Dashboard/Jobs simplification from item 2.
+
+### Post-Phase-5 fix — `AnimatedPressable` layout collapse — 2026-09-03
+
+Found in the very next round of live device testing after the OTA update above: the Jobs
+screen's four filter tabs visually disappeared, and the user asked to check whether anything
+else was also silently broken. Root cause was in the shared component itself, not any one
+screen: `AnimatedPressable.tsx` had been applying the incoming `style` prop (carrying `flex:
+1` and other sizing) to the inner `Animated.View` instead of the outer `Pressable`, so any
+usage relying on flex or fixed sizing collapsed to near-zero. Because the component is shared,
+this silently affected every Phase 5 usage at once, not just the Jobs tabs: the Dashboard's
+CTA card and stat tiles, the Profile sign-out button, the Login/Sign-Up submit buttons, and
+Job Details' three action buttons. Fixed once, in the shared component, by moving `style` onto
+the `Pressable` and keeping only `{ transform: [{ scale }] }` on the inner `Animated.View` —
+correcting all of those usages retroactively without touching any of the individual screens.
+Shipped via a second OTA update; user confirmed afterward, "all working fine now."
+
+## Phase 6 — Capture UX, upload performance, FAB reposition, Jobs tabs, Paid status, app branding, and a critical stock/inventory bug
+
+Scoped 2026-09-03, from live-testing feedback plus a data-integrity issue found and confirmed
+directly against production while scoping this phase. Nine items — one (6.6) flagged urgent and
+not actually mobile-specific, worth fixing ahead of the rest of this phase.
+
+### 6.1 — Stop forcing the native crop screen after every photo/video
+
+Today, both `launchCameraAsync` and `launchImageLibraryAsync` (`app/job/[id].tsx`, photo and
+video, camera and gallery — four call sites total) pass `allowsEditing: true`. This is what
+forces Android's native crop activity open the instant the checkmark is tapped — it's not a
+separate optional step today, it's baked into the same call as the capture/pick itself, and
+`expo-image-picker` has no way to make the confirm button proceed directly while still offering
+crop as a choice from inside that one call.
+
+Fix: set `allowsEditing: false` on all four calls, and add a lightweight in-app review step
+after a photo/video is captured — the raw file shown with two real actions, "Use Photo" (ties
+to today's tick behavior, proceeds straight to upload) and "Crop" (opens cropping only if
+tapped). The crop action itself needs a second library — `expo-image-manipulator` — since
+`expo-image-picker`'s own cropper can't be invoked standalone outside its capture flow. This is
+a genuinely new native dependency, so it goes through the same on-device verification this
+project has needed for every native module added so far (`expo-camera`, `expo-file-system`),
+not assumed to work from a clean `expo-doctor`/`tsc` pass alone.
+
+### 6.2 — Multi-select from the gallery
+
+Today `handlePickPhoto`/`handlePickVideo` only ever read `result.assets[0]` — one file per tap,
+uploaded immediately, no matter how many were selectable. `expo-image-picker` supports
+`allowsMultipleSelection: true` (plus a `selectionLimit`) on the gallery call specifically,
+returning an array of assets instead of one — a real, supported mode, and mechanically
+compatible with the existing per-file `uploadFileToStorage` function (loop over the array
+instead of indexing `[0]`).
+
+**Decided 2026-09-03:** multi-select applies to **photos from the gallery only**. Camera capture
+stays single-shot per tap (no such thing as multi-select from a live camera), and video stays
+single-file regardless of source (camera or gallery) — a job stores exactly one video today (a
+single URL embedded in `notes`, not a list), and that stays unchanged.
+
+### 6.3 — Upload performance (second upload slower than the first)
+
+One concrete, code-confirmed inefficiency: `uploadFileToStorage` calls `supabase.auth.getUser()`
+— a real network round-trip to Supabase's auth server — at the top of every single photo/video
+upload, even though the result is only used for a "someone's logged in" guard, nothing else in
+the function. For a job with 3+ photos plus a video, that's 4+ avoidable round-trips stacked on
+top of the actual file uploads, on every single submission. Removing/caching this is a clear win
+regardless of anything else found here.
+
+That alone may not fully explain "first job fast, second job slow" — getting full confidence on
+the rest needs the same live, on-device, per-step timing check this project has used for every
+other real bug (permission → file read → upload, timed on a real repro), not a guess from static
+review. Scope: ship the `getUser()` removal immediately, then instrument and watch the next slow
+case live if the symptom persists.
+
+### 6.4 — Floating "+" button, moved out of the tab bar
+
+Today it isn't really a floating button — `app/(tabs)/_layout.tsx` wires it in as a fake fourth
+`Tabs.Screen` (`new-installation`), just raised above the bar with a negative top margin so it
+pokes up into it. That's why it looks cramped instead of like a real floating action button.
+
+Fix: remove it from the tab bar entirely (back to 3 real tabs — Dashboard, Jobs, Profile), and
+render a true floating overlay button — `position: absolute`, bottom-right, sitting above screen
+content and clear of the tab bar — matching the positioning/elevation/isolation of the reference
+screenshot the client provided (WhatsApp's compose button: a raised button separate from its own
+bottom navigation bar, not embedded in it).
+
+**Decided 2026-09-03:** keep the existing circular cyan button style (already consistent with
+the rest of the app, not switching to the screenshot's rounded-square shape), and float it on
+all three tabs — Dashboard, Jobs, and Profile — not just two of them. Since it needs to render
+consistently across all three tab screens rather than living inside one screen's own layout,
+this puts it at the shared `(tabs)/_layout.tsx` level, positioned to overlay whichever screen is
+active rather than duplicated per screen.
+
+### 6.5 — Jobs tab renames + new "Paid" tab
+
+Label-only change in `app/(tabs)/jobs.tsx`'s existing filter config, no structural change:
+"Active" → "In Progress", "Completed" → "Approved". The new "Paid" tab is a natural extension of
+the same filtering logic and is the mobile-side surface for 6.7 below (installers currently
+can't see paid/unpaid status anywhere) — built together, not as two separate features.
+
+### 6.6 — URGENT, and not actually mobile-specific: Stage 2 approval never moves stock to sold-out
+
+Reported as "only happens on mobile-originated approvals" — checked directly against live
+production data rather than assumed, and **it isn't mobile-specific at all**. Of the 30 most
+recently approved installations (a mix of web and mobile submissions, spanning 2026-08-25
+through 2026-09-03), **26 still have their matched stock item sitting as `active` in
+inventory** — including installations approved back in August, submitted through the web page,
+weeks before mobile self-report existed. The 4 that do show `sold_out` are coincidental: each
+one's `sold_out_at` timestamp is from *before* that job's own `approved_at` — meaning something
+else marked that stock item sold out, unrelated to this approval.
+
+**Root cause, confirmed by reproducing it directly against the schema:** `approveJobStage2Action`
+(`app/actions/products.ts`) writes the job's own `id` into `stock.sold_out_by_installer_id` —
+a column that, despite the name, is meant to hold the real installer's id, and carries a live
+foreign-key constraint pointing at `profiles.id`. A job id essentially never matches a real
+profile id, so the write violates that constraint and Postgres rejects it — on effectively every
+approval. Nobody has seen an error because this specific `.update()` call is the only step in
+the whole function that never checks its result: the `installer_jobs` status update right above
+it does check and would throw, but the stock update's outcome is silently discarded either way,
+so the admin sees "Installation fully approved & stock deducted," the job flips to `approved`
+correctly, and the stock line item just never moves.
+
+Fix: pass the real installer id (available on the job row as `installer_id`) instead of the job
+id, and add proper error handling on this update so a future failure surfaces instead of
+vanishing silently. Because this is a backend/database bug with no mobile-app dependency, it can
+and should ship on its own, ahead of the rest of Phase 6 — it needs a normal Vercel deploy, not
+a mobile build.
+
+**Decided 2026-09-03: also run a one-time backfill**, correcting stock status on the real
+backlog of already-approved-but-never-marked-sold-out items this uncovered (26 of the last 30
+approved installations alone, spanning back to 2026-08-25). Backfill approach: for every
+`installer_jobs` row with `status = 'approved'`, find its matching `stock` row by
+`serial_number` and, if that stock row isn't already `sold_out`, set it to `sold_out` with the
+real installer id and the job's own `approved_at` as `sold_out_at` (not "now," so the historical
+record reflects when the installation was actually approved, not when this backfill happened to
+run) — mirroring exactly what `approveJobStage2Action` should have done at approval time. Given
+this writes real inventory state, worth a dry-run pass first (list what would change, without
+writing) for a manual sanity check before applying it for real.
+
+### 6.7 — Paid/Unpaid incentive status, visible to installers
+
+The data and admin-side logic already exist and are real: `installer_jobs.payment_status`
+(`"unpaid"`/`"paid"`), set via `setJobPaymentPaidAction` (admin-only, one-way, only once a job
+is `approved` — Stage 2 complete). Today this is only ever shown on the admin Job Assignment
+page's "Incentive Status" column; **no installer-facing surface shows it at all, on web or
+mobile** — web's own installer portal shows the incentive *amount* but never whether it's been
+paid. Fix: add `payment_status` to mobile's existing job queries (Job Details, and the new
+"Paid" Jobs tab from 6.5) and render it with the same paid/unpaid badge styling already used on
+the admin page, gated the same way (only meaningful once a job is `approved`).
+
+**Decided 2026-09-03: mobile only** — the web installer page has the identical gap
+(`app/installer/page.tsx` shows the incentive amount but never paid/unpaid status either), but
+fixing that is explicitly out of scope here. Not touched as part of this plan.
+
+### 6.8 — Real app icon and splash screen
+
+Confirmed: `coretech-mobile/assets/icon.png`, `adaptive-icon.png`, `favicon.png`, and
+`splash.png` are all the exact same file, byte-for-byte — Expo's generic starter-template
+graphic, never replaced since the app was scaffolded. The real logo already exists and is
+usable as-is: `public/logo.svg` in the main web app is a clean, square vector mark (a circular
+"CT" badge) in the same cyan/blue gradient (`#00B4D8`) already standardized on throughout the
+mobile app's Phase 5 UI polish — no new design work needed, just generating properly-sized PNGs
+from it for each slot (icon, Android adaptive-icon foreground with safe-zone padding, splash,
+favicon).
+
+Important distinction from everything else in this plan: icon/splash are baked into the native
+app package, not shippable via OTA update — this needs a real EAS rebuild, the same as the
+barcode scanner or the `expo-file-system` fix earlier. Worth setting expectations with the
+client that a changed icon/name can make Android briefly treat it as "a new app" on some
+launchers until the new build is actually reinstalled, not just opened.
+
+### 6.9 — Suggested build order
+
+6.6 (stock bug) first and separately — pure backend, no mobile build needed, fixes a live data
+integrity problem affecting installations already approved. Then, in one native-rebuild pass
+(since 6.1, 6.2, and 6.8 all need a rebuild regardless): 6.1 (crop UX), 6.2 (multi-select), 6.4
+(FAB reposition), 6.8 (icon/splash). 6.3 (the `getUser()` removal) and 6.5/6.7 (tab
+renames + Paid tab + status badge) are pure JS and can ship via OTA either in the same pass or
+ahead of it.
+
 ## Resolved decision — self-report an unassigned installation
 
 Decided 2026-09-03: yes, build it — see Phase 3's "+" button item above. Turned out not to
@@ -413,3 +625,11 @@ request/response shape itself changes.
 `app/installer/page.tsx`, `app/installer/register/page.tsx`, and the "Installer QR Code"
 button on the admin Installer List page get removed only once the native app is confirmed, on
 a real phone, to actually do everything they did. Not before.
+
+**Status, 2026-09-03: gate condition met, step not yet done.** Phases 1-5 are built, merged,
+and verified on-device — the native app now genuinely does everything the web pages did, plus
+the server-side re-validation and self-report reframing they never had. The web pages
+themselves have not been removed yet; this remains a separate action to take whenever
+explicitly requested. Note this doesn't reduce Phase 0's underlying database exposure either
+way, since that risk lives in the schema/RLS layer both surfaces share, not in which
+front-end is used.

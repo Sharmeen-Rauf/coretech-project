@@ -527,7 +527,7 @@ export async function approveJobStage2Action(jobId: string, serialNumber: string
     }
 
     const supabase = getAdminClient();
-    const { error } = await supabase
+    const { data: updatedJob, error } = await supabase
       .from("installer_jobs")
       .update({
         status: "approved",
@@ -535,20 +535,29 @@ export async function approveJobStage2Action(jobId: string, serialNumber: string
         approved_at: new Date().toISOString(),
         approval_note: (note || "").trim(),
       })
-      .eq("id", jobId);
+      .eq("id", jobId)
+      .select("installer_id")
+      .single();
 
     if (error) throw error;
 
     if (serialNumber) {
-      await supabase
+      // sold_out_by_installer_id is FK-constrained to profiles.id - passing
+      // jobId here (as this used to) silently violated that constraint and
+      // failed on effectively every approval, since a job id never matches a
+      // real profile id. Checked now, so a future failure surfaces instead
+      // of vanishing the way this one did.
+      const { error: stockError } = await supabase
         .from("stock")
         .update({
           status: "sold_out",
           sold_out_at: new Date().toISOString(),
-          sold_out_by_installer_id: jobId,
+          sold_out_by_installer_id: updatedJob?.installer_id || null,
           installation_id: jobId,
         })
         .ilike("serial_no", escapeLikePattern(serialNumber.trim()));
+
+      if (stockError) throw stockError;
     }
 
     return { success: true };

@@ -69,6 +69,12 @@ export default function JobDetailScreen() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [hasScannedOnce, setHasScannedOnce] = useState(false);
 
+  // Camera photo pending review (Use Photo / Crop / Discard) before upload -
+  // see handlePickPhoto. Only camera capture goes through this; gallery
+  // picking uses native multi-select instead, which expo-image-picker only
+  // supports with allowsEditing off, so there's no per-item crop step there.
+  const [reviewPhotoUri, setReviewPhotoUri] = useState<string | null>(null);
+
   // Guards handlePickPhoto/handlePickVideo against firing twice for one tap
   // (a fast double-tap before the button's own busy state was set could
   // trigger two concurrent permission requests, which raced each other and
@@ -195,8 +201,12 @@ export default function JobDetailScreen() {
   };
 
   const uploadFileToStorage = async (uri: string, isVideo: boolean): Promise<string> => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error("No active user session.");
+    // getSession() reads the locally-cached session instead of getUser()'s
+    // unconditional network round-trip to Supabase's auth server - was
+    // costing every single photo/video upload an extra request for a check
+    // whose result was never otherwise used.
+    const token = await getAccessToken();
+    if (!token) throw new Error("No active user session.");
 
     // React Native's fetch(uri).blob() does not produce a spec-compliant
     // Blob, and Supabase Storage uploads are unreliable with it there -
@@ -247,40 +257,114 @@ export default function JobDetailScreen() {
         return;
       }
 
-      let result;
-      try {
-        result = useCamera
-          ? await ImagePicker.launchCameraAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              quality: 0.7,
-            })
-          : await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              quality: 0.7,
-            });
-      } catch (launchErr: any) {
-        Alert.alert(
-          "Camera Error",
-          launchErr?.message || "Could not open the camera/gallery. Please try again."
-        );
+      if (useCamera) {
+        // No allowsEditing here - the confirm/tick now proceeds straight to
+        // review instead of forcing the native crop screen open on every
+        // capture. Cropping is opt-in via the review modal's Crop button.
+        let result;
+        try {
+          result = await ImagePicker.launchCameraAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: false,
+            quality: 0.7,
+          });
+        } catch (launchErr: any) {
+          Alert.alert("Camera Error", launchErr?.message || "Could not open the camera. Please try again.");
+          return;
+        }
+        if (result.canceled) return;
+        setReviewPhotoUri(result.assets[0].uri);
         return;
       }
 
-      if (result.canceled) return;
+      // Gallery: multi-select instead of one-at-a-time. expo-image-picker
+      // only supports allowsEditing on a single-selection pick, so a
+      // multi-select batch never goes through a crop step - each file
+      // uploads as picked.
+      let result;
+      try {
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: false,
+          allowsMultipleSelection: true,
+          selectionLimit: 10,
+          quality: 0.7,
+        });
+      } catch (launchErr: any) {
+        Alert.alert("Gallery Error", launchErr?.message || "Could not open the gallery. Please try again.");
+        return;
+      }
+      if (result.canceled || !result.assets?.length) return;
 
       setIsUploadingPhoto(true);
+      let uploadedCount = 0;
       try {
-        const publicUrl = await uploadFileToStorage(result.assets[0].uri, false);
-        setPhotos((prev) => [...prev, publicUrl]);
-      } catch (err: any) {
-        Alert.alert("Upload Failed", err.message || "Failed to upload photo.");
+        for (const asset of result.assets) {
+          try {
+            const publicUrl = await uploadFileToStorage(asset.uri, false);
+            setPhotos((prev) => [...prev, publicUrl]);
+            uploadedCount++;
+          } catch (err: any) {
+            Alert.alert("Upload Failed", `One photo failed to upload: ${err.message || "unknown error"}`);
+          }
+        }
       } finally {
         setIsUploadingPhoto(false);
       }
     } finally {
       isMediaPickerBusyRef.current = false;
+    }
+  };
+
+  // Uploads the camera photo currently pending review (tick / "Use Photo").
+  const handleUsePendingPhoto = async () => {
+    const uri = reviewPhotoUri;
+    if (!uri) return;
+    setReviewPhotoUri(null);
+    setIsUploadingPhoto(true);
+    try {
+      const publicUrl = await uploadFileToStorage(uri, false);
+      setPhotos((prev) => [...prev, publicUrl]);
+    } catch (err: any) {
+      Alert.alert("Upload Failed", err.message || "Failed to upload photo.");
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  // Discards the pending review photo (cross / "Discard").
+  const handleDiscardPendingPhoto = () => {
+    setReviewPhotoUri(null);
+  };
+
+  // "Crop" from the review modal - only reachable by explicit tap now,
+  // instead of being forced on every capture. Re-opens the camera with
+  // allowsEditing on, which discards the pending photo and replaces it with
+  // a freshly cropped retake; the native cropper's own confirm is treated as
+  // definitive, so this uploads directly rather than returning to review.
+  const handleCropPendingPhoto = async () => {
+    setReviewPhotoUri(null);
+    let result;
+    try {
+      result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.7,
+      });
+    } catch (launchErr: any) {
+      Alert.alert("Camera Error", launchErr?.message || "Could not open the camera. Please try again.");
+      return;
+    }
+    if (result.canceled) return;
+
+    setIsUploadingPhoto(true);
+    try {
+      const publicUrl = await uploadFileToStorage(result.assets[0].uri, false);
+      setPhotos((prev) => [...prev, publicUrl]);
+    } catch (err: any) {
+      Alert.alert("Upload Failed", err.message || "Failed to upload photo.");
+    } finally {
+      setIsUploadingPhoto(false);
     }
   };
 
@@ -541,6 +625,27 @@ export default function JobDetailScreen() {
                   PKR {job.incentive || 5000}
                 </Text>
               </View>
+
+              {status === "approved" && (
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaLabel}>Payment Status:</Text>
+                  <View
+                    style={[
+                      styles.badge,
+                      { backgroundColor: job.payment_status === "paid" ? "#ECFDF5" : "#FFF7ED" },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.badgeText,
+                        { color: job.payment_status === "paid" ? "#059669" : "#EA580C" },
+                      ]}
+                    >
+                      {job.payment_status === "paid" ? "Paid" : "Unpaid"}
+                    </Text>
+                  </View>
+                </View>
+              )}
             </View>
 
             {job.notes && (
@@ -819,6 +924,27 @@ export default function JobDetailScreen() {
           <TouchableOpacity onPress={() => setIsScannerOpen(false)} style={styles.scannerCloseButton}>
             <X size={22} color="#FFFFFF" />
           </TouchableOpacity>
+        </View>
+      </Modal>
+
+      <Modal visible={!!reviewPhotoUri} animationType="fade" onRequestClose={handleDiscardPendingPhoto}>
+        <View style={styles.reviewContainer}>
+          {reviewPhotoUri && (
+            <Image source={{ uri: reviewPhotoUri }} style={styles.reviewImage} resizeMode="contain" />
+          )}
+          <View style={styles.reviewActions}>
+            <TouchableOpacity onPress={handleDiscardPendingPhoto} style={styles.reviewButtonDiscard}>
+              <X size={22} color="#FFFFFF" />
+              <Text style={styles.reviewButtonText}>Discard</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleCropPendingPhoto} style={styles.reviewButtonCrop}>
+              <Text style={styles.reviewButtonText}>Crop</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleUsePendingPhoto} style={styles.reviewButtonUse}>
+              <CheckCircle size={22} color="#FFFFFF" />
+              <Text style={styles.reviewButtonText}>Use Photo</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </KeyboardAvoidingView>
@@ -1217,5 +1343,54 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  reviewContainer: {
+    flex: 1,
+    backgroundColor: "#0F172A",
+    justifyContent: "space-between",
+  },
+  reviewImage: {
+    flex: 1,
+    width: "100%",
+  },
+  reviewActions: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+    paddingBottom: 36,
+    gap: 10,
+  },
+  reviewButtonDiscard: {
+    flex: 1,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  reviewButtonCrop: {
+    flex: 1,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: "#475569",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewButtonUse: {
+    flex: 1,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: "#00B4D8",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  reviewButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "bold",
   },
 });
