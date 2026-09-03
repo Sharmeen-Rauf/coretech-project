@@ -30,6 +30,7 @@ export default function AnimatedPressable({
 
   return (
     <Pressable
+      style={style}
       onPressIn={(e) => {
         animateTo(0.96);
         onPressIn?.(e);
@@ -40,7 +41,7 @@ export default function AnimatedPressable({
       }}
       {...rest}
     >
-      <Animated.View style={[style, { transform: [{ scale }] }]}>{children}</Animated.View>
+      <Animated.View style={{ transform: [{ scale }] }}>{children}</Animated.View>
     </Pressable>
   );
 }
