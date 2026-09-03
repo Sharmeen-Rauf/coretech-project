@@ -29,8 +29,19 @@ const STATUS_GROUPS: Record<string, "active" | "rejected" | "completed"> = {
   completed: "completed",
 };
 
-const FILTERS = ["all", "active", "rejected", "completed"] as const;
+const FILTERS = ["all", "active", "rejected", "completed", "paid"] as const;
 type Filter = (typeof FILTERS)[number];
+
+// Display labels for the filter tabs themselves - kept separate from the
+// internal group keys above so the underlying status grouping/logic doesn't
+// need to change just because the client wants different wording shown.
+const FILTER_LABELS: Record<Filter, string> = {
+  all: "All",
+  active: "In Progress",
+  rejected: "Rejected",
+  completed: "Approved",
+  paid: "Paid",
+};
 
 const STATUS_LABELS: Record<string, string> = {
   assigned: "Assigned",
@@ -39,8 +50,8 @@ const STATUS_LABELS: Record<string, string> = {
   pending_approval: "Pending Review",
   pending_installation_approval: "Pending Review",
   rejected: "Rejected",
-  approved: "Completed",
-  completed: "Completed",
+  approved: "Approved",
+  completed: "Approved",
 };
 
 export default function JobsScreen() {
@@ -119,6 +130,8 @@ export default function JobsScreen() {
 
     const isRejected = item.status === "rejected";
     const label = STATUS_LABELS[item.status] || item.status.replace(/_/g, " ");
+    const isPaid = item.status === "approved" && item.payment_status === "paid";
+    const isUnpaid = item.status === "approved" && item.payment_status !== "paid";
 
     return (
       <AnimatedPressable
@@ -127,8 +140,20 @@ export default function JobsScreen() {
       >
         <View style={styles.cardHeader}>
           <Text style={styles.jobTitle}>{item.job_title}</Text>
-          <View style={[styles.badge, { backgroundColor: colors.bg }]}>
-            <Text style={[styles.badgeText, { color: colors.text }]}>{label}</Text>
+          <View style={{ alignItems: "flex-end", gap: 4 }}>
+            <View style={[styles.badge, { backgroundColor: colors.bg }]}>
+              <Text style={[styles.badgeText, { color: colors.text }]}>{label}</Text>
+            </View>
+            {isPaid && (
+              <View style={[styles.badge, { backgroundColor: "#ECFDF5" }]}>
+                <Text style={[styles.badgeText, { color: "#059669" }]}>Paid</Text>
+              </View>
+            )}
+            {isUnpaid && (
+              <View style={[styles.badge, { backgroundColor: "#FFF7ED" }]}>
+                <Text style={[styles.badgeText, { color: "#EA580C" }]}>Unpaid</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -146,6 +171,7 @@ export default function JobsScreen() {
 
   const filteredJobs = jobs.filter((j) => {
     if (filter === "all") return true;
+    if (filter === "paid") return j.status === "approved" && j.payment_status === "paid";
     return (STATUS_GROUPS[j.status] || "active") === filter;
   });
 
@@ -177,7 +203,7 @@ export default function JobsScreen() {
             style={[styles.filterTab, filter === t && styles.filterTabActive]}
           >
             <Text style={[styles.filterTabText, filter === t && styles.filterTabTextActive]}>
-              {t === "all" ? "All" : t.charAt(0).toUpperCase() + t.slice(1)}
+              {FILTER_LABELS[t]}
             </Text>
           </AnimatedPressable>
         ))}
