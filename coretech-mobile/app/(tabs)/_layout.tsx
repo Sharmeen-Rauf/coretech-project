@@ -1,7 +1,7 @@
 import React from "react";
 import { View, TouchableOpacity, StyleSheet } from "react-native";
 import { Tabs, useRouter } from "expo-router";
-import { Wrench, History, User, LayoutDashboard, Plus } from "lucide-react-native";
+import { Wrench, User, LayoutDashboard, Plus } from "lucide-react-native";
 
 function NewInstallationButton() {
   const router = useRouter();
@@ -78,14 +78,6 @@ export default function TabsLayout() {
             e.preventDefault();
             router.push("/job/new");
           },
-        }}
-      />
-      <Tabs.Screen
-        name="history"
-        options={{
-          title: "Job History",
-          tabBarLabel: "History",
-          tabBarIcon: ({ color }) => <History size={20} color={color} />,
         }}
       />
       <Tabs.Screen

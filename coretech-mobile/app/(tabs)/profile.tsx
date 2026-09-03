@@ -9,7 +9,13 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "../../lib/supabase";
-import { LogOut, Phone, User, Wrench } from "lucide-react-native";
+import { LogOut, Phone, MapPin, CreditCard, BadgeCheck, Heart } from "lucide-react-native";
+
+const STATUS_BADGE: Record<string, { label: string; bg: string; text: string }> = {
+  approved: { label: "Approved", bg: "#ECFDF5", text: "#059669" },
+  active: { label: "Approved", bg: "#ECFDF5", text: "#059669" },
+  rejected: { label: "Rejected", bg: "#FEE2E2", text: "#DC2626" },
+};
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -79,9 +85,19 @@ export default function ProfileScreen() {
     );
   }
 
-  const initials = profile
-    ? `${profile.first_name.charAt(0)}${profile.last_name?.charAt(0) || ""}`.toUpperCase()
-    : "CT";
+  // profile.first_name can be missing on a hastily-created account (no real
+  // installer in the live 377 has hit this, but a test/dev account easily
+  // can) - .charAt(0) on undefined crashed the whole screen before this
+  // fallback existed.
+  const firstInitial = profile?.first_name?.charAt(0) || "";
+  const lastInitial = profile?.last_name?.charAt(0) || "";
+  const initials = (firstInitial + lastInitial).toUpperCase() || "CT";
+
+  const statusBadge = STATUS_BADGE[String(profile?.status || "").toLowerCase()] || {
+    label: "Pending Review",
+    bg: "#FFF7ED",
+    text: "#EA580C",
+  };
 
   return (
     <View style={styles.container}>
@@ -92,14 +108,42 @@ export default function ProfileScreen() {
         </View>
 
         <Text style={styles.fullName}>
-          {profile?.first_name} {profile?.last_name || ""}
+          {profile?.first_name || "Installer"} {profile?.last_name || ""}
         </Text>
         <Text style={styles.designation}>{profile?.designation || "Installation Tech"}</Text>
+
+        <View style={[styles.statusBadge, { backgroundColor: statusBadge.bg }]}>
+          <Text style={[styles.statusBadgeText, { color: statusBadge.text }]}>
+            {statusBadge.label}
+          </Text>
+        </View>
 
         <View style={styles.contactRow}>
           <Phone size={14} color="#64748B" style={{ marginRight: 6 }} />
           <Text style={styles.contactText}>{profile?.contact || "No Phone Recorded"}</Text>
         </View>
+      </View>
+
+      {/* Full Account Detail */}
+      <View style={styles.detailCard}>
+        <Text style={styles.detailTitle}>Account Detail</Text>
+
+        <DetailRow icon={<BadgeCheck size={14} color="#64748B" />} label="CNIC" value={profile?.cnic} />
+        <DetailRow
+          icon={<MapPin size={14} color="#64748B" />}
+          label="Address"
+          value={[profile?.address, profile?.city, profile?.state].filter(Boolean).join(", ")}
+        />
+        <DetailRow icon={<Heart size={14} color="#64748B" />} label="Marital Status" value={profile?.marital_status} />
+        <DetailRow
+          icon={<CreditCard size={14} color="#64748B" />}
+          label="Payment Account"
+          value={
+            profile?.payment_account_no
+              ? `${profile?.payment_provider || ""} - ${profile.payment_account_no}`.trim()
+              : undefined
+          }
+        />
       </View>
 
       {/* Stats Counter Section */}
@@ -131,6 +175,18 @@ export default function ProfileScreen() {
         <LogOut size={16} color="#DC2626" style={{ marginRight: 8 }} />
         <Text style={styles.logoutButtonText}>Sign Out Account</Text>
       </TouchableOpacity>
+    </View>
+  );
+}
+
+function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: string; value?: string | null }) {
+  return (
+    <View style={styles.detailRow}>
+      <View style={styles.detailIcon}>{icon}</View>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue} numberOfLines={2}>
+        {value || "Not recorded"}
+      </Text>
     </View>
   );
 }
@@ -185,6 +241,18 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontWeight: "600",
   },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 99,
+    marginTop: 10,
+  },
+  statusBadgeText: {
+    fontSize: 9,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
   contactRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -194,6 +262,45 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#475569",
     fontWeight: "bold",
+  },
+  detailCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 16,
+    marginBottom: 16,
+  },
+  detailTitle: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: "#94A3B8",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+  },
+  detailIcon: {
+    width: 20,
+    marginTop: 1,
+  },
+  detailLabel: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "bold",
+    width: 100,
+  },
+  detailValue: {
+    fontSize: 11,
+    color: "#1E293B",
+    fontWeight: "600",
+    flex: 1,
   },
   statsCard: {
     backgroundColor: "#FFFFFF",

@@ -4,7 +4,7 @@ import { Redirect } from "expo-router";
 import { supabase } from "../lib/supabase";
 import { resolveInstallerAccess } from "../lib/installerAccess";
 
-type Destination = "/(tabs)/jobs" | "/(auth)/pending" | "/login";
+type Destination = "/(tabs)" | "/(auth)/pending" | "/login";
 
 export default function IndexScreen() {
   const [destination, setDestination] = useState<Destination | null>(null);
@@ -34,7 +34,7 @@ export default function IndexScreen() {
         }
 
         if (isMounted) {
-          setDestination(access.state === "pending" ? "/(auth)/pending" : "/(tabs)/jobs");
+          setDestination(access.state === "pending" ? "/(auth)/pending" : "/(tabs)");
         }
       } catch (err) {
         console.warn("Auth check error:", err);
