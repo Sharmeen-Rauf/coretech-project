@@ -1,10 +1,12 @@
 # Installer Mobile Consolidation Plan
 
-Status: Phase 0 deferred (see note below). Phases 1, 2, and 3 all merged to `master` and
-**verified end-to-end on a real physical device against live production**, 2026-09-02/03.
-Phase 3 in particular took several live-testing round trips to actually get working — see its
-section below for the full list of real bugs found only by testing on a real device, not by
-review. Ready to move on to Phase 4 (or further scope) whenever.
+Status: Phase 0 deferred (see note below). Phases 1-4 all merged to `master` and verified
+working, 2026-09-02/03. Phase 3 in particular took several live-testing round trips to
+actually get working — see its section below for the full list of real bugs found only by
+testing on a real device, not by review. **Phase 5 scoped 2026-09-03**, not yet started — a
+significant reframing from the client of how this app is actually used in practice (see that
+section) plus a real bug found while scoping it, a UI/animation polish pass, and simplifying
+what Phase 4 built around a workflow that turns out not to apply here.
 
 ## Goal
 
@@ -320,6 +322,56 @@ it's the same screen as the rest of this work, not a reason to touch it twice.
    instead of killing the whole app outright (`bug_mobile.md` #4) — a safety net for anything
    the earlier phases, or this one, miss.
 
+## Phase 5 — Self-report-only reframing, rejection message fix, UI polish
+
+Scoped 2026-09-03, from a direct clarification the client gave the user: **there is no
+admin-assignment step in the real workflow at all.** An installer does the physical
+installation entirely on their own first, with no app involvement during the actual work, and
+only opens the app afterward to fill out the submission form and prove what they already
+finished. A job does not exist in the system in any form until that submission happens. This
+means the "+" self-report entry point built in Phase 3 isn't an alternate path alongside a
+primary admin-assigned flow — it's the *only* real flow this app has. See "Resolved decision"
+below for how this changes that earlier framing.
+
+1. **Fix a real bug found while scoping this phase: the rejection-message box reads the wrong
+   database column.** Confirmed directly in `app/actions/products.ts` —
+   `rejectJobStage1Action`/`rejectJobStage2Action` both route through `rejectJobInternal`,
+   which requires the reviewer to type a real rejection reason and saves it into
+   `approval_note`. Web's own installer portal (`app/installer/page.tsx`) reads it back
+   correctly with a fallback chain: `job.approval_note || job.verification_note ||
+   job.remarks || "Rejected during audit review."`. Mobile's rejection box in
+   `app/job/[id].tsx`, however, only reads `job.verification_note` — a field rejection never
+   actually populates — so it shows blank for a genuinely rejected submission even though the
+   reviewer typed a real reason. Fix: use the same fallback chain web already uses.
+
+2. **Simplify the Dashboard and Jobs screen around what actually happens.** `assigned` and
+   `in_progress` are states nothing will ever put a real job into, since a job is never
+   created until it's already submitted — Phase 4's "Active" tab currently groups those two
+   dead states together with the two real in-review statuses, and the Dashboard has separate
+   "Assigned"/"In Progress" tiles that will always read zero in real use. Replace the
+   Dashboard's four tiles (Assigned, In Progress, Pending Review, Approved) with ones that
+   reflect what actually happens: under review, rejected (needs fixing), approved/completed.
+   Simplify the Jobs screen's status grouping the same way — "Active" becomes, in practice,
+   just "currently under review," not a grouping of live and dead states together.
+
+3. **Promote the self-report "+" entry point from a secondary FAB to the primary action.**
+   Since it's not one option among several, it deserves to be the prominent, obvious action on
+   the Dashboard and/or Jobs screen, not a small floating button tucked into the tab bar.
+
+4. **Keep the rejected → edit → resubmit path exactly as it is structurally.** This is still a
+   real, legitimate case — an installer coming back to an existing record after rejection —
+   the client explicitly confirmed this stays. Only the rejection-message field bug from item
+   1 needs fixing there, nothing about the flow itself changes.
+
+5. **UI/animation polish pass across Dashboard, Profile, Login, Sign-Up, and the Job
+   screens.** Same color scheme throughout (the cyan/blue `#00B4D8` palette already in use) —
+   this is about motion and visual feel, not a redesign: smoother transitions between screens
+   instead of instant cuts, real press/feedback animation on buttons and cards, better loading
+   states (skeleton/shimmer instead of a bare spinner), a polished entrance for list items,
+   and more considered empty/error states. Genuinely substantial, mostly-visual work, distinct
+   in kind from the bug-fixing and structural work in Phases 1-4 — treated as its own focused
+   effort within this phase rather than a quick pass tacked onto the other four items.
+
 ## Resolved decision — self-report an unassigned installation
 
 Decided 2026-09-03: yes, build it — see Phase 3's "+" button item above. Turned out not to
@@ -327,6 +379,13 @@ need a separate yes/no ahead of Phase 1 after all: `submitInstallationAction` al
 branch for a brand-new job (not just updating an existing one) from the original web-supporting
 logic, untouched by the Phase 1 ownership fix, so Phase 1's endpoint already supported this
 without any changes — the only real work is the mobile-side entry point in Phase 3.
+
+**Superseded 2026-09-03 by Phase 5 above** — at the time this was decided, self-report was
+understood as *an* option alongside admin-assigned jobs, which is why Phase 3 built it as a
+secondary entry point (a small FAB) rather than the main one. The client's direct clarification
+in Phase 5 establishes it was never optional — it's the only flow this app actually has. The
+decision to build it stands unchanged; what changes is how central it should have been treated
+from the start.
 
 ## Deployment — no new infrastructure
 
