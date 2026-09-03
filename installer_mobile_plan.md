@@ -1,14 +1,10 @@
 # Installer Mobile Consolidation Plan
 
-Status: Phase 0 deferred (see note below). Phase 1 and Phase 2 merged to `master` and
-**verified end-to-end on a real physical device against live production**, 2026-09-02/03 —
-registered a real test account through the actual Sign-Up screen, confirmed it landed
-correctly as `pending_verification` in the database, logged in with it and confirmed it
-correctly showed the "Profile Under Review" screen rather than the normal app, then deleted
-all test data from production afterward. `installer-mobile-consolidation` was merged to
-`master` via PR #21 (still exists as a remote branch, not deleted). Phase 3 next (see that
-section — job submission screen, plus setting up `expo-updates`/OTA so future JS-only phases
-skip the full native rebuild cycle).
+Status: Phase 0 deferred (see note below). Phases 1, 2, and 3 all merged to `master` and
+**verified end-to-end on a real physical device against live production**, 2026-09-02/03.
+Phase 3 in particular took several live-testing round trips to actually get working — see its
+section below for the full list of real bugs found only by testing on a real device, not by
+review. Ready to move on to Phase 4 (or further scope) whenever.
 
 ## Goal
 
@@ -219,6 +215,55 @@ submission endpoint exists:
   setup, not a config change. Once both land in this one build, everything after this phase
   (Phase 4's crash fixes, Phase 5's visibility fix) is pure JavaScript and can ship via
   `eas update` in seconds instead of another 10-35 minute cloud build each time.
+
+### Built and verified end-to-end on a real device — 2026-09-02/03
+
+All nine items above shipped. Confirmed live, on a physical phone against production: typed
+and self-report entry both work, camera and gallery photo capture upload successfully, video
+capture/library upload successfully, a submitted job lands correctly in the database tied to
+the real caller, and it's correctly visible and actionable through the real two-stage web
+admin approval flow (verified by watching a test submission get Stage 1 verified and Stage 2
+rejected on the web dashboard within a minute of submitting it from the phone).
+
+Getting there took several live-testing round trips, each surfacing a real bug that no amount
+of code review or type-checking had caught — the same lesson as the original `expo-asset`
+crash, repeated three more times in this one phase:
+
+1. **Camera/gallery permission dialog flashed and vanished before it could be tapped.**
+   `handlePickPhoto`/`handlePickVideo` had no guard against being invoked twice for one tap,
+   so a fast double-tap fired two concurrent permission requests that raced each other's
+   dialog off screen. Fixed with a ref-based lock covering the whole
+   permission-through-upload flow, not just the upload phase the existing `isUploading` flags
+   already covered. Shipped via `eas update` (pure JS, no rebuild).
+2. **After that fix, camera/gallery still silently did nothing after permission was granted.**
+   `launchCameraAsync`/`launchImageLibraryAsync` had no error handling around them at all —
+   only the upload phase after a successful pick did. Added a real try/catch with a visible
+   Alert on failure, plus temporary debug logging to see the actual native error instead of
+   guessing further from Android system logs. That error was:
+   `Module 'expo.modules.interfaces.filesystem.AppDirectories' not found` — the exact same
+   *class* of bug as the original `expo-asset` crash: `expo-file-system` was only resolving to
+   `node_modules/expo/node_modules/expo-file-system` (nested under `expo`'s own tree) instead
+   of the top level, invisible to autolinking, because nothing required it directly - only
+   `expo` itself did, transitively. Fixed the same way as before: declared it as a direct
+   dependency, hoisting it to the top level. This one needed a real rebuild (new native
+   dependency), not OTA.
+3. **After the rebuild, camera/gallery picking worked, but every upload failed** with
+   `StorageUnknownError: Network request failed` — confirmed via the same debug-logging
+   approach that the file read succeeded every time (blob size logged correctly) but the
+   Supabase Storage upload itself always failed. This is a known React Native + Supabase
+   incompatibility: `fetch(uri).blob()` doesn't produce a spec-compliant `Blob` in React
+   Native's environment, and Supabase Storage's `upload()` is unreliable with it there even
+   though the identical code works fine on web. Fixed by switching to Supabase's own
+   documented React Native approach — read the file as base64
+   (`FileSystem.readAsStringAsync`) and upload as an `ArrayBuffer`
+   (`base64-arraybuffer`'s `decode`) instead. Pure JS, shipped via `eas update`.
+
+Net effect: three real, load-bearing bugs, none of them visible from source review, `tsc`, or
+`expo-doctor` — all three only surfaced by actually running the app on a physical device and
+watching it fail. Reinforces the same conclusion the original crash investigation reached:
+this class of "native module silently missing" bug is structurally invisible to static
+checks, and React Native's file-handling APIs (`fetch().blob()` here) can behave differently
+enough from their web equivalents to fail in ways that only show up on-device too.
 
 ## Phase 4 — The standalone crash fixes + error boundary
 
