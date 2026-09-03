@@ -16,6 +16,8 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as FileSystem from "expo-file-system";
+import { decode as decodeBase64 } from "base64-arraybuffer";
 import { supabase } from "../../lib/supabase";
 import { API_BASE_URL } from "../../lib/installerAccess";
 import { queueOfflineSubmission } from "../../lib/offlineQueue";
@@ -193,16 +195,21 @@ export default function JobDetailScreen() {
   const uploadFileToStorage = async (uri: string, isVideo: boolean): Promise<string> => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("No active user session.");
-    console.log("[upload] step 1 ok, user:", user.id, "uri:", uri);
 
-    let blob: Blob;
+    // React Native's fetch(uri).blob() does not produce a spec-compliant
+    // Blob, and Supabase Storage uploads are unreliable with it there -
+    // confirmed live: the file read fine, but the upload itself failed with
+    // a generic "Network request failed" every time. Reading the file as
+    // base64 and uploading as an ArrayBuffer instead is Supabase's own
+    // documented approach for React Native and avoids that layer entirely.
+    let arrayBuffer: ArrayBuffer;
     try {
-      const response = await fetch(uri);
-      blob = await response.blob();
-      console.log("[upload] step 2 ok, blob size:", (blob as any).size);
-    } catch (fetchErr: any) {
-      console.log("[upload] step 2 FAILED (reading local file):", fetchErr?.message, JSON.stringify(fetchErr));
-      throw new Error(`Could not read the captured file: ${fetchErr?.message || "unknown error"}`);
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      arrayBuffer = decodeBase64(base64);
+    } catch (readErr: any) {
+      throw new Error(`Could not read the captured file: ${readErr?.message || "unknown error"}`);
     }
 
     const fileExt = uri.split(".").pop() || (isVideo ? "mp4" : "jpg");
@@ -211,16 +218,12 @@ export default function JobDetailScreen() {
 
     const { error: uploadErr } = await supabase.storage
       .from("job-photos")
-      .upload(filePath, blob, {
+      .upload(filePath, arrayBuffer, {
         contentType: isVideo ? `video/${fileExt}` : `image/${fileExt}`,
         upsert: true,
       });
 
-    if (uploadErr) {
-      console.log("[upload] step 3 FAILED (Supabase storage upload):", uploadErr.message, JSON.stringify(uploadErr));
-      throw uploadErr;
-    }
-    console.log("[upload] step 3 ok");
+    if (uploadErr) throw uploadErr;
 
     const { data: pUrl } = supabase.storage
       .from("job-photos")
