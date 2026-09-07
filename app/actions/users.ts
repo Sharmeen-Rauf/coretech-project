@@ -706,7 +706,11 @@ export async function fetchUsersAction(activeRole: string) {
     const supabase = getAdminClient();
     let query = supabase.from("profiles").select("*");
     if (activeRole === "employee") {
-      query = query.in("role", ["employee", "rsm", "country_head", "retail_manager", "admin", "marketing_manager"]);
+      // Literal "employee" role permanently removed 2026-09-08 (client
+      // request) - nobody can hold it anymore, so it's dropped from this
+      // list. Kept out of this array rather than deleted entirely so the
+      // Employee tab's five real office roles still resolve correctly.
+      query = query.in("role", ["rsm", "country_head", "retail_manager", "admin", "marketing_manager"]);
     } else {
       query = query.eq("role", activeRole);
     }
