@@ -3,24 +3,31 @@
 // rebuild. A target can be assigned to any role except installer, and
 // different roles get credited from different real activity, always scoped
 // to the target's own product_id:
-// - distributor -> their own outgoing ST-2 units of that product
-//   (sales.source_type = 'distributor', sale_items.product_id) plus any units
-//   of that product they personally Sell Out (stock.distributor_id + product_id)
-// - sub_dealer  -> their own incoming ST-2 units of that product
-//   (sales.destination_type = 'sub_dealer', sale_items.product_id) plus any
-//   units of that product they personally Sell Out (stock.sub_dealer_id + product_id)
+// - distributor -> their own incoming ST-1 units of that product - what they
+//   purchase from a warehouse, or via a distributor-to-distributor transfer
+//   (sales.type = 'ST1', destination_type = 'distributor', sale_items.product_id).
+//   Corrected 2026-09-07: this previously credited outgoing ST-2 units plus
+//   Sell Out instead, and never referenced ST-1 at all. Client confirmed
+//   distributor targets track purchase commitment (ST-1), not downstream
+//   resale - a deliberate, different incentive shape from sub_dealer below.
+// - sub_dealer  -> their own units personally Sold Out of that product
+//   (stock.sub_dealer_id + product_id, status = sold_out). Corrected
+//   2026-09-07: this previously also credited incoming ST-2 units; client
+//   confirmed Sell Out is the sole trigger - a sub-dealer's target reflects
+//   actual sell-through to the end customer, not stock merely received.
 // - everyone else (employee, rsm, or any other role that can end up
 //   coordinating a Buzzcart order - see createBuzzcartOrderAction) ->
 //   orders.sales_coordinator_id, summing only the order's line item(s) whose
 //   productId matches the target's product
 //
 // Buzzcart order volume doesn't reflect how distributor/sub_dealer actually
-// move product (that's ST-2 + Sell Out), so those two roles are resolved
-// entirely differently from everyone else - see computeAchievedUnitsForTargets.
+// move product (that's ST-1 purchases for distributor, Sell Out for
+// sub_dealer), so those two roles are resolved entirely differently from
+// everyone else - see computeAchievedUnitsForTargets.
 //
 // An order counts once it's `approved` and stays counted permanently as it
 // matures through invoice_generated/delivered - never once it's declined.
-// ST-2/Sell Out units count as soon as they're recorded (both are terminal,
+// ST-1/Sell Out units count as soon as they're recorded (both are terminal,
 // one-way actions with no pending/rejected state of their own).
 // Matched against the target's period using the relevant activity's own date.
 
@@ -48,9 +55,10 @@ function withinPeriod(dateVal: string, periodStart: string, periodEnd: string): 
   return t >= start && t <= end;
 }
 
-// distributor + sub_dealer: ST-2 units (as the actual sender/receiver) + Sell
-// Out units they personally sold, both counted directly from their respective
-// source tables rather than Buzzcart's `orders`, filtered to the target's own product.
+// distributor: their own incoming ST-1 units (purchase volume, not resale).
+// sub_dealer: Sell Out units they personally sold. Counted directly from
+// their respective source tables rather than Buzzcart's `orders`, filtered
+// to the target's own product.
 async function computeDistributorSubDealerAchieved(
   supabase: any,
   targets: TargetPeriodRef[]
@@ -61,20 +69,21 @@ async function computeDistributorSubDealerAchieved(
   const distributorIds = Array.from(new Set(targets.filter((t) => t.assigneeRole === "distributor").map((t) => t.assigneeId)));
   const subDealerIds = Array.from(new Set(targets.filter((t) => t.assigneeRole === "sub_dealer").map((t) => t.assigneeId)));
 
-  const [distSalesRes, subSalesRes] = await Promise.all([
+  const [distSalesRes, subSelloutRes] = await Promise.all([
     distributorIds.length > 0
-      ? supabase.from("sales").select("id, source_id, date").eq("type", "ST2").eq("source_type", "distributor").in("source_id", distributorIds)
+      ? supabase.from("sales").select("id, destination_id, date").eq("type", "ST1").eq("destination_type", "distributor").in("destination_id", distributorIds)
       : Promise.resolve({ data: [] }),
     subDealerIds.length > 0
-      ? supabase.from("sales").select("id, destination_id, date").eq("type", "ST2").eq("destination_type", "sub_dealer").in("destination_id", subDealerIds)
+      ? supabase.from("stock").select("sub_dealer_id, product_id, sold_out_at").eq("status", "sold_out").in("sub_dealer_id", subDealerIds)
       : Promise.resolve({ data: [] }),
   ]);
   const distSales = distSalesRes.data || [];
-  const subSales = subSalesRes.data || [];
+  const subSellouts = subSelloutRes.data || [];
 
-  const allSaleIds = [...distSales.map((s: any) => s.id), ...subSales.map((s: any) => s.id)];
   const { data: itemsData } =
-    allSaleIds.length > 0 ? await supabase.from("sale_items").select("sale_id, product_id").in("sale_id", allSaleIds) : { data: [] };
+    distSales.length > 0
+      ? await supabase.from("sale_items").select("sale_id, product_id").in("sale_id", distSales.map((s: any) => s.id))
+      : { data: [] };
   // sale_id -> product_id -> unit count, so a target can look up exactly its own product's share of that sale.
   const itemCountBySaleProduct = new Map<string, number>();
   (itemsData || []).forEach((it: any) => {
@@ -82,31 +91,14 @@ async function computeDistributorSubDealerAchieved(
     itemCountBySaleProduct.set(key, (itemCountBySaleProduct.get(key) || 0) + 1);
   });
 
-  const [distSelloutRes, subSelloutRes] = await Promise.all([
-    distributorIds.length > 0
-      ? supabase.from("stock").select("distributor_id, product_id, sold_out_at").eq("status", "sold_out").in("distributor_id", distributorIds)
-      : Promise.resolve({ data: [] }),
-    subDealerIds.length > 0
-      ? supabase.from("stock").select("sub_dealer_id, product_id, sold_out_at").eq("status", "sold_out").in("sub_dealer_id", subDealerIds)
-      : Promise.resolve({ data: [] }),
-  ]);
-  const distSellouts = distSelloutRes.data || [];
-  const subSellouts = subSelloutRes.data || [];
-
   targets.forEach((t) => {
     let achieved = 0;
     if (t.assigneeRole === "distributor") {
-      achieved += distSales
-        .filter((s: any) => s.source_id === t.assigneeId && withinPeriod(s.date, t.periodStart, t.periodEnd))
-        .reduce((sum: number, s: any) => sum + (itemCountBySaleProduct.get(`${s.id}|${t.productId}`) || 0), 0);
-      achieved += distSellouts.filter(
-        (r: any) => r.distributor_id === t.assigneeId && r.product_id === t.productId && withinPeriod(r.sold_out_at, t.periodStart, t.periodEnd)
-      ).length;
-    } else if (t.assigneeRole === "sub_dealer") {
-      achieved += subSales
+      achieved = distSales
         .filter((s: any) => s.destination_id === t.assigneeId && withinPeriod(s.date, t.periodStart, t.periodEnd))
         .reduce((sum: number, s: any) => sum + (itemCountBySaleProduct.get(`${s.id}|${t.productId}`) || 0), 0);
-      achieved += subSellouts.filter(
+    } else if (t.assigneeRole === "sub_dealer") {
+      achieved = subSellouts.filter(
         (r: any) => r.sub_dealer_id === t.assigneeId && r.product_id === t.productId && withinPeriod(r.sold_out_at, t.periodStart, t.periodEnd)
       ).length;
     }
