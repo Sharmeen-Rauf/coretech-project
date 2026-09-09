@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { Text, StyleSheet, ScrollView, ActivityIndicator, View } from "react-native";
+import { Target as TargetIcon } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
+import EmptyState from "../../components/EmptyState";
 
 interface TargetRow {
   id: string;
@@ -12,10 +14,13 @@ interface TargetRow {
   product?: { name: string; brand: string; model: string } | null;
 }
 
-// Target (Read Only) - §17 #20, self-scoped (assignee_id = caller.id
-// inside the query itself, no write path anywhere on mobile). Same shared
-// computeAchievedUnitsForTargets logic the web dashboard uses, including
-// the 2026-09-07 fix (Distributor = ST1 only, Sub-Dealer = SO only).
+// Target (Read Only everywhere on mobile, §12.1) - §17 #20, self-scoped
+// (assignee_id = caller.id inside the query itself, no write path anywhere
+// on mobile). Same shared computeAchievedUnitsForTargets logic the web
+// dashboard uses, including the 2026-09-07 fix (Distributor = ST1 only,
+// Sub-Dealer = SO only). The tab's own title ((tabs)/_layout.tsx) already
+// says "Target" - no in-body heading here, and no "(Read Only)" wording,
+// which was internal planning language that had leaked into the UI.
 export default function TargetScreen() {
   const [targets, setTargets] = useState<TargetRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,9 +42,12 @@ export default function TargetScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.heading}>Target (Read Only)</Text>
       {!!error && <Text style={styles.errorText}>{error}</Text>}
-      {!error && targets.length === 0 && <Text style={styles.emptyText}>No target assigned for the current period.</Text>}
+      {!error && targets.length === 0 && (
+        <View style={styles.emptyWrap}>
+          <EmptyState icon={TargetIcon} title="No target assigned" subtitle="Nothing set for the current period yet." />
+        </View>
+      )}
 
       {targets.map((t) => {
         const pct = t.target_units > 0 ? Math.min(100, Math.round((t.achieved_units / t.target_units) * 100)) : 0;
@@ -65,10 +73,9 @@ export default function TargetScreen() {
 const styles = StyleSheet.create({
   loader: { flex: 1, backgroundColor: theme.colors.background },
   container: { flex: 1, backgroundColor: theme.colors.background },
-  content: { padding: theme.spacing.md },
-  heading: { fontSize: 20, fontWeight: "bold", color: theme.colors.textPrimary, marginBottom: theme.spacing.md },
+  content: { padding: theme.spacing.md, flexGrow: 1 },
   errorText: { color: theme.colors.error, fontSize: 13, textAlign: "center" },
-  emptyText: { color: theme.colors.textMuted, fontSize: 13, textAlign: "center", marginTop: theme.spacing.lg },
+  emptyWrap: { flex: 1 },
   card: {
     backgroundColor: theme.colors.card,
     borderRadius: theme.radius.md,
