@@ -2,7 +2,7 @@
 
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
-import { getMyScopeAction } from "@/app/actions/roles";
+import { getMyScopeAction, type CallerOpts } from "@/app/actions/roles";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -159,13 +159,13 @@ export async function deleteAnnouncementAction(id: string) {
 // arrives" tracking - just the latest announcement addressed to this caller
 // (their own role, or "all"), shown every time they log in (the popup itself
 // decides "once per login" simply by mounting once per fresh dashboard load).
-export async function fetchLatestAnnouncementForCallerAction(): Promise<{
+export async function fetchLatestAnnouncementForCallerAction(opts?: CallerOpts): Promise<{
   success: boolean;
   announcement: { id: string; title: string; content: string; created_at: string } | null;
   error?: string;
 }> {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) return { success: false, announcement: null, error: "Not authenticated" };
 
     const supabase = getAdminClient();
@@ -186,5 +186,85 @@ export async function fetchLatestAnnouncementForCallerAction(): Promise<{
     };
   } catch (err: any) {
     return { success: false, announcement: null, error: err.message || "Failed to fetch latest announcement" };
+  }
+}
+
+export interface NotificationRow {
+  id: string;
+  title: string;
+  message: string;
+  created_at: string;
+  read: boolean;
+}
+
+// Genuinely new server-side logic, not a wrap of an existing action - the
+// web bell (Topbar.tsx) does this same query directly from the browser with
+// the anon key (relying on the wide-open RLS §6 already flagged), since web
+// never needed a server action for it. Mobile has no such direct-Supabase
+// path (§7), so this reproduces Topbar's exact fetch+read-state logic
+// server-side: last 20 notifications matching the caller's role or "all",
+// each with its own per-user read flag from notification_reads. No
+// real-time subscription here either, same reasoning as §18's fetch-on-open
+// design - this is a plain read, no side effects, safe to call from Home
+// for the unread badge without marking anything read.
+export async function fetchMyNotificationsAction(opts?: CallerOpts): Promise<{
+  success: boolean;
+  data: NotificationRow[];
+  unreadCount: number;
+  error?: string;
+}> {
+  try {
+    const caller = await getCallerIdentity(opts?.accessToken);
+    if (!caller) return { success: false, data: [], unreadCount: 0, error: "Not authenticated" };
+
+    const supabase = getAdminClient();
+    const { data: rows, error } = await supabase
+      .from("notifications")
+      .select("id, title, message, created_at")
+      .overlaps("target_role", ["all", caller.role || ""])
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (error) throw error;
+
+    let readIds = new Set<string>();
+    if ((rows || []).length > 0) {
+      const { data: reads } = await supabase
+        .from("notification_reads")
+        .select("notification_id")
+        .eq("user_id", caller.id)
+        .in("notification_id", (rows || []).map((r) => r.id));
+      readIds = new Set((reads || []).map((r: any) => r.notification_id));
+    }
+
+    const withReadState = (rows || []).map((r) => ({ ...r, read: readIds.has(r.id) }));
+    return { success: true, data: withReadState, unreadCount: withReadState.filter((n) => !n.read).length };
+  } catch (err: any) {
+    return { success: false, data: [], unreadCount: 0, error: err.message || "Failed to fetch notifications" };
+  }
+}
+
+// Marks specific notifications read for the caller only (notification_reads
+// is per-user, §18 - one person opening their Notifications screen never
+// affects anyone else's unread state). Mirrors Topbar.tsx's markAllAsRead
+// upsert exactly, just parameterized by which ids to mark rather than always
+// "whatever's currently unread in this browser tab's state."
+export async function markNotificationsReadAction(notificationIds: string[], opts?: CallerOpts): Promise<{ success: boolean; error?: string }> {
+  try {
+    const caller = await getCallerIdentity(opts?.accessToken);
+    if (!caller) return { success: false, error: "Not authenticated" };
+    if (!notificationIds || notificationIds.length === 0) return { success: true };
+
+    const supabase = getAdminClient();
+    const { error } = await supabase
+      .from("notification_reads")
+      .upsert(
+        notificationIds.map((notification_id) => ({ notification_id, user_id: caller.id })),
+        { onConflict: "notification_id,user_id" }
+      );
+    if (error) throw error;
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to mark notifications read" };
   }
 }

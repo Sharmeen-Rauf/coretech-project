@@ -45,3 +45,31 @@ export async function resolveMobileCaller(
     caller: { accessToken, callerId: identity.id, role: identity.role, scope, callerRegion, canWrite },
   };
 }
+
+export interface MobileIdentity {
+  accessToken: string;
+  callerId: string;
+  role: string;
+}
+
+// For the handful of routes with no PERMISSION_CATALOG key at all -
+// announcements/notifications (§18): "not the mobile permission system...
+// it's role-targeted content, not a role-permission gate" - every logged-in
+// mobile user sees whatever's targeted at their role automatically. Same
+// token verification as resolveMobileCaller, just without the mobile_granted
+// check that has nothing to check against here.
+export async function resolveMobileIdentity(
+  request: NextRequest
+): Promise<{ ok: true; caller: MobileIdentity } | { ok: false; response: NextResponse }> {
+  const accessToken = getBearerToken(request);
+  if (!accessToken) {
+    return { ok: false, response: NextResponse.json({ success: false, error: "Missing Authorization header" }, { status: 401 }) };
+  }
+
+  const identity = await getCallerIdentity(accessToken);
+  if (!identity || !identity.role) {
+    return { ok: false, response: NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 }) };
+  }
+
+  return { ok: true, caller: { accessToken, callerId: identity.id, role: identity.role } };
+}
