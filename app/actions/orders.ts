@@ -2,7 +2,7 @@
 
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
-import { getMyScopeAction } from "@/app/actions/roles";
+import { getMyScopeAction, type CallerOpts } from "@/app/actions/roles";
 import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
 function getAdminClient() {
@@ -26,13 +26,13 @@ function getAdminClient() {
 // (their own coordinated orders OR any order tied to a distributor in their
 // region) rather than a pure region filter, to avoid narrowing what an RSM could
 // already see before this change.
-export async function fetchOrdersAction() {
+export async function fetchOrdersAction(opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) return { success: false, error: "Not authenticated", data: [], role: null };
 
     const supabase = getAdminClient();
-    const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("buzzcart");
+    const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("buzzcart", opts);
 
     let query = supabase.from("orders").select(`
         id,
@@ -114,12 +114,12 @@ export async function createBuzzcartOrderAction(params: {
   selectedSubDealerId?: string | null;
   selectedEmployeeId?: string | null; // only honored if caller is admin
   items: Array<{ productId: string; productName: string; quantity: number; price: number }>;
-}) {
+}, opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) return { success: false, error: "Not authenticated" };
 
-    const { canWrite } = await getMyScopeAction("buzzcart");
+    const { canWrite } = await getMyScopeAction("buzzcart", opts);
     if (!canWrite) return { success: false, error: "You have read-only access to Buzzcart" };
 
     if (!params.items || params.items.length === 0) {

@@ -4,6 +4,10 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { Client } from "pg";
+// Type-only import - erased at compile time, so this can't create the real
+// runtime circular dependency roles.ts's own comment warns about (it imports
+// getCallerIdentity from this file).
+import type { CallerOpts } from "@/app/actions/roles";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -672,35 +676,42 @@ const USERS_SCOPE_KEY_BY_ACTIVE_ROLE: Record<string, string> = {
 // this file - importing back the other way would create a circular dependency
 // between the two "use server" modules, unlike the one-directional imports
 // orders.ts/products.ts/expenses.ts already use safely.
-async function getUsersScopeAndWrite(caller: { id: string; role: string | null }, scopeKey: string | undefined) {
+async function getUsersScopeAndWrite(
+  caller: { id: string; role: string | null },
+  scopeKey: string | undefined,
+  surface: "web" | "mobile" = "web"
+) {
   const supabase = getAdminClient();
-  if (caller.role === "admin") return { scope: "everything" as const, callerRegion: null as string | null, canWrite: true };
-  if (!scopeKey) return { scope: "everything" as const, callerRegion: null as string | null, canWrite: true };
+  if (caller.role === "admin") return { scope: "everything" as const, callerRegion: null as string | null, canWrite: true, granted: true };
+  if (!scopeKey) return { scope: "everything" as const, callerRegion: null as string | null, canWrite: true, granted: true };
 
   const { data: callerProfile } = await supabase.from("profiles").select("region").eq("id", caller.id).maybeSingle();
   const callerRegion = callerProfile?.region || null;
 
   const { data: roleRow } = await supabase.from("roles").select("id").eq("name", caller.role || "").maybeSingle();
-  if (!roleRow) return { scope: "self" as const, callerRegion, canWrite: false };
+  if (!roleRow) return { scope: "self" as const, callerRegion, canWrite: false, granted: false };
 
   const { data: permRow } = await supabase
     .from("role_permissions")
-    .select("scope_level, granted, can_write")
+    .select("scope_level, granted, can_write, mobile_scope_level, mobile_granted, mobile_can_write")
     .eq("role_id", roleRow.id)
     .eq("permission_key", scopeKey)
     .maybeSingle();
 
-  if (!permRow?.granted) return { scope: "self" as const, callerRegion, canWrite: false };
+  const mobile = surface === "mobile";
+  const granted = !!(mobile ? permRow?.mobile_granted : permRow?.granted);
+  if (!granted) return { scope: "self" as const, callerRegion, canWrite: false, granted: false };
   return {
-    scope: (permRow.scope_level as "self" | "region" | "everything") || "self",
+    scope: ((mobile ? permRow?.mobile_scope_level : permRow?.scope_level) as "self" | "region" | "everything") || "self",
     callerRegion,
-    canWrite: permRow.can_write !== false,
+    canWrite: (mobile ? permRow?.mobile_can_write : permRow?.can_write) !== false,
+    granted: true,
   };
 }
 
-export async function fetchUsersAction(activeRole: string) {
+export async function fetchUsersAction(activeRole: string, opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) return { success: false, error: "Not authenticated", data: [] };
 
     const supabase = getAdminClient();

@@ -2,7 +2,7 @@
 
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
-import { getMyScopeAction } from "@/app/actions/roles";
+import { getMyScopeAction, type CallerOpts } from "@/app/actions/roles";
 import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
 function getAdminClient() {
@@ -25,9 +25,9 @@ export async function submitSt2Action(params: {
   passedItems: { serial_no: string; product_id: string }[];
   date: string;
   stId: string;
-}) {
+}, opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) {
       return { success: false, error: "Not authenticated" };
     }
@@ -35,7 +35,7 @@ export async function submitSt2Action(params: {
       return { success: false, error: "You can only create ST2 transfers for your own distributor account" };
     }
 
-    const { canWrite } = await getMyScopeAction("sales.st2");
+    const { canWrite } = await getMyScopeAction("sales.st2", opts);
     if (!canWrite) return { success: false, error: "You have read-only access to ST-2" };
 
     if (!params.distributorId || !params.subDealerId) {
@@ -428,12 +428,12 @@ export async function submitManualSelloutAction(params: {
   consumerPhone: string;
   siteAddress?: string;
   stId: string;
-}) {
+}, opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) return { success: false, error: "Not authenticated" };
 
-    const { canWrite } = await getMyScopeAction("sales.sellout");
+    const { canWrite } = await getMyScopeAction("sales.sellout", opts);
     if (!canWrite) return { success: false, error: "You have read-only access to Sell Out" };
 
     if (!params.serialNo?.trim()) return { success: false, error: "Serial number is required" };
@@ -624,9 +624,9 @@ export async function submitSt1Action(params: {
 // action - self-scope covers whichever side of the transaction actually belongs
 // to the caller (source or destination, since a distributor might be either
 // depending on the transaction type), everything is unfiltered.
-export async function fetchSalesLedgerAction(type: string) {
+export async function fetchSalesLedgerAction(type: string, opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) return { success: false, error: "Not authenticated", data: [], role: null };
 
     const scopeKeyByType: Record<string, string> = {
@@ -634,7 +634,7 @@ export async function fetchSalesLedgerAction(type: string) {
     };
     const scopeKey = scopeKeyByType[type];
     const { scope, callerId, callerRegion } = scopeKey
-      ? await getMyScopeAction(scopeKey)
+      ? await getMyScopeAction(scopeKey, opts)
       : { scope: "everything" as const, callerId: caller.id, callerRegion: null };
 
     const supabase = getAdminClient();

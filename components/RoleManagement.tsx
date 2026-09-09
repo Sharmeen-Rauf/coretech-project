@@ -293,6 +293,7 @@ export default function RoleManagement() {
 
                           const mobileEligible = item.mobileEligible === true;
                           const mobileWriteEligible = item.mobileWriteEligible !== false;
+                          const mobileScopeOptions = item.mobileSupportedScopes || scopeOptions;
                           const mobileGranted = row?.mobile_granted || false;
                           const mobileScope = row?.mobile_scope_level || "everything";
                           const mobileCanWrite = row?.mobile_can_write !== false;
@@ -356,13 +357,13 @@ export default function RoleManagement() {
                                       />
                                       <span className="font-semibold">Granted</span>
                                     </label>
-                                    {mobileGranted && scopeOptions && scopeOptions.length > 1 && (
+                                    {mobileGranted && mobileScopeOptions && mobileScopeOptions.length > 1 && (
                                       <select
                                         value={mobileScope}
                                         onChange={(e) => setMobileScope(item.key, e.target.value as ScopeLevel)}
                                         className="h-6 px-1.5 border border-slate-200 rounded text-[10px] font-semibold text-slate-600 focus:outline-none focus:border-[#00B4D8]"
                                       >
-                                        {scopeOptions.map((opt) => (
+                                        {mobileScopeOptions.map((opt) => (
                                           <option key={opt} value={opt}>{SCOPE_LABELS[opt]}</option>
                                         ))}
                                       </select>

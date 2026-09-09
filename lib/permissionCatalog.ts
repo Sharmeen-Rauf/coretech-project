@@ -33,6 +33,9 @@ export interface PermissionItem {
   // mobile, regardless of mobile_can_write's stored value. Only meaningful
   // when mobileEligible is true; defaults to true (writable) otherwise.
   mobileWriteEligible?: boolean;
+  // Overrides supportedScopes for mobile's own scope dropdown, when mobile
+  // shouldn't offer every scope web does. Defaults to supportedScopes.
+  mobileSupportedScopes?: ScopeLevel[];
 }
 
 export interface PermissionGroup {
@@ -127,10 +130,12 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     items: [
       { key: "users.add_employee", label: "Add Employee", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"] },
       // Backs the admin app's Employee "Distributor View" - hard view-only on
-      // mobile, same reasoning as ST1 above.
-      { key: "users.add_distributor", label: "Add Distributor", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"], mobileEligible: true, mobileWriteEligible: false },
+      // mobile, same reasoning as ST1 above. No "Self" on mobile - an
+      // employee viewing their own distributor/sub-dealer record isn't a
+      // meaningful scope the way it is for a distributor's own ST2 access.
+      { key: "users.add_distributor", label: "Add Distributor", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"], mobileEligible: true, mobileWriteEligible: false, mobileSupportedScopes: ["region", "everything"] },
       // Backs the admin app's Employee "Sub-Dealer View" - hard view-only on mobile.
-      { key: "users.add_sub_dealer", label: "Add Sub Dealer", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"], mobileEligible: true, mobileWriteEligible: false },
+      { key: "users.add_sub_dealer", label: "Add Sub Dealer", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"], mobileEligible: true, mobileWriteEligible: false, mobileSupportedScopes: ["region", "everything"] },
       { key: "users.add_installer", label: "Add Installer", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"] },
       // Backs the admin app's Distributor "own Sub Dealer List" view.
       { key: "users.dealer_assignment", label: "Dealer Assignment", route: "/dashboard/users", mobileEligible: true },

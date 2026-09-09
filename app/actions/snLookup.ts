@@ -2,7 +2,7 @@
 
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
-import { getMyPermissionKeysAction } from "@/app/actions/roles";
+import { getMyPermissionKeysAction, type CallerOpts } from "@/app/actions/roles";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -16,11 +16,11 @@ function getAdminClient() {
 // filter, per the client's decision - it's only ever handed to roles who
 // should see full traceability). No canWrite concept either - this feature
 // has no write path at all, it's a read-only chain-of-custody view.
-async function assertGranted() {
-  const caller = await getCallerIdentity();
+async function assertGranted(opts?: CallerOpts) {
+  const caller = await getCallerIdentity(opts?.accessToken);
   if (!caller) return { ok: false as const, error: "Not authenticated" };
 
-  const { role, keys } = await getMyPermissionKeysAction();
+  const { role, keys } = await getMyPermissionKeysAction(opts);
   if (role !== "admin" && !keys.includes("sn_lookup")) {
     return { ok: false as const, error: "You don't have access to SN Lookup" };
   }
@@ -69,9 +69,9 @@ function partyDisplayName(
   return nameById.get(id) || "Unknown";
 }
 
-export async function fetchSnLookupAction(serialNo: string) {
+export async function fetchSnLookupAction(serialNo: string, opts?: CallerOpts) {
   try {
-    const gate = await assertGranted();
+    const gate = await assertGranted(opts);
     if (!gate.ok) return { success: false, error: gate.error, found: false };
 
     const sn = (serialNo || "").trim();

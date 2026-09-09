@@ -2,7 +2,7 @@
 
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
-import { getMyScopeAction } from "@/app/actions/roles";
+import { getMyScopeAction, type CallerOpts } from "@/app/actions/roles";
 import { computeAchievedUnitsForTargets, type TargetPeriodRef } from "@/lib/targetProgress";
 
 function getAdminClient() {
@@ -20,9 +20,9 @@ const PRODUCT_SELECT = "product:products(id, name, brand, model)";
 // cover today - every target sharing the single most recently assigned
 // period, so a caller with several product-lines assigned together still
 // sees all of them, not just one.
-export async function fetchMyTargetAction() {
+export async function fetchMyTargetAction(opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) return { success: false, error: "Not authenticated", targets: [] };
 
     const supabase = getAdminClient();
