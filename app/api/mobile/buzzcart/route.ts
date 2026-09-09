@@ -1,15 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveMobileCaller } from "@/lib/mobileAuth";
-import { fetchOrdersAction, createBuzzcartOrderAction } from "@/app/actions/orders";
+import { fetchOrdersAction, createBuzzcartOrderAction, fetchBuzzcartPickersAction } from "@/app/actions/orders";
+import { fetchProductsAction } from "@/app/actions/products";
 
 const PERMISSION_KEY = "buzzcart";
 
+// Also returns the product catalog and the distributor/sub-dealer picker
+// options the create form needs (fetchBuzzcartPickersAction) - both
+// intrinsic to completing an order, not separately permission-gated, so
+// they ride along with the same buzzcart-gated request instead of needing
+// their own routes.
 export async function GET(request: NextRequest) {
   const auth = await resolveMobileCaller(request, PERMISSION_KEY);
   if (!auth.ok) return auth.response;
 
-  const result = await fetchOrdersAction({ accessToken: auth.caller.accessToken, surface: "mobile" });
-  return NextResponse.json(result, { status: result.success ? 200 : 400 });
+  const [ordersResult, productsResult, pickersResult] = await Promise.all([
+    fetchOrdersAction({ accessToken: auth.caller.accessToken, surface: "mobile" }),
+    fetchProductsAction(),
+    fetchBuzzcartPickersAction(),
+  ]);
+  if (!ordersResult.success) return NextResponse.json(ordersResult, { status: 400 });
+
+  return NextResponse.json({
+    ...ordersResult,
+    products: productsResult.data,
+    distributors: pickersResult.distributors,
+    subDealers: pickersResult.subDealers,
+  });
 }
 
 // Buzzcart items are product+quantity, not individual serials (orders.items

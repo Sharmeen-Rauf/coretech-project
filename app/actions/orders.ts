@@ -13,6 +13,25 @@ function getAdminClient() {
   });
 }
 
+// Distributor/sub-dealer picker options for the Buzzcart create form -
+// company-wide, unguarded, same as fetchProductsAction: this data is
+// intrinsic to completing an order (who it's for), not a separate
+// directory-browsing feature, so it isn't scoped by users.add_distributor/
+// users.add_sub_dealer. Callers only ever reach this via the buzzcart
+// mobile route, which has already checked the buzzcart permission itself.
+export async function fetchBuzzcartPickersAction() {
+  try {
+    const supabase = getAdminClient();
+    const [{ data: distributors }, { data: subDealers }] = await Promise.all([
+      supabase.from("profiles").select("id, first_name, last_name").eq("role", "distributor").order("first_name", { ascending: true }),
+      supabase.from("profiles").select("id, first_name, last_name").eq("role", "sub_dealer").order("first_name", { ascending: true }),
+    ]);
+    return { success: true, distributors: distributors || [], subDealers: subDealers || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch order recipients", distributors: [], subDealers: [] };
+  }
+}
+
 // Stage 2 (Role Management): the order ledger used to be fetched client-side with
 // the anon key, trusting a client-resolved role to build the filter - meaning the
 // only real barrier against seeing every order was a fully permissive RLS policy

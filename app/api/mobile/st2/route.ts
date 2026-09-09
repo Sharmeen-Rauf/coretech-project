@@ -12,7 +12,11 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return auth.response;
 
   const result = await fetchSalesLedgerAction("ST2", { accessToken: auth.caller.accessToken, surface: "mobile" });
-  return NextResponse.json(result, { status: result.success ? 200 : 400 });
+  // fetchSalesLedgerAction doesn't return canWrite (web's ST2 page doesn't
+  // need it - reaching the page at all already implies write access there).
+  // Mobile has no such implication, so the route's own already-resolved
+  // mobile canWrite is merged in here for the create button to key off.
+  return NextResponse.json({ ...result, canWrite: auth.caller.canWrite }, { status: result.success ? 200 : 400 });
 }
 
 // Bulk scanning for ST2 doesn't need a server-side per-item loop the way
