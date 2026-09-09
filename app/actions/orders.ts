@@ -2,7 +2,7 @@
 
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
-import { getMyScopeAction } from "@/app/actions/roles";
+import { getMyScopeAction, type CallerOpts } from "@/app/actions/roles";
 import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
 function getAdminClient() {
@@ -11,6 +11,25 @@ function getAdminClient() {
   return createJSClient(supabaseUrl, supabaseServiceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+// Distributor/sub-dealer picker options for the Buzzcart create form -
+// company-wide, unguarded, same as fetchProductsAction: this data is
+// intrinsic to completing an order (who it's for), not a separate
+// directory-browsing feature, so it isn't scoped by users.add_distributor/
+// users.add_sub_dealer. Callers only ever reach this via the buzzcart
+// mobile route, which has already checked the buzzcart permission itself.
+export async function fetchBuzzcartPickersAction() {
+  try {
+    const supabase = getAdminClient();
+    const [{ data: distributors }, { data: subDealers }] = await Promise.all([
+      supabase.from("profiles").select("id, first_name, last_name").eq("role", "distributor").order("first_name", { ascending: true }),
+      supabase.from("profiles").select("id, first_name, last_name").eq("role", "sub_dealer").order("first_name", { ascending: true }),
+    ]);
+    return { success: true, distributors: distributors || [], subDealers: subDealers || [] };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch order recipients", distributors: [], subDealers: [] };
+  }
 }
 
 // Stage 2 (Role Management): the order ledger used to be fetched client-side with
@@ -26,13 +45,13 @@ function getAdminClient() {
 // (their own coordinated orders OR any order tied to a distributor in their
 // region) rather than a pure region filter, to avoid narrowing what an RSM could
 // already see before this change.
-export async function fetchOrdersAction() {
+export async function fetchOrdersAction(opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) return { success: false, error: "Not authenticated", data: [], role: null };
 
     const supabase = getAdminClient();
-    const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("buzzcart");
+    const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("buzzcart", opts);
 
     let query = supabase.from("orders").select(`
         id,
@@ -114,12 +133,12 @@ export async function createBuzzcartOrderAction(params: {
   selectedSubDealerId?: string | null;
   selectedEmployeeId?: string | null; // only honored if caller is admin
   items: Array<{ productId: string; productName: string; quantity: number; price: number }>;
-}) {
+}, opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) return { success: false, error: "Not authenticated" };
 
-    const { canWrite } = await getMyScopeAction("buzzcart");
+    const { canWrite } = await getMyScopeAction("buzzcart", opts);
     if (!canWrite) return { success: false, error: "You have read-only access to Buzzcart" };
 
     if (!params.items || params.items.length === 0) {

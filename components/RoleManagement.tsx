@@ -26,6 +26,9 @@ interface PermRow {
   locked: boolean;
   scope_level: ScopeLevel;
   can_write: boolean;
+  mobile_granted: boolean;
+  mobile_scope_level: ScopeLevel;
+  mobile_can_write: boolean;
 }
 
 const SCOPE_LABELS: Record<ScopeLevel, string> = { self: "Self only", region: "My region", everything: "Everything" };
@@ -57,7 +60,9 @@ export default function RoleManagement() {
     setEditingRole(null);
     setModalDisplayName("");
     const empty: Record<string, PermRow> = {};
-    PERMISSION_CATALOG.forEach((g) => g.items.forEach((i) => { empty[i.key] = { permission_key: i.key, granted: false, locked: false, scope_level: "everything", can_write: true }; }));
+    PERMISSION_CATALOG.forEach((g) => g.items.forEach((i) => {
+      empty[i.key] = { permission_key: i.key, granted: false, locked: false, scope_level: "everything", can_write: true, mobile_granted: false, mobile_scope_level: "everything", mobile_can_write: true };
+    }));
     setModalPerms(empty);
     setIsModalOpen(true);
   };
@@ -78,7 +83,7 @@ export default function RoleManagement() {
       // role actually has saved.
       const map: Record<string, PermRow> = {};
       PERMISSION_CATALOG.forEach((g) => g.items.forEach((i) => {
-        map[i.key] = { permission_key: i.key, granted: false, locked: false, scope_level: "everything", can_write: true };
+        map[i.key] = { permission_key: i.key, granted: false, locked: false, scope_level: "everything", can_write: true, mobile_granted: false, mobile_scope_level: "everything", mobile_can_write: true };
       }));
       (res.data as PermRow[]).forEach((p) => { map[p.permission_key] = p; });
       setModalPerms(map);
@@ -118,21 +123,51 @@ export default function RoleManagement() {
     });
   };
 
+  // Mobile toggles are independent of `locked` (§9 - mobile has no locked
+  // concept of its own yet) and of the row's web `granted` state.
+  const toggleMobilePerm = (key: string) => {
+    setModalPerms((prev) => {
+      const row = prev[key];
+      if (!row) return prev;
+      const granting = !row.mobile_granted;
+      return { ...prev, [key]: { ...row, mobile_granted: granting, mobile_can_write: granting ? true : row.mobile_can_write } };
+    });
+  };
+
+  const setMobileScope = (key: string, scope: ScopeLevel) => {
+    setModalPerms((prev) => {
+      const row = prev[key];
+      if (!row) return prev;
+      return { ...prev, [key]: { ...row, mobile_scope_level: scope } };
+    });
+  };
+
+  const setMobileWrite = (key: string, canWrite: boolean) => {
+    setModalPerms((prev) => {
+      const row = prev[key];
+      if (!row) return prev;
+      return { ...prev, [key]: { ...row, mobile_can_write: canWrite } };
+    });
+  };
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
       const grants = Object.values(modalPerms)
         .filter((p) => p.granted)
         .map((p) => ({ key: p.permission_key, scope: p.scope_level, canWrite: p.can_write }));
+      const mobileGrants = Object.values(modalPerms)
+        .filter((p) => p.mobile_granted)
+        .map((p) => ({ key: p.permission_key, scope: p.mobile_scope_level, canWrite: p.mobile_can_write }));
 
       if (editingRole) {
-        const res = await updateRolePermissionsAction(editingRole.id, grants, editingRole.is_system_role ? undefined : modalDisplayName);
+        const res = await updateRolePermissionsAction(editingRole.id, grants, mobileGrants, editingRole.is_system_role ? undefined : modalDisplayName);
         if (!res.success) { toast.error(res.error || "Failed to update role"); return; }
         toast.success("Role updated");
       } else {
         const createRes = await createRoleAction(modalDisplayName);
         if (!createRes.success || !createRes.roleId) { toast.error(createRes.error || "Failed to create role"); return; }
-        const permRes = await updateRolePermissionsAction(createRes.roleId, grants);
+        const permRes = await updateRolePermissionsAction(createRes.roleId, grants, mobileGrants);
         if (!permRes.success) { toast.error(permRes.error || "Role created, but permissions failed to save"); return; }
         toast.success("Role created");
       }
@@ -255,44 +290,105 @@ export default function RoleManagement() {
                           const scope = row?.scope_level || "everything";
                           const canWrite = row?.can_write !== false;
                           const scopeOptions = item.supportedScopes;
+
+                          const mobileEligible = item.mobileEligible === true;
+                          const mobileWriteEligible = item.mobileWriteEligible !== false;
+                          const mobileScopeOptions = item.mobileSupportedScopes || scopeOptions;
+                          const mobileGranted = row?.mobile_granted || false;
+                          const mobileScope = row?.mobile_scope_level || "everything";
+                          const mobileCanWrite = row?.mobile_can_write !== false;
+
                           return (
-                            <div key={item.key} className={`flex items-center gap-2 px-2 py-1.5 rounded-[6px] text-xs font-semibold ${locked ? "bg-slate-50 text-slate-400" : "hover:bg-slate-50 text-slate-700"}`}>
-                              <label className="flex items-center gap-2 cursor-pointer flex-1">
-                                <input
-                                  type="checkbox"
-                                  checked={granted}
-                                  disabled={locked}
-                                  onChange={() => togglePerm(item.key)}
-                                  className="w-3.5 h-3.5 rounded border-slate-300 text-[#00B4D8] focus:ring-[#00B4D8] disabled:opacity-60"
-                                />
-                                <span>{item.label}</span>
-                                {locked && (
-                                  <span title="This role's access here is tied to real approval logic in the app and can't be changed">
-                                    <Lock className="w-3 h-3 text-slate-400" />
-                                  </span>
+                            <div key={item.key} className={`rounded-[6px] ${locked ? "bg-slate-50" : "hover:bg-slate-50"}`}>
+                              <div className={`flex items-center gap-2 px-2 py-1.5 text-xs font-semibold ${locked ? "text-slate-400" : "text-slate-700"}`}>
+                                <label className="flex items-center gap-2 cursor-pointer flex-1">
+                                  <input
+                                    type="checkbox"
+                                    checked={granted}
+                                    disabled={locked}
+                                    onChange={() => togglePerm(item.key)}
+                                    className="w-3.5 h-3.5 rounded border-slate-300 text-[#00B4D8] focus:ring-[#00B4D8] disabled:opacity-60"
+                                  />
+                                  <span>{item.label}</span>
+                                  {locked && (
+                                    <span title="This role's access here is tied to real approval logic in the app and can't be changed">
+                                      <Lock className="w-3 h-3 text-slate-400" />
+                                    </span>
+                                  )}
+                                </label>
+                                {granted && !locked && scopeOptions && scopeOptions.length > 1 && (
+                                  <select
+                                    value={scope}
+                                    onChange={(e) => setScope(item.key, e.target.value as ScopeLevel)}
+                                    className="h-6 px-1.5 border border-slate-200 rounded text-[10px] font-semibold text-slate-600 focus:outline-none focus:border-[#00B4D8]"
+                                  >
+                                    {scopeOptions.map((opt) => (
+                                      <option key={opt} value={opt}>{SCOPE_LABELS[opt]}</option>
+                                    ))}
+                                  </select>
                                 )}
-                              </label>
-                              {granted && !locked && scopeOptions && scopeOptions.length > 1 && (
-                                <select
-                                  value={scope}
-                                  onChange={(e) => setScope(item.key, e.target.value as ScopeLevel)}
-                                  className="h-6 px-1.5 border border-slate-200 rounded text-[10px] font-semibold text-slate-600 focus:outline-none focus:border-[#00B4D8]"
-                                >
-                                  {scopeOptions.map((opt) => (
-                                    <option key={opt} value={opt}>{SCOPE_LABELS[opt]}</option>
-                                  ))}
-                                </select>
-                              )}
-                              {granted && !locked && (
-                                <select
-                                  value={canWrite ? "write" : "read"}
-                                  onChange={(e) => setWrite(item.key, e.target.value === "write")}
-                                  className="h-6 px-1.5 border border-slate-200 rounded text-[10px] font-semibold text-slate-600 focus:outline-none focus:border-[#00B4D8]"
-                                >
-                                  <option value="write">Read/Write</option>
-                                  <option value="read">Read Only</option>
-                                </select>
-                              )}
+                                {granted && !locked && (
+                                  <select
+                                    value={canWrite ? "write" : "read"}
+                                    onChange={(e) => setWrite(item.key, e.target.value === "write")}
+                                    className="h-6 px-1.5 border border-slate-200 rounded text-[10px] font-semibold text-slate-600 focus:outline-none focus:border-[#00B4D8]"
+                                  >
+                                    <option value="write">Read/Write</option>
+                                    <option value="read">Read Only</option>
+                                  </select>
+                                )}
+                              </div>
+
+                              {/* Mobile column - fully independent of the web row above (§9).
+                                  Greyed out and un-clickable when this permission has no mobile
+                                  screen at all (mobileEligible false), not just left unchecked. */}
+                              <div className={`flex items-center gap-2 pl-7 pr-2 py-1 text-[11px] ${mobileEligible ? "text-slate-500" : "text-slate-300"}`}>
+                                <span className="text-[9px] font-bold uppercase tracking-wider w-11 shrink-0">Mobile</span>
+                                {!mobileEligible ? (
+                                  <span className="italic">Not available on mobile</span>
+                                ) : (
+                                  <>
+                                    <label className="flex items-center gap-1.5 cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={mobileGranted}
+                                        onChange={() => toggleMobilePerm(item.key)}
+                                        className="w-3.5 h-3.5 rounded border-slate-300 text-[#00B4D8] focus:ring-[#00B4D8]"
+                                      />
+                                      <span className="font-semibold">Granted</span>
+                                    </label>
+                                    {mobileGranted && mobileScopeOptions && mobileScopeOptions.length > 1 && (
+                                      <select
+                                        value={mobileScope}
+                                        onChange={(e) => setMobileScope(item.key, e.target.value as ScopeLevel)}
+                                        className="h-6 px-1.5 border border-slate-200 rounded text-[10px] font-semibold text-slate-600 focus:outline-none focus:border-[#00B4D8]"
+                                      >
+                                        {mobileScopeOptions.map((opt) => (
+                                          <option key={opt} value={opt}>{SCOPE_LABELS[opt]}</option>
+                                        ))}
+                                      </select>
+                                    )}
+                                    {mobileGranted && mobileWriteEligible && (
+                                      <select
+                                        value={mobileCanWrite ? "write" : "read"}
+                                        onChange={(e) => setMobileWrite(item.key, e.target.value === "write")}
+                                        className="h-6 px-1.5 border border-slate-200 rounded text-[10px] font-semibold text-slate-600 focus:outline-none focus:border-[#00B4D8]"
+                                      >
+                                        <option value="write">Read/Write</option>
+                                        <option value="read">Read Only</option>
+                                      </select>
+                                    )}
+                                    {mobileGranted && !mobileWriteEligible && (
+                                      <span
+                                        className="italic"
+                                        title="No write screen is built for this on mobile - it's view only regardless of this setting"
+                                      >
+                                        View only (app-level)
+                                      </span>
+                                    )}
+                                  </>
+                                )}
+                              </div>
                             </div>
                           );
                         })}

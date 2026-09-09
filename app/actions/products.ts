@@ -5,7 +5,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
-import { getMyScopeAction } from "@/app/actions/roles";
+import { getMyScopeAction, type CallerOpts } from "@/app/actions/roles";
 import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
 // Escapes SQL LIKE/ILIKE wildcard characters in user-supplied input before it
@@ -110,7 +110,7 @@ export async function fetchProductsAction(category?: string) {
   }
 }
 
-export async function fetchStockAction() {
+export async function fetchStockAction(opts?: CallerOpts) {
   const supabase = getAdminClient();
   try {
     // A unit stays "in inventory" its whole life - warehouse, then distributor,
@@ -123,8 +123,8 @@ export async function fetchStockAction() {
     // and "everything" shows the full pool with no filter at all - genuinely every
     // unit regardless of allocation stage, not just unclaimed warehouse stock the
     // way the old hardcoded catch-all worked.
-    const caller = await getCallerIdentity();
-    const { scope, callerId, callerRegion } = await getMyScopeAction("purchase.inventory");
+    const caller = await getCallerIdentity(opts?.accessToken);
+    const { scope, callerId, callerRegion } = await getMyScopeAction("purchase.inventory", opts);
 
     // Region scope's distributor-id lookup only needs to happen once, not once
     // per page below.
@@ -651,10 +651,10 @@ export async function rejectJobStage2Action(jobId: string, serialNumber: string,
   return rejectJobInternal(jobId, serialNumber, note, caller.id);
 }
 
-export async function fetchSellOutAction() {
+export async function fetchSellOutAction(opts?: CallerOpts) {
   const supabase = getAdminClient();
   try {
-    const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("sales.sellout");
+    const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("sales.sellout", opts);
 
     let query = supabase
       .from("stock")

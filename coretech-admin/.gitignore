@@ -1,0 +1,12 @@
+node_modules/
+.expo/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env*
+
+# Build artifacts belong in EAS's own build history (eas build:list), not the repo.
+*.aab
+*.apk
+*.apks
