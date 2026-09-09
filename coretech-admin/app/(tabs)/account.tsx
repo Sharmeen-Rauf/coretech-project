@@ -1,11 +1,18 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { User, Phone, MapPin, Shield } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 import { resolveAdminAccess, AdminAccess } from "../../lib/access";
 import { theme } from "../../lib/theme";
+import { mobileApiFetch } from "../../lib/api";
 import Button from "../../components/Button";
+
+interface MyActivity {
+  sellOut: number | null;
+  st1: number | null;
+  st2: number | null;
+}
 
 const ROLE_LABELS: Record<string, string> = {
   distributor: "Distributor",
@@ -21,6 +28,7 @@ const ROLE_LABELS: Record<string, string> = {
 // installer app's own Profile screen pattern (name, role, sign out).
 export default function AccountScreen() {
   const [access, setAccess] = useState<AdminAccess | null>(null);
+  const [activity, setActivity] = useState<MyActivity | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -30,6 +38,16 @@ export default function AccountScreen() {
     });
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      mobileApiFetch<{ success: boolean } & MyActivity>("/api/mobile/me/activity")
+        .then((res) => setActivity(res.success ? { sellOut: res.sellOut, st1: res.st1, st2: res.st2 } : null))
+        .catch(() => {});
+    }, [])
+  );
+
+  const hasActivity = !!(activity && (activity.sellOut !== null || activity.st1 !== null || activity.st2 !== null));
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.replace("/login");
@@ -38,8 +56,11 @@ export default function AccountScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.profileCard}>
-        <View style={styles.avatar}>
-          <User color="#FFFFFF" size={30} />
+        <View style={styles.avatarWrap}>
+          <View style={styles.avatar}>
+            <User color="#FFFFFF" size={30} />
+          </View>
+          <View style={styles.avatarDot} />
         </View>
         {access?.allowed ? (
           <>
@@ -49,6 +70,29 @@ export default function AccountScreen() {
             </View>
           </>
         ) : null}
+
+        {hasActivity && (
+          <View style={styles.activityRow}>
+            {activity?.sellOut !== null && activity?.sellOut !== undefined && (
+              <View style={styles.activityItem}>
+                <Text style={styles.activityValue}>{activity.sellOut}</Text>
+                <Text style={styles.activityLabel}>Sell Out</Text>
+              </View>
+            )}
+            {activity?.st1 !== null && activity?.st1 !== undefined && (
+              <View style={styles.activityItem}>
+                <Text style={styles.activityValue}>{activity.st1}</Text>
+                <Text style={styles.activityLabel}>ST1</Text>
+              </View>
+            )}
+            {activity?.st2 !== null && activity?.st2 !== undefined && (
+              <View style={styles.activityItem}>
+                <Text style={styles.activityValue}>{activity.st2}</Text>
+                <Text style={styles.activityLabel}>ST2</Text>
+              </View>
+            )}
+          </View>
+        )}
       </View>
 
       {access?.allowed && (
@@ -115,6 +159,9 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.md,
     ...theme.shadow.card,
   },
+  avatarWrap: {
+    marginBottom: theme.spacing.md,
+  },
   avatar: {
     width: 72,
     height: 72,
@@ -122,8 +169,40 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: theme.spacing.md,
     ...theme.shadow.fab,
+  },
+  avatarDot: {
+    position: "absolute",
+    right: 2,
+    bottom: 2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: theme.colors.success,
+    borderWidth: 2,
+    borderColor: theme.colors.card,
+  },
+  activityRow: {
+    flexDirection: "row",
+    marginTop: theme.spacing.lg,
+    paddingTop: theme.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.background,
+    width: "100%",
+  },
+  activityItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  activityValue: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: theme.colors.primaryDark,
+  },
+  activityLabel: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    marginTop: 2,
   },
   name: {
     fontSize: 18,

@@ -9,11 +9,14 @@ import {
   Platform,
   SafeAreaView,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { router } from "expo-router";
+import { Eye, EyeOff } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 import { resolveAdminAccess } from "../../lib/access";
 import { theme } from "../../lib/theme";
+import FadeInView from "../../components/FadeInView";
 
 // Same wording regardless of the real reason (wrong password, correct
 // password but not an admin-app role) - mirrors coretech-mobile's login
@@ -65,60 +68,64 @@ export default function LoginScreen() {
         style={styles.inner}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        <View style={styles.brandContainer}>
-          <View style={styles.logoBadge}>
-            <Text style={styles.logoBadgeText}>CT</Text>
-          </View>
+        <FadeInView style={styles.brandContainer}>
+          <Image source={require("../../assets/icon.png")} style={styles.logoImage} />
           <Text style={styles.brandName}>
             Core<Text style={{ color: theme.colors.primary }}>TECH</Text> Admin
           </Text>
           <Text style={styles.tagline}>YOUR CORE PARTNER IN TECH</Text>
-        </View>
+        </FadeInView>
 
-        <View style={styles.card}>
-          <Text style={styles.heading}>Sign In</Text>
-          <Text style={styles.subtitle}>Use the account your admin set up for you.</Text>
+        <View style={styles.cardSlot}>
+          <FadeInView delay={80} style={styles.card}>
+            <Text style={styles.heading}>Sign In</Text>
+            <Text style={styles.subtitle}>Use the account your admin set up for you.</Text>
 
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="you@company.com"
-              placeholderTextColor={theme.colors.textMuted}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              value={email}
-              onChangeText={setEmail}
-            />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.passwordRow}>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Email</Text>
               <TextInput
-                style={styles.passwordInput}
-                placeholder="Enter password"
+                style={styles.input}
+                placeholder="you@company.com"
                 placeholderTextColor={theme.colors.textMuted}
-                secureTextEntry={secureText}
                 autoCapitalize="none"
-                value={password}
-                onChangeText={setPassword}
+                keyboardType="email-address"
+                value={email}
+                onChangeText={setEmail}
               />
-              <TouchableOpacity onPress={() => setSecureText(!secureText)} style={styles.showHideButton}>
-                <Text style={styles.showHideText}>{secureText ? "Show" : "Hide"}</Text>
-              </TouchableOpacity>
             </View>
-          </View>
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.passwordRow}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Enter password"
+                  placeholderTextColor={theme.colors.textMuted}
+                  secureTextEntry={secureText}
+                  autoCapitalize="none"
+                  value={password}
+                  onChangeText={setPassword}
+                />
+                <TouchableOpacity onPress={() => setSecureText(!secureText)} style={styles.showHideButton}>
+                  {secureText ? (
+                    <Eye color={theme.colors.textSecondary} size={18} />
+                  ) : (
+                    <EyeOff color={theme.colors.textSecondary} size={18} />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
 
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            {loading ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.buttonText}>Sign In</Text>}
-          </TouchableOpacity>
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={styles.buttonText}>Sign In</Text>}
+            </TouchableOpacity>
+          </FadeInView>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -132,27 +139,19 @@ const styles = StyleSheet.create({
   },
   inner: {
     flex: 1,
-    justifyContent: "center",
     padding: theme.spacing.lg,
   },
   brandContainer: {
     alignItems: "center",
+    marginTop: theme.spacing.xl,
     marginBottom: theme.spacing.xl,
   },
-  logoBadge: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
+  logoImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     marginBottom: theme.spacing.sm,
     ...theme.shadow.fab,
-  },
-  logoBadgeText: {
-    color: "#FFFFFF",
-    fontWeight: "bold",
-    fontSize: 20,
   },
   brandName: {
     fontSize: 24,
@@ -166,12 +165,14 @@ const styles = StyleSheet.create({
     color: theme.colors.textSecondary,
     marginTop: 4,
   },
+  cardSlot: {
+    flex: 1,
+    justifyContent: "center",
+  },
   card: {
     backgroundColor: theme.colors.primaryTint,
-    borderWidth: 1.5,
-    borderColor: theme.colors.primary,
-    borderRadius: theme.radius.md,
-    padding: theme.spacing.lg,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.xl,
     ...theme.shadow.card,
   },
   heading: {
@@ -197,10 +198,8 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
   },
   input: {
-    height: 46,
+    height: 48,
     backgroundColor: theme.colors.card,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
     borderRadius: theme.radius.sm,
     paddingHorizontal: theme.spacing.md,
     fontSize: 14,
@@ -210,10 +209,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: theme.colors.card,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
     borderRadius: theme.radius.sm,
-    height: 46,
+    height: 48,
   },
   passwordInput: {
     flex: 1,
@@ -226,11 +223,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     justifyContent: "center",
     height: "100%",
-  },
-  showHideText: {
-    fontSize: 11,
-    color: theme.colors.primary,
-    fontWeight: "bold",
   },
   error: {
     color: theme.colors.error,

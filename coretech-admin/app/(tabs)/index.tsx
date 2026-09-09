@@ -1,9 +1,9 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { TrendingUp, ShoppingCart, Users, ShoppingBag, Wrench, LayoutGrid } from "lucide-react-native";
+import { TrendingUp, ShoppingCart, Users, ShoppingBag, Wrench, LayoutGrid, ArrowUp, ArrowDown } from "lucide-react-native";
 import { useMyPermissions } from "../../lib/permissionsContext";
-import { GRID_TILES } from "../../lib/navConfig";
+import { GRID_TILES, TARGET_KEY } from "../../lib/navConfig";
 import { theme } from "../../lib/theme";
 import { mobileApiFetch } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -11,6 +11,7 @@ import { resolveAdminAccess } from "../../lib/access";
 import { haptics } from "../../lib/haptics";
 import EmptyState from "../../components/EmptyState";
 import AnimatedPressable from "../../components/AnimatedPressable";
+import ProgressRing from "../../components/ProgressRing";
 
 const ICONS: Record<string, React.ComponentType<{ color: string; size: number }>> = {
   TrendingUp,
@@ -24,6 +25,18 @@ interface Announcement {
   title: string;
   content: string;
   created_at: string;
+}
+
+interface HomeStats {
+  sellOut: { thisMonth: number; lastMonth: number; thisWeek: number } | null;
+  st1: { thisWeek: number } | null;
+  st2: { thisWeek: number } | null;
+}
+
+interface TargetRow {
+  id: string;
+  target_units: number;
+  achieved_units: number;
 }
 
 function greetingForHour(hour: number): string {
@@ -46,6 +59,8 @@ export default function HomeScreen() {
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const [firstName, setFirstName] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState<HomeStats | null>(null);
+  const [targetPct, setTargetPct] = useState<number | null>(null);
 
   const loadAnnouncement = useCallback(() => {
     return mobileApiFetch<{ success: boolean; announcement: Announcement | null }>("/api/mobile/announcements")
@@ -53,9 +68,35 @@ export default function HomeScreen() {
       .catch(() => {});
   }, []);
 
+  const loadStats = useCallback(() => {
+    return mobileApiFetch<{ success: boolean } & HomeStats>("/api/mobile/home/stats")
+      .then((res) => setStats(res.success ? { sellOut: res.sellOut, st1: res.st1, st2: res.st2 } : null))
+      .catch(() => {});
+  }, []);
+
+  const loadTarget = useCallback(() => {
+    if (!keys.includes(TARGET_KEY)) {
+      setTargetPct(null);
+      return Promise.resolve();
+    }
+    return mobileApiFetch<{ success: boolean; targets: TargetRow[] }>("/api/mobile/target")
+      .then((res) => {
+        if (!res.success || res.targets.length === 0) {
+          setTargetPct(null);
+          return;
+        }
+        const totalTarget = res.targets.reduce((sum, t) => sum + (t.target_units || 0), 0);
+        const totalAchieved = res.targets.reduce((sum, t) => sum + (t.achieved_units || 0), 0);
+        setTargetPct(totalTarget > 0 ? (totalAchieved / totalTarget) * 100 : 0);
+      })
+      .catch(() => setTargetPct(null));
+  }, [keys]);
+
   useFocusEffect(
     useCallback(() => {
       loadAnnouncement();
+      loadStats();
+      loadTarget();
       supabase.auth.getSession().then(({ data }) => {
         const userId = data?.session?.user?.id;
         if (!userId) return;
@@ -63,14 +104,19 @@ export default function HomeScreen() {
           if (access.allowed) setFirstName(access.name.split(" ")[0] || "");
         });
       });
-    }, [loadAnnouncement])
+    }, [loadAnnouncement, loadStats, loadTarget])
   );
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await loadAnnouncement();
+    await Promise.all([loadAnnouncement(), loadStats(), loadTarget()]);
     setRefreshing(false);
   };
+
+  const sellOutTrend = stats?.sellOut
+    ? stats.sellOut.thisMonth - stats.sellOut.lastMonth
+    : null;
+  const hasWeeklyActivity = !!(stats?.sellOut || stats?.st1 || stats?.st2);
 
   return (
     <FlatList
@@ -84,6 +130,73 @@ export default function HomeScreen() {
       ListHeaderComponent={
         <>
           {!!firstName && <Text style={styles.greeting}>{greetingForHour(new Date().getHours())}, {firstName} 👋</Text>}
+
+          {targetPct !== null && (
+            <AnimatedPressable
+              style={styles.statCard}
+              onPress={() => {
+                haptics.light();
+                router.push("/target" as any);
+              }}
+            >
+              <ProgressRing percent={targetPct} size={48} strokeWidth={5} />
+              <View style={styles.statCardText}>
+                <Text style={styles.statCardLabel}>This Month's Target</Text>
+                <Text style={styles.statCardValue}>{Math.round(targetPct)}% achieved</Text>
+              </View>
+            </AnimatedPressable>
+          )}
+
+          {stats?.sellOut && (
+            <View style={styles.statCard}>
+              <View style={styles.statCardIcon}>
+                <TrendingUp color={theme.colors.primary} size={20} />
+              </View>
+              <View style={styles.statCardText}>
+                <Text style={styles.statCardLabel}>Sell Out This Month</Text>
+                <Text style={styles.statCardValue}>{stats.sellOut.thisMonth} units</Text>
+              </View>
+              {sellOutTrend !== null && sellOutTrend !== 0 && (
+                <View style={styles.trendBadge}>
+                  {sellOutTrend > 0 ? (
+                    <ArrowUp color={theme.colors.success} size={14} />
+                  ) : (
+                    <ArrowDown color={theme.colors.error} size={14} />
+                  )}
+                  <Text style={[styles.trendText, { color: sellOutTrend > 0 ? theme.colors.success : theme.colors.error }]}>
+                    {Math.abs(sellOutTrend)}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {hasWeeklyActivity && (
+            <View style={styles.weeklyCard}>
+              <Text style={styles.weeklyTitle}>This Week</Text>
+              <View style={styles.weeklyRow}>
+                {stats?.sellOut && (
+                  <View style={styles.weeklyItem}>
+                    <Text style={styles.weeklyValue}>{stats.sellOut.thisWeek}</Text>
+                    <Text style={styles.weeklyLabel}>Sell Out</Text>
+                  </View>
+                )}
+                {stats?.st1 && (
+                  <View style={styles.weeklyItem}>
+                    <Text style={styles.weeklyValue}>{stats.st1.thisWeek}</Text>
+                    <Text style={styles.weeklyLabel}>ST1</Text>
+                  </View>
+                )}
+                {stats?.st2 && (
+                  <View style={styles.weeklyItem}>
+                    <Text style={styles.weeklyValue}>{stats.st2.thisWeek}</Text>
+                    <Text style={styles.weeklyLabel}>ST2</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
           {announcement && (
             <View style={styles.announcementCard}>
               <Text style={styles.announcementTitle}>{announcement.title}</Text>
@@ -130,6 +243,85 @@ const styles = StyleSheet.create({
     marginHorizontal: theme.spacing.lg,
     marginTop: theme.spacing.md,
     marginBottom: theme.spacing.sm,
+  },
+  statCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.sm,
+    marginHorizontal: theme.spacing.lg,
+    marginBottom: theme.spacing.sm,
+    backgroundColor: theme.colors.card,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    ...theme.shadow.card,
+  },
+  statCardIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: theme.radius.sm,
+    backgroundColor: theme.colors.primaryTint,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statCardText: {
+    flex: 1,
+  },
+  statCardLabel: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+  },
+  statCardValue: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: theme.colors.textStrong,
+    marginTop: 2,
+  },
+  trendBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  trendText: {
+    fontSize: 13,
+    fontWeight: "bold",
+  },
+  weeklyCard: {
+    marginHorizontal: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
+    backgroundColor: theme.colors.card,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    ...theme.shadow.card,
+  },
+  weeklyTitle: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: theme.colors.textMuted,
+    textTransform: "uppercase",
+    marginBottom: theme.spacing.sm,
+  },
+  weeklyRow: {
+    flexDirection: "row",
+  },
+  weeklyItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  weeklyValue: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: theme.colors.primaryDark,
+  },
+  weeklyLabel: {
+    fontSize: 11,
+    color: theme.colors.textMuted,
+    marginTop: 2,
   },
   announcementCard: {
     marginHorizontal: theme.spacing.lg,
