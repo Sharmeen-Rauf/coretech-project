@@ -36,3 +36,17 @@ export async function mobileApiFetch<T = unknown>(path: string, options: Request
   }
   return body as T;
 }
+
+export interface MyPermissionsResponse {
+  success: boolean;
+  role?: string;
+  keys?: string[];
+  error?: string;
+}
+
+// Nav-shell bootstrap - every mobile-granted permission key the caller's
+// role holds, used to decide the Home icon grid and the fixed bottom tab
+// bar's two conditional slots (lib/navConfig.ts, §12.1).
+export function fetchMyPermissions(): Promise<MyPermissionsResponse> {
+  return mobileApiFetch<MyPermissionsResponse>("/api/mobile/me");
+}

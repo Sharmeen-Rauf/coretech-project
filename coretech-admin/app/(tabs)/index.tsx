@@ -1,100 +1,50 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native";
 import { router } from "expo-router";
-import { supabase } from "../../lib/supabase";
-import { resolveAdminAccess, AdminAccess } from "../../lib/access";
+import { Box, Wrench } from "lucide-react-native";
+import { useMyPermissions } from "../../lib/permissionsContext";
+import { GRID_TILES } from "../../lib/navConfig";
 import { theme } from "../../lib/theme";
-import BarcodeScanner from "../../components/BarcodeScanner";
-import { useScannedSerials } from "../../lib/useScannedSerials";
 
-// Placeholder landing screen for the scaffold phase only - proves the
-// session-gated auth flow works end to end. Real screens per role/module
-// (§17) replace this in Phase 6, once the nav shell (Phase 5) exists.
-//
-// The scanner test section below is a Phase 4 verification aid, not a real
-// feature - it exists so the new camera/barcode native module actually gets
-// bundled and is testable on a real device before Phase 6 wires the two
-// components (BarcodeScanner, useScannedSerials) into real screens. Remove
-// once Phase 6 lands.
-export default function HomePlaceholder() {
-  const [access, setAccess] = useState<AdminAccess | null>(null);
-  const [singleScanValue, setSingleScanValue] = useState("");
-  const [singleScannerOpen, setSingleScannerOpen] = useState(false);
-  const [bulkScannerOpen, setBulkScannerOpen] = useState(false);
-  const bulk = useScannedSerials();
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      const userId = data?.session?.user?.id;
-      if (!userId) return;
-      resolveAdminAccess(userId).then(setAccess);
-    });
-  }, []);
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.replace("/login");
-  };
+// Home / Dashboard (§17 #2) - a DCR-style icon grid (§12), recolored in the
+// installer app's own palette rather than DCR's. Every mobileEligible
+// permission except SN Lookup/Target lives here, permanently (§12.1) -
+// those two live only in the bottom bar. Tiles push a placeholder for now;
+// Phase 6 replaces each with its real screen. The announcements card and
+// notifications bell (§18) also land on this screen in Phase 6.
+export default function HomeScreen() {
+  const { loading, keys } = useMyPermissions();
+  const tiles = GRID_TILES.filter((tile) => keys.includes(tile.key));
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Signed in</Text>
-      {access?.allowed ? (
-        <Text style={styles.detail}>
-          {access.name || "—"} · {access.role}
-        </Text>
-      ) : null}
-      <Text style={styles.note}>Screens for this role's modules land here in Phase 6.</Text>
+      <Text style={styles.heading}>Home</Text>
 
-      <View style={styles.scannerTest}>
-        <Text style={styles.scannerTestLabel}>Phase 4 scanner test</Text>
-
-        <TouchableOpacity style={styles.secondaryButton} onPress={() => setSingleScannerOpen(true)}>
-          <Text style={styles.secondaryButtonText}>Test Single Scan (SN Lookup style)</Text>
-        </TouchableOpacity>
-        {singleScanValue ? <Text style={styles.scanResult}>Last scanned: {singleScanValue}</Text> : null}
-
-        <TouchableOpacity style={styles.secondaryButton} onPress={() => setBulkScannerOpen(true)}>
-          <Text style={styles.secondaryButtonText}>Test Bulk Scan (Sell Out/ST2 style)</Text>
-        </TouchableOpacity>
-        {bulk.duplicateError ? <Text style={styles.errorText}>{bulk.duplicateError}</Text> : null}
-        {bulk.items.length > 0 && (
-          <FlatList
-            data={bulk.items}
-            keyExtractor={(item) => item.serialNo}
-            style={styles.bulkList}
-            renderItem={({ item }) => (
-              <View style={styles.bulkRow}>
-                <Text style={styles.bulkRowText}>{item.serialNo}</Text>
-                <TouchableOpacity onPress={() => bulk.remove(item.serialNo)}>
-                  <Text style={styles.bulkRemove}>Remove</Text>
-                </TouchableOpacity>
+      {!loading && tiles.length === 0 ? (
+        <View style={styles.empty}>
+          <Wrench color={theme.colors.textMuted} size={28} />
+          <Text style={styles.emptyText}>Nothing has been granted to this account yet.</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={tiles}
+          keyExtractor={(item) => item.key}
+          numColumns={3}
+          columnWrapperStyle={styles.row}
+          contentContainerStyle={styles.grid}
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.tile}
+              onPress={() => router.push(`/placeholder?title=${encodeURIComponent(item.title)}`)}
+            >
+              <View style={styles.tileIcon}>
+                <Box color={theme.colors.primary} size={22} />
               </View>
-            )}
-          />
-        )}
-      </View>
-
-      <TouchableOpacity style={styles.button} onPress={handleSignOut}>
-        <Text style={styles.buttonText}>Sign Out</Text>
-      </TouchableOpacity>
-
-      <BarcodeScanner
-        visible={singleScannerOpen}
-        title="Scan Serial Number"
-        onScan={(value) => {
-          setSingleScanValue(value);
-          setSingleScannerOpen(false);
-        }}
-        onClose={() => setSingleScannerOpen(false)}
-      />
-
-      <BarcodeScanner
-        visible={bulkScannerOpen}
-        title="Scan Serials (Add / Scan Again)"
-        onScan={(value) => bulk.add(value)}
-        onClose={() => setBulkScannerOpen(false)}
-      />
+              <Text style={styles.tileLabel}>{item.label}</Text>
+            </TouchableOpacity>
+          )}
+        />
+      )}
     </View>
   );
 }
@@ -102,98 +52,61 @@ export default function HomePlaceholder() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: "center",
-    padding: theme.spacing.lg,
-    paddingTop: theme.spacing.xl * 2,
     backgroundColor: theme.colors.background,
+    paddingTop: theme.spacing.xl,
   },
-  title: {
-    fontSize: 20,
+  heading: {
+    fontSize: 22,
     fontWeight: "bold",
     color: theme.colors.textPrimary,
-    marginBottom: theme.spacing.xs,
-  },
-  detail: {
-    fontSize: 14,
-    color: theme.colors.textSecondary,
+    paddingHorizontal: theme.spacing.lg,
     marginBottom: theme.spacing.md,
   },
-  note: {
-    fontSize: 12,
-    color: theme.colors.textMuted,
-    textAlign: "center",
-    marginBottom: theme.spacing.lg,
+  grid: {
+    paddingHorizontal: theme.spacing.md,
   },
-  scannerTest: {
-    width: "100%",
+  row: {
+    justifyContent: "flex-start",
+    gap: theme.spacing.sm,
+  },
+  tile: {
+    flex: 1,
+    maxWidth: "31%",
+    aspectRatio: 1,
     backgroundColor: theme.colors.card,
     borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    padding: theme.spacing.md,
-    marginBottom: theme.spacing.lg,
-    gap: theme.spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: theme.spacing.sm,
+    padding: theme.spacing.sm,
   },
-  scannerTestLabel: {
-    fontSize: 11,
-    fontWeight: "bold",
-    color: theme.colors.textMuted,
-    textTransform: "uppercase",
-    marginBottom: theme.spacing.xs,
-  },
-  secondaryButton: {
+  tileIcon: {
+    width: 40,
     height: 40,
     borderRadius: theme.radius.sm,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
+    backgroundColor: theme.colors.primaryTint,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: theme.spacing.xs,
   },
-  secondaryButtonText: {
-    color: theme.colors.primary,
+  tileLabel: {
+    fontSize: 11,
     fontWeight: "bold",
-    fontSize: 13,
-  },
-  scanResult: {
-    fontSize: 13,
-    color: theme.colors.textSecondary,
-  },
-  errorText: {
-    fontSize: 12,
-    color: theme.colors.error,
-  },
-  bulkList: {
-    maxHeight: 160,
-  },
-  bulkRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: theme.spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-  },
-  bulkRowText: {
-    fontSize: 13,
     color: theme.colors.textStrong,
+    textAlign: "center",
   },
-  bulkRemove: {
-    fontSize: 12,
-    color: theme.colors.error,
-    fontWeight: "bold",
-  },
-  button: {
-    height: 44,
-    paddingHorizontal: 24,
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.radius.sm,
+  empty: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: "auto",
+    padding: theme.spacing.xl,
+    gap: theme.spacing.sm,
   },
-  buttonText: {
-    color: "#FFFFFF",
-    fontWeight: "bold",
-    fontSize: 14,
+  emptyText: {
+    fontSize: 13,
+    color: theme.colors.textMuted,
+    textAlign: "center",
   },
 });
