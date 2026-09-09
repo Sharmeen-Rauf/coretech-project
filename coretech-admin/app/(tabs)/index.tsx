@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { TrendingUp, ShoppingCart, Users, ShoppingBag, Wrench, LayoutGrid, ArrowUp, ArrowDown } from "lucide-react-native";
 import { useMyPermissions } from "../../lib/permissionsContext";
-import { GRID_TILES, TARGET_KEY } from "../../lib/navConfig";
+import { GRID_TILES, TARGET_KEY, type GridTile } from "../../lib/navConfig";
 import { theme } from "../../lib/theme";
 import { mobileApiFetch } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -55,6 +55,17 @@ function greetingForHour(hour: number): string {
 export default function HomeScreen() {
   const { loading, keys } = useMyPermissions();
   const tiles = GRID_TILES.filter((tile) => keys.includes(tile.key));
+  // A FlatList numColumns row with fewer than 3 real items left-aligns them
+  // (row style is justifyContent: "flex-start") but each tile's own flex: 1
+  // still competes for the row's leftover space unevenly, reading as
+  // misaligned/stretched icons on the last row. Padding out to a full
+  // multiple of 3 with invisible filler cells keeps every row structurally
+  // identical - always exactly 3 equal-width flex items - so the last row's
+  // real tiles never grow past the size of tiles in the rows above it.
+  const paddedTiles: (GridTile | { key: string; filler: true })[] = [...tiles];
+  while (paddedTiles.length % 3 !== 0) {
+    paddedTiles.push({ key: `filler-${paddedTiles.length}`, filler: true });
+  }
 
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
   const [firstName, setFirstName] = useState("");
@@ -121,10 +132,10 @@ export default function HomeScreen() {
   return (
     <FlatList
       style={styles.container}
-      data={tiles}
+      data={paddedTiles}
       keyExtractor={(item) => item.key}
       numColumns={3}
-      columnWrapperStyle={tiles.length > 0 ? styles.row : undefined}
+      columnWrapperStyle={paddedTiles.length > 0 ? styles.row : undefined}
       contentContainerStyle={styles.grid}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />}
       ListHeaderComponent={
@@ -211,6 +222,9 @@ export default function HomeScreen() {
         !loading ? <EmptyState icon={LayoutGrid} title="Nothing here yet" subtitle="Nothing has been granted to this account yet." /> : null
       }
       renderItem={({ item }) => {
+        if ("filler" in item) {
+          return <View style={[styles.tile, styles.tileFiller]} />;
+        }
         const Icon = ICONS[item.icon] || Wrench;
         return (
           <AnimatedPressable
@@ -365,6 +379,12 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
     padding: theme.spacing.sm,
     ...theme.shadow.card,
+  },
+  tileFiller: {
+    backgroundColor: "transparent",
+    borderColor: "transparent",
+    shadowOpacity: 0,
+    elevation: 0,
   },
   tileIcon: {
     width: 40,

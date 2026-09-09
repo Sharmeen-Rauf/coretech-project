@@ -282,9 +282,9 @@ export async function declineOrderAction(orderId: string, opts?: CallerOpts) {
 // Invoicing happens in a separate system outside this app - this just records
 // that the admin has generated it there and moves the order to the next stage.
 // No invoice record is created here.
-export async function markInvoiceGeneratedAction(orderId: string) {
+export async function markInvoiceGeneratedAction(orderId: string, opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller || caller.role !== "admin") {
       return { success: false, error: "Only Admin can mark the invoice as generated" };
     }
@@ -315,9 +315,9 @@ export async function markInvoiceGeneratedAction(orderId: string) {
 
 // Gate pass likewise happens in a separate system - this just records that the
 // admin has issued it there and moves the order to its final stage.
-export async function markGatePassGeneratedAction(orderId: string) {
+export async function markGatePassGeneratedAction(orderId: string, opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller || caller.role !== "admin") {
       return { success: false, error: "Only Admin can mark the gate pass as generated" };
     }

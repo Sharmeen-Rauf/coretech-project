@@ -31,6 +31,10 @@ export async function GET(request: NextRequest) {
     // Role Management's mobile column can grant. Mirrored here rather than
     // exposed as a mobile permission.
     canApprove: ["country_head", "admin"].includes(auth.caller.role),
+    // Generate Invoice / Generate Gate Pass - mirrors
+    // components/OrderStatusModal.tsx's own canInvoiceOrGatepass gate
+    // (admin only), same locked-pair posture as canApprove above.
+    canManageInvoice: auth.caller.role === "admin",
   });
 }
 

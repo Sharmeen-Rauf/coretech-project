@@ -131,7 +131,7 @@ export default function InventoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
   searchRow: {
     marginHorizontal: theme.spacing.md,
     marginTop: theme.spacing.md,

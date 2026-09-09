@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "CoreTech Admin",
+    "name": "CoreTech Digital",
     "slug": "coretech-admin",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -30,7 +30,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "CoreTech Admin needs camera access to scan product serial number barcodes."
+          "cameraPermission": "CoreTech Digital needs camera access to scan product serial number barcodes."
         }
       ],
       [

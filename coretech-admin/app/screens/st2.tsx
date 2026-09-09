@@ -229,7 +229,7 @@ export default function St2Screen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
   list: { padding: theme.spacing.md },
   emptyText: { textAlign: "center", color: theme.colors.textMuted, marginTop: theme.spacing.md },
   fab: {
