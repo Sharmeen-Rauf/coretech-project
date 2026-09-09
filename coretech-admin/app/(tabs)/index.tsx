@@ -1,30 +1,35 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { router } from "expo-router";
-import { AdminSession, clearSession, getSession } from "../../lib/session";
+import { supabase } from "../../lib/supabase";
+import { resolveAdminAccess, AdminAccess } from "../../lib/access";
 import { theme } from "../../lib/theme";
 
 // Placeholder landing screen for the scaffold phase only - proves the
 // session-gated auth flow works end to end. Real screens per role/module
 // (§17) replace this in Phase 6, once the nav shell (Phase 5) exists.
 export default function HomePlaceholder() {
-  const [session, setSession] = useState<AdminSession | null>(null);
+  const [access, setAccess] = useState<AdminAccess | null>(null);
 
   useEffect(() => {
-    getSession().then(setSession);
+    supabase.auth.getSession().then(({ data }) => {
+      const userId = data?.session?.user?.id;
+      if (!userId) return;
+      resolveAdminAccess(userId).then(setAccess);
+    });
   }, []);
 
   const handleSignOut = async () => {
-    await clearSession();
+    await supabase.auth.signOut();
     router.replace("/login");
   };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Signed in</Text>
-      {session ? (
+      {access?.allowed ? (
         <Text style={styles.detail}>
-          {session.name || session.userId} · {session.role}
+          {access.name || "—"} · {access.role}
         </Text>
       ) : null}
       <Text style={styles.note}>

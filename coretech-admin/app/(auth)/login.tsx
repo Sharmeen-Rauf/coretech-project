@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import {
-  View,
   Text,
   TextInput,
   TouchableOpacity,
@@ -9,9 +8,14 @@ import {
   Platform,
 } from "react-native";
 import { router } from "expo-router";
-import { login, ApiError } from "../../lib/api";
-import { setSession } from "../../lib/session";
+import { supabase } from "../../lib/supabase";
+import { resolveAdminAccess } from "../../lib/access";
 import { theme } from "../../lib/theme";
+
+// Same wording regardless of the real reason (wrong password, correct
+// password but not an admin-app role) - mirrors coretech-mobile's login
+// screen, so a stranger's guess never confirms whether an account exists.
+const GENERIC_LOGIN_ERROR = "Invalid email or password.";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -27,11 +31,25 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      const session = await login(email.trim(), password);
-      await setSession(session);
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (authError || !data.user) {
+        setError(GENERIC_LOGIN_ERROR);
+        return;
+      }
+
+      const access = await resolveAdminAccess(data.user.id);
+      if (!access.allowed) {
+        await supabase.auth.signOut();
+        setError(GENERIC_LOGIN_ERROR);
+        return;
+      }
+
       router.replace("/(tabs)");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Something went wrong. Try again.");
+      setError(GENERIC_LOGIN_ERROR);
     } finally {
       setLoading(false);
     }

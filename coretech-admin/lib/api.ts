@@ -1,28 +1,38 @@
 import Constants from "expo-constants";
-import { AdminSession, isAdminAppRole } from "./session";
+import { supabase } from "./supabase";
 
 const API_BASE_URL = Constants.expoConfig?.extra?.apiBaseUrl || "https://www.coretechsolar.com";
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
 
-// Wired to app/api/mobile/auth/login on the Next.js backend - that route
-// doesn't exist yet (it's built in Phase 3, see notes/MOBILE-ADMIN-APP-PLAN.md
-// §15). Calling this before then fails with a 404, which is expected: this
-// app is API-backed, never talking to Supabase directly (§7), so login has
-// nothing to hit until the API layer ships.
-export async function login(email: string, password: string): Promise<AdminSession> {
-  const res = await fetch(`${API_BASE_URL}/api/mobile/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+// Every non-auth data call goes through app/api/mobile/* on the Next.js
+// backend (§7 of notes/MOBILE-ADMIN-APP-PLAN.md) - never straight to
+// Supabase. Attaches the caller's current Supabase access token so the route
+// can verify it server-side and resolve mobile permissions the same way the
+// web app already resolves web ones (see lib/mobileAuth.ts on the backend).
+export async function mobileApiFetch<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+  const { data } = await supabase.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) throw new ApiError("Not signed in", 401);
+
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(options.headers || {}),
+    },
   });
 
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new ApiError(body?.error || `Login failed (${res.status})`);
+    throw new ApiError(body?.error || `Request failed (${res.status})`, res.status);
   }
-  if (!body?.token || !body?.role || !isAdminAppRole(body.role)) {
-    throw new ApiError("This account isn't set up for the admin app.");
-  }
-  return { token: body.token, userId: body.userId, role: body.role, name: body.name || "" };
+  return body as T;
 }

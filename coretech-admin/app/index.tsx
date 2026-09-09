@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { Redirect } from "expo-router";
-import { getSession } from "../lib/session";
+import { supabase } from "../lib/supabase";
+import { resolveAdminAccess } from "../lib/access";
 import { theme } from "../lib/theme";
 
 type Destination = "/(tabs)" | "/login";
@@ -13,12 +14,32 @@ export default function IndexScreen() {
     let isMounted = true;
 
     (async () => {
-      // TODO(Phase 3): once app/api/mobile/* exists, re-verify this token and
-      // the caller's mobile-permission grants against the server on every
-      // open (like the installer app's resolveInstallerAccess), not just
-      // trust the locally stored role forever.
-      const session = await getSession();
-      if (isMounted) setDestination(session ? "/(tabs)" : "/login");
+      try {
+        const { data } = await supabase.auth.getSession();
+        const session = data?.session || null;
+        if (!session) {
+          if (isMounted) setDestination("/login");
+          return;
+        }
+
+        // A session persists across app restarts (SecureStore), so role has
+        // to be re-checked every time the app opens, not just at the moment
+        // of the original login - otherwise a role change (e.g. moved off
+        // an admin-app role after already being logged in) would never take
+        // effect until the session itself expired. Mirrors coretech-mobile's
+        // index.tsx.
+        const access = await resolveAdminAccess(session.user.id);
+        if (!access.allowed) {
+          await supabase.auth.signOut();
+          if (isMounted) setDestination("/login");
+          return;
+        }
+
+        if (isMounted) setDestination("/(tabs)");
+      } catch (err) {
+        console.warn("Auth check error:", err);
+        if (isMounted) setDestination("/login");
+      }
     })();
 
     return () => {
