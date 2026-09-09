@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, RefreshControl } from "react-native";
 import { Stack, useFocusEffect } from "expo-router";
-import { Plus, Minus, ShoppingBag } from "lucide-react-native";
+import { Plus, Minus, ShoppingBag, Check } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import { haptics } from "../../lib/haptics";
@@ -50,12 +50,14 @@ export default function BuzzcartScreen() {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [canWrite, setCanWrite] = useState(false);
   const [canApprove, setCanApprove] = useState(false);
+  const [canManageInvoice, setCanManageInvoice] = useState(false);
   const [actioningId, setActioningId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [step, setStep] = useState<0 | 1>(0);
   const [buyerType, setBuyerType] = useState<"distributor" | "sub_dealer">("sub_dealer");
   const [distributors, setDistributors] = useState<Party[]>([]);
   const [subDealers, setSubDealers] = useState<Party[]>([]);
@@ -73,6 +75,7 @@ export default function BuzzcartScreen() {
         data: OrderRow[];
         canWrite: boolean;
         canApprove: boolean;
+        canManageInvoice: boolean;
         products: Product[];
         distributors: Party[];
         subDealers: Party[];
@@ -82,6 +85,7 @@ export default function BuzzcartScreen() {
       setRows(res.data);
       setCanWrite(res.canWrite);
       setCanApprove(res.canApprove);
+      setCanManageInvoice(res.canManageInvoice);
       setProducts(res.products || []);
       setDistributors(res.distributors || []);
       setSubDealers(res.subDealers || []);
@@ -100,6 +104,7 @@ export default function BuzzcartScreen() {
   );
 
   const openCreate = () => {
+    setStep(0);
     setBuyerType("sub_dealer");
     setSelectedParty(null);
     setQuantities({});
@@ -151,11 +156,11 @@ export default function BuzzcartScreen() {
 
   const parties = buyerType === "distributor" ? distributors : subDealers;
 
-  const handleDecision = async (orderId: string, decision: "approve" | "decline") => {
+  const runOrderAction = async (orderId: string, endpoint: string) => {
     haptics.light();
     setActioningId(orderId);
     try {
-      const res = await mobileApiFetch<{ success: boolean; error?: string }>(`/api/mobile/buzzcart/${decision}`, {
+      const res = await mobileApiFetch<{ success: boolean; error?: string }>(`/api/mobile/buzzcart/${endpoint}`, {
         method: "POST",
         body: JSON.stringify({ orderId }),
       });
@@ -169,6 +174,10 @@ export default function BuzzcartScreen() {
       setActioningId(null);
     }
   };
+
+  const handleDecision = (orderId: string, decision: "approve" | "decline") => runOrderAction(orderId, decision);
+  const handleGenerateInvoice = (orderId: string) => runOrderAction(orderId, "generate-invoice");
+  const handleGenerateGatepass = (orderId: string) => runOrderAction(orderId, "generate-gatepass");
 
   return (
     <View style={styles.container}>
@@ -207,6 +216,26 @@ export default function BuzzcartScreen() {
                       <Text style={styles.approveButtonText}>{actioningId === item.id ? "..." : "Approve"}</Text>
                     </TouchableOpacity>
                   </View>
+                ) : canManageInvoice && item.status === "approved" ? (
+                  <TouchableOpacity
+                    style={[styles.decisionButton, styles.approveButton]}
+                    onPress={() => handleGenerateInvoice(item.id)}
+                    disabled={actioningId === item.id}
+                  >
+                    <Text style={styles.approveButtonText}>
+                      {actioningId === item.id ? "..." : "Generate Invoice"}
+                    </Text>
+                  </TouchableOpacity>
+                ) : canManageInvoice && item.status === "invoice_generated" ? (
+                  <TouchableOpacity
+                    style={[styles.decisionButton, styles.approveButton]}
+                    onPress={() => handleGenerateGatepass(item.id)}
+                    disabled={actioningId === item.id}
+                  >
+                    <Text style={styles.approveButtonText}>
+                      {actioningId === item.id ? "..." : "Generate Gate Pass"}
+                    </Text>
+                  </TouchableOpacity>
                 ) : undefined
               }
             />
@@ -236,66 +265,108 @@ export default function BuzzcartScreen() {
           </View>
 
           <View style={styles.form}>
-            <View style={styles.toggleRow}>
-              {(["sub_dealer", "distributor"] as const).map((t) => (
-                <TouchableOpacity
-                  key={t}
-                  style={[styles.toggleButton, buyerType === t && styles.toggleButtonActive]}
-                  onPress={() => {
-                    setBuyerType(t);
-                    setSelectedParty(null);
-                  }}
-                >
-                  <Text style={[styles.toggleText, buyerType === t && styles.toggleTextActive]}>
-                    {t === "sub_dealer" ? "Sub Dealer" : "Distributor"}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+            <View style={styles.stepIndicator}>
+              <View style={[styles.stepDot, styles.stepDotDone]} />
+              <View style={styles.stepLine} />
+              <View style={[styles.stepDot, step === 1 && styles.stepDotDone]} />
             </View>
 
-            <FlatList
-              data={parties}
-              keyExtractor={(item) => item.id}
-              horizontal
-              style={styles.pickerRow}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.pickerChip, selectedParty === item.id && styles.pickerChipSelected]}
-                  onPress={() => setSelectedParty(item.id)}
-                >
-                  <Text style={[styles.pickerChipText, selectedParty === item.id && styles.pickerChipTextSelected]}>
-                    {item.first_name} {item.last_name}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
+            {step === 0 ? (
+              <>
+                <View style={styles.toggleRow}>
+                  {(["sub_dealer", "distributor"] as const).map((t) => (
+                    <TouchableOpacity
+                      key={t}
+                      style={[styles.toggleButton, buyerType === t && styles.toggleButtonActive]}
+                      onPress={() => {
+                        setBuyerType(t);
+                        setSelectedParty(null);
+                      }}
+                    >
+                      <Text style={[styles.toggleText, buyerType === t && styles.toggleTextActive]}>
+                        {t === "sub_dealer" ? "Sub Dealer" : "Distributor"}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
-            <FlatList
-              data={products}
-              keyExtractor={(item) => item.id}
-              style={styles.productList}
-              renderItem={({ item }) => (
-                <ListRow
-                  title={item.name}
-                  subtitle={`PKR ${item.price}`}
-                  right={
-                    <View style={styles.qtyControls}>
-                      <TouchableOpacity onPress={() => adjustQuantity(item.id, -1)} style={styles.qtyButton}>
-                        <Minus size={14} color={theme.colors.textSecondary} />
+                <Text style={styles.stepLabel}>
+                  Select a {buyerType === "sub_dealer" ? "Sub Dealer" : "Distributor"}
+                </Text>
+
+                <FlatList
+                  data={parties}
+                  keyExtractor={(item) => item.id}
+                  numColumns={2}
+                  columnWrapperStyle={parties.length > 0 ? styles.tileRow : undefined}
+                  style={styles.partyList}
+                  ListEmptyComponent={<Text style={styles.emptyText}>None assigned to you.</Text>}
+                  renderItem={({ item }) => {
+                    const selected = selectedParty === item.id;
+                    return (
+                      <TouchableOpacity
+                        style={[styles.partyTile, selected && styles.partyTileSelected]}
+                        onPress={() => setSelectedParty(item.id)}
+                      >
+                        <Text
+                          style={[styles.partyTileText, selected && styles.partyTileTextSelected]}
+                          numberOfLines={1}
+                        >
+                          {item.first_name} {item.last_name}
+                        </Text>
+                        {selected && (
+                          <View style={styles.partyTileCheck}>
+                            <Check color="#FFFFFF" size={12} />
+                          </View>
+                        )}
                       </TouchableOpacity>
-                      <Text style={styles.qtyText}>{quantities[item.id] || 0}</Text>
-                      <TouchableOpacity onPress={() => adjustQuantity(item.id, 1)} style={styles.qtyButton}>
-                        <Plus size={14} color={theme.colors.textSecondary} />
-                      </TouchableOpacity>
-                    </View>
-                  }
+                    );
+                  }}
                 />
-              )}
-            />
+              </>
+            ) : (
+              <FlatList
+                data={products}
+                keyExtractor={(item) => item.id}
+                style={styles.productList}
+                ListHeaderComponent={<Text style={styles.stepLabel}>Add Products</Text>}
+                renderItem={({ item }) => (
+                  <ListRow
+                    title={item.name}
+                    subtitle={`PKR ${item.price}`}
+                    right={
+                      <View style={styles.qtyControls}>
+                        <TouchableOpacity onPress={() => adjustQuantity(item.id, -1)} style={styles.qtyButton}>
+                          <Minus size={14} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                        <Text style={styles.qtyText}>{quantities[item.id] || 0}</Text>
+                        <TouchableOpacity onPress={() => adjustQuantity(item.id, 1)} style={styles.qtyButton}>
+                          <Plus size={14} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
+                      </View>
+                    }
+                  />
+                )}
+              />
+            )}
 
             {!!error && <Text style={styles.errorText}>{error}</Text>}
 
-            <Button label="Submit Order" onPress={handleSubmit} loading={submitting} />
+            <View style={styles.navRow}>
+              {step === 1 && (
+                <Button label="Back" variant="secondary" onPress={() => setStep(0)} style={styles.navButton} />
+              )}
+              {step === 0 ? (
+                <Button
+                  label="Next"
+                  onPress={() => setStep(1)}
+                  disabled={!selectedParty}
+                  style={styles.navButton}
+                />
+              ) : (
+                <Button label="Submit" onPress={handleSubmit} loading={submitting} style={styles.navButton} />
+              )}
+            </View>
           </View>
         </View>
       </Modal>
@@ -304,7 +375,7 @@ export default function BuzzcartScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background },
+  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
   list: { padding: theme.spacing.md },
   fab: {
     position: "absolute",
@@ -343,20 +414,53 @@ const styles = StyleSheet.create({
   toggleButtonActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   toggleText: { fontSize: 13, fontWeight: "bold", color: theme.colors.textSecondary },
   toggleTextActive: { color: "#FFFFFF" },
-  pickerRow: { flexGrow: 0 },
-  pickerChip: {
-    paddingHorizontal: 14,
-    height: 36,
-    borderRadius: 18,
+  stepIndicator: { flexDirection: "row", alignItems: "center", marginBottom: theme.spacing.xs },
+  stepDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: theme.colors.border,
+  },
+  stepDotDone: { backgroundColor: theme.colors.primary },
+  stepLine: { flex: 1, height: 2, backgroundColor: theme.colors.border, marginHorizontal: theme.spacing.xs },
+  stepLabel: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: theme.colors.textMuted,
+    textTransform: "uppercase",
+    marginBottom: theme.spacing.xs,
+  },
+  partyList: { flex: 1 },
+  tileRow: { gap: theme.spacing.sm },
+  emptyText: { textAlign: "center", color: theme.colors.textMuted, marginTop: theme.spacing.md },
+  partyTile: {
+    flex: 1,
+    height: 56,
+    borderRadius: theme.radius.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
+    backgroundColor: theme.colors.card,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: theme.spacing.xs,
+    marginBottom: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.sm,
   },
-  pickerChipSelected: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
-  pickerChipText: { fontSize: 12, color: theme.colors.textSecondary, fontWeight: "bold" },
-  pickerChipTextSelected: { color: "#FFFFFF" },
+  partyTileSelected: { backgroundColor: theme.colors.primaryTint, borderColor: theme.colors.primary, borderWidth: 1.5 },
+  partyTileText: { fontSize: 13, fontWeight: "bold", color: theme.colors.textStrong },
+  partyTileTextSelected: { color: theme.colors.primaryDark },
+  partyTileCheck: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  navRow: { flexDirection: "row", gap: theme.spacing.sm },
+  navButton: { flex: 1 },
   productList: { flex: 1 },
   qtyControls: { flexDirection: "row", alignItems: "center", gap: theme.spacing.sm },
   qtyButton: {

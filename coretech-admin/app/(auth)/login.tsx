@@ -71,7 +71,7 @@ export default function LoginScreen() {
         <FadeInView style={styles.brandContainer}>
           <Image source={require("../../assets/icon.png")} style={styles.logoImage} />
           <Text style={styles.brandName}>
-            Core<Text style={{ color: theme.colors.primary }}>TECH</Text> Admin
+            Core<Text style={{ color: theme.colors.primary }}>TECH</Text> Digital
           </Text>
           <Text style={styles.tagline}>YOUR CORE PARTNER IN TECH</Text>
         </FadeInView>
