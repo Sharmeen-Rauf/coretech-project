@@ -185,6 +185,7 @@ export async function createRoleAction(displayName: string) {
 
     const rows = ALL_PERMISSION_KEYS.map((key) => ({
       role_id: newRole.id, permission_key: key, granted: false, locked: false, scope_level: "everything", can_write: true,
+      mobile_granted: false, mobile_scope_level: "everything", mobile_can_write: true,
     }));
     const { error: permErr } = await supabase.from("role_permissions").insert(rows);
     if (permErr) throw permErr;
@@ -195,13 +196,17 @@ export async function createRoleAction(displayName: string) {
   }
 }
 
-// Updates only the freely-editable permission rows for a role. Locked rows are
-// silently skipped rather than erroring the whole request - the UI already
-// disables locked checkboxes, so a locked key showing up in `grants` means the
-// client sent back its current (already-granted) state, not an attempted change.
+// Updates the freely-editable permission rows for a role - both web's
+// existing granted/scope/write columns and mobile's independent copy (§9 of
+// notes/MOBILE-ADMIN-APP-PLAN.md). `locked` only ever gated web columns (it
+// exists for web-side hardcoded-role logic like Buzzcart approve/decline) -
+// mobile has no locked concept of its own yet, so mobileGrants apply
+// regardless of a row's `locked` value. Locked rows are still never changed
+// on the web side, regardless of what `grants` sent for them.
 export async function updateRolePermissionsAction(
   roleId: string,
   grants: { key: string; scope?: "self" | "region" | "everything"; canWrite?: boolean }[],
+  mobileGrants: { key: string; scope?: "self" | "region" | "everything"; canWrite?: boolean }[] = [],
   newDisplayName?: string
 ) {
   try {
@@ -220,27 +225,39 @@ export async function updateRolePermissionsAction(
 
     const { data: currentRows, error: fetchErr } = await supabase
       .from("role_permissions")
-      .select("permission_key, granted, locked, scope_level, can_write")
+      .select("permission_key, granted, locked, scope_level, can_write, mobile_granted, mobile_scope_level, mobile_can_write")
       .eq("role_id", roleId);
     if (fetchErr) throw fetchErr;
 
     const grantMap = new Map(grants.map((g) => [g.key, g]));
-    const updates = (currentRows || [])
-      .filter((row) => !row.locked) // locked rows are never touched, regardless of what was submitted
-      .map((row) => {
-        const g = grantMap.get(row.permission_key);
-        return {
-          permission_key: row.permission_key,
-          granted: !!g,
-          scope_level: g?.scope || row.scope_level || "everything",
-          can_write: g ? g.canWrite !== false : row.can_write,
-        };
-      });
+    const mobileGrantMap = new Map(mobileGrants.map((g) => [g.key, g]));
+    const updates = (currentRows || []).map((row) => {
+      const g = grantMap.get(row.permission_key);
+      const mg = mobileGrantMap.get(row.permission_key);
+      return {
+        permission_key: row.permission_key,
+        // Locked rows keep their existing web state untouched, same as before.
+        granted: row.locked ? row.granted : !!g,
+        scope_level: row.locked ? row.scope_level : g?.scope || row.scope_level || "everything",
+        can_write: row.locked ? row.can_write : g ? g.canWrite !== false : row.can_write,
+        // Mobile is independent of `locked` and of the web `granted` value.
+        mobile_granted: !!mg,
+        mobile_scope_level: mg?.scope || row.mobile_scope_level || "everything",
+        mobile_can_write: mg ? mg.canWrite !== false : row.mobile_can_write,
+      };
+    });
 
     for (const u of updates) {
       const { error } = await supabase
         .from("role_permissions")
-        .update({ granted: u.granted, scope_level: u.scope_level, can_write: u.can_write })
+        .update({
+          granted: u.granted,
+          scope_level: u.scope_level,
+          can_write: u.can_write,
+          mobile_granted: u.mobile_granted,
+          mobile_scope_level: u.mobile_scope_level,
+          mobile_can_write: u.mobile_can_write,
+        })
         .eq("role_id", roleId)
         .eq("permission_key", u.permission_key);
       if (error) throw error;
@@ -248,21 +265,23 @@ export async function updateRolePermissionsAction(
 
     // A permission key added to the catalog after this role's row was last
     // saved has no existing row to update above - without this, granting it
-    // for the first time would silently do nothing. `grants` only ever
-    // contains checked/granted items, so every key here is a real grant, not
-    // a placeholder for something left unchecked.
+    // for the first time would silently do nothing.
     const currentKeys = new Set((currentRows || []).map((r) => r.permission_key));
-    const missingGrantedKeys = grants.map((g) => g.key).filter((key) => !currentKeys.has(key));
-    if (missingGrantedKeys.length > 0) {
-      const inserts = missingGrantedKeys.map((key) => {
-        const g = grantMap.get(key)!;
+    const missingKeys = new Set([...grants.map((g) => g.key), ...mobileGrants.map((g) => g.key)].filter((key) => !currentKeys.has(key)));
+    if (missingKeys.size > 0) {
+      const inserts = Array.from(missingKeys).map((key) => {
+        const g = grantMap.get(key);
+        const mg = mobileGrantMap.get(key);
         return {
           role_id: roleId,
           permission_key: key,
-          granted: true,
+          granted: !!g,
           locked: false,
-          scope_level: g.scope || "everything",
-          can_write: g.canWrite !== false,
+          scope_level: g?.scope || "everything",
+          can_write: g ? g.canWrite !== false : true,
+          mobile_granted: !!mg,
+          mobile_scope_level: mg?.scope || "everything",
+          mobile_can_write: mg ? mg.canWrite !== false : true,
         };
       });
       const { error: insertErr } = await supabase.from("role_permissions").insert(inserts);

@@ -21,6 +21,18 @@ export interface PermissionItem {
   label: string;
   route: string;
   supportedScopes?: ScopeLevel[];
+  // Whether this permission has any mobile screen at all - a code-level fact
+  // set by whoever builds each mobile screen, not admin-editable. Role
+  // Management's mobile column is greyed out/un-clickable for every item
+  // where this is false, distinct from an admin simply not granting it.
+  // Fixed list confirmed in notes/MOBILE-ADMIN-APP-PLAN.md §9/§14 - don't add
+  // to this without a matching client decision recorded there.
+  mobileEligible?: boolean;
+  // Some mobileEligible permissions are "view only" as a hard app-level
+  // design decision - no create/edit/delete screen is ever built for them on
+  // mobile, regardless of mobile_can_write's stored value. Only meaningful
+  // when mobileEligible is true; defaults to true (writable) otherwise.
+  mobileWriteEligible?: boolean;
 }
 
 export interface PermissionGroup {
@@ -43,7 +55,7 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     icon: "ShoppingCart",
     items: [
       { key: "purchase.import_stock", label: "Import Stock", route: "/dashboard/purchase/import-stock" },
-      { key: "purchase.inventory", label: "Inventory", route: "/dashboard/purchase/inventory", supportedScopes: ["self", "region", "everything"] },
+      { key: "purchase.inventory", label: "Inventory", route: "/dashboard/purchase/inventory", supportedScopes: ["self", "region", "everything"], mobileEligible: true },
       { key: "purchase.warehouse", label: "Warehouses", route: "/dashboard/purchase/warehouse" },
     ],
   },
@@ -58,18 +70,20 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     groupLabel: "Sales Management",
     icon: "TrendingUp",
     items: [
-      { key: "sales.st1", label: "ST-1", route: "/dashboard/sales/st1", supportedScopes: ["self", "region", "everything"] },
-      { key: "sales.st2", label: "ST-2", route: "/dashboard/sales/st2", supportedScopes: ["self", "region", "everything"] },
+      // ST-1 is view-only on mobile everywhere it appears - no create/edit
+      // screen is ever built for it there, regardless of mobile_can_write.
+      { key: "sales.st1", label: "ST-1", route: "/dashboard/sales/st1", supportedScopes: ["self", "region", "everything"], mobileEligible: true, mobileWriteEligible: false },
+      { key: "sales.st2", label: "ST-2", route: "/dashboard/sales/st2", supportedScopes: ["self", "region", "everything"], mobileEligible: true },
       { key: "sales.return", label: "Return", route: "/dashboard/sales/return", supportedScopes: ["self", "region", "everything"] },
       { key: "sales.transfer", label: "Transfer", route: "/dashboard/sales/transfer", supportedScopes: ["self", "region", "everything"] },
-      { key: "sales.sellout", label: "Sell Out", route: "/dashboard/sales/sellout", supportedScopes: ["self", "region", "everything"] },
+      { key: "sales.sellout", label: "Sell Out", route: "/dashboard/sales/sellout", supportedScopes: ["self", "region", "everything"], mobileEligible: true },
     ],
   },
   {
     groupKey: "buzzcart",
     groupLabel: "Buzzcart",
     icon: "ShoppingBag",
-    items: [{ key: "buzzcart", label: "Buzzcart", route: "/dashboard/buzzcart/orders", supportedScopes: ["self", "region", "everything"] }],
+    items: [{ key: "buzzcart", label: "Buzzcart", route: "/dashboard/buzzcart/orders", supportedScopes: ["self", "region", "everything"], mobileEligible: true }],
   },
   {
     groupKey: "installer",
@@ -94,7 +108,9 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     items: [
       // Key unchanged from the old single "Target Management" item - every
       // role that already had access keeps it, unaffected by this split.
-      { key: "resources", label: "Sales Targets & Incentives", route: "/dashboard/resources" },
+      // Mobile's Target View is read-only everywhere (§12.1's "Target (Read
+      // Only)" bottom-bar slot) - no write screen is ever built for it.
+      { key: "resources", label: "Sales Targets & Incentives", route: "/dashboard/resources", mobileEligible: true, mobileWriteEligible: false },
       // New capability, starts ungranted for every existing role (only admin
       // has it by default) - assigning targets to anyone is real power that
       // shouldn't silently inherit from whoever could see the old fake tab.
@@ -110,10 +126,14 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     icon: "Users",
     items: [
       { key: "users.add_employee", label: "Add Employee", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"] },
-      { key: "users.add_distributor", label: "Add Distributor", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"] },
-      { key: "users.add_sub_dealer", label: "Add Sub Dealer", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"] },
+      // Backs the admin app's Employee "Distributor View" - hard view-only on
+      // mobile, same reasoning as ST1 above.
+      { key: "users.add_distributor", label: "Add Distributor", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"], mobileEligible: true, mobileWriteEligible: false },
+      // Backs the admin app's Employee "Sub-Dealer View" - hard view-only on mobile.
+      { key: "users.add_sub_dealer", label: "Add Sub Dealer", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"], mobileEligible: true, mobileWriteEligible: false },
       { key: "users.add_installer", label: "Add Installer", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"] },
-      { key: "users.dealer_assignment", label: "Dealer Assignment", route: "/dashboard/users" },
+      // Backs the admin app's Distributor "own Sub Dealer List" view.
+      { key: "users.dealer_assignment", label: "Dealer Assignment", route: "/dashboard/users", mobileEligible: true },
       { key: "users.reset_password", label: "Reset Password", route: "/dashboard/users" },
       { key: "users.role_management", label: "Role Management", route: "/dashboard/users" },
     ],
@@ -131,7 +151,7 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
     // Plain grant/no-grant, no self/region/everything filter - per the
     // client's decision this only ever goes to roles who should see a serial
     // number's full chain of custody, not a partial/scoped view of it.
-    items: [{ key: "sn_lookup", label: "SN Lookup", route: "/dashboard/sn-lookup" }],
+    items: [{ key: "sn_lookup", label: "SN Lookup", route: "/dashboard/sn-lookup", mobileEligible: true }],
   },
 ];
 
