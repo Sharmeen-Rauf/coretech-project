@@ -1,6 +1,8 @@
 import React from "react";
-import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, ViewStyle } from "react-native";
+import { Text, ActivityIndicator, StyleSheet, ViewStyle } from "react-native";
 import { theme } from "../lib/theme";
+import { haptics } from "../lib/haptics";
+import AnimatedPressable from "./AnimatedPressable";
 
 type Variant = "primary" | "secondary" | "destructive";
 
@@ -15,22 +17,27 @@ interface ButtonProps {
 
 // One shared button across every screen instead of each one hand-rolling
 // its own submit/scan/decision button styling - the drift that was
-// already visible between screens before this pass.
+// already visible between screens before this pass. Built on
+// AnimatedPressable (press-scale) + a light haptic tap, so every button in
+// the app picked up both in one place.
 export default function Button({ label, onPress, variant = "primary", loading, disabled, style }: ButtonProps) {
   const isDisabled = disabled || loading;
   return (
-    <TouchableOpacity
+    <AnimatedPressable
       style={[styles.base, VARIANT_STYLES[variant], isDisabled && styles.disabled, style]}
-      onPress={onPress}
+      onPress={() => {
+        if (isDisabled) return;
+        haptics.light();
+        onPress();
+      }}
       disabled={isDisabled}
-      activeOpacity={0.75}
     >
       {loading ? (
         <ActivityIndicator size="small" color={variant === "primary" ? "#FFFFFF" : theme.colors.primary} />
       ) : (
         <Text style={[styles.label, TEXT_STYLES[variant]]}>{label}</Text>
       )}
-    </TouchableOpacity>
+    </AnimatedPressable>
   );
 }
 

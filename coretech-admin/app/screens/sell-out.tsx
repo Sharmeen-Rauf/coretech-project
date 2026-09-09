@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -7,19 +7,22 @@ import {
   StyleSheet,
   FlatList,
   Modal,
-  ActivityIndicator,
+  RefreshControl,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { Stack } from "expo-router";
+import { Stack, useFocusEffect } from "expo-router";
 import { Plus, TrendingUp } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
+import { haptics } from "../../lib/haptics";
 import BarcodeScanner from "../../components/BarcodeScanner";
 import { useScannedSerials } from "../../lib/useScannedSerials";
 import ListRow from "../../components/ListRow";
 import EmptyState from "../../components/EmptyState";
+import SkeletonList from "../../components/SkeletonList";
 import Button from "../../components/Button";
+import AnimatedPressable from "../../components/AnimatedPressable";
 
 interface SellOutRow {
   id: string;
@@ -46,6 +49,7 @@ export default function SellOutScreen() {
   const [rows, setRows] = useState<SellOutRow[]>([]);
   const [canWrite, setCanWrite] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -57,8 +61,8 @@ export default function SellOutScreen() {
   const [results, setResults] = useState<SellOutResult[] | null>(null);
   const scanned = useScannedSerials();
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
     setError("");
     try {
       const res = await mobileApiFetch<{ success: boolean; data: SellOutRow[]; canWrite: boolean; error?: string }>(
@@ -71,12 +75,15 @@ export default function SellOutScreen() {
       setError(err instanceof ApiError ? err.message : "Failed to load Sell Out records");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const resetCreateForm = () => {
     setConsumerName("");
@@ -112,9 +119,11 @@ export default function SellOutScreen() {
         }
       );
       if (!res.success) throw new Error(res.error || "Submission failed");
+      haptics.success();
       setResults(res.results);
       load();
     } catch (err) {
+      haptics.error();
       setError(err instanceof ApiError ? err.message : "Submission failed");
     } finally {
       setSubmitting(false);
@@ -126,12 +135,13 @@ export default function SellOutScreen() {
       <Stack.Screen options={{ title: "Sell Out" }} />
 
       {loading ? (
-        <ActivityIndicator style={styles.centerLoader} size="large" color={theme.colors.primary} />
+        <SkeletonList count={6} />
       ) : (
         <FlatList
           data={rows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={theme.colors.primary} />}
           ListEmptyComponent={<EmptyState icon={TrendingUp} title="No Sell Out records yet" />}
           renderItem={({ item }) => (
             <ListRow
@@ -146,15 +156,16 @@ export default function SellOutScreen() {
       {!!error && !createOpen && <Text style={styles.errorBanner}>{error}</Text>}
 
       {canWrite && (
-        <TouchableOpacity
+        <AnimatedPressable
           style={styles.fab}
           onPress={() => {
+            haptics.light();
             resetCreateForm();
             setCreateOpen(true);
           }}
         >
           <Plus color="#FFFFFF" size={22} />
-        </TouchableOpacity>
+        </AnimatedPressable>
       )}
 
       <Modal visible={createOpen} animationType="slide" onRequestClose={() => setCreateOpen(false)}>
@@ -257,7 +268,6 @@ export default function SellOutScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
-  centerLoader: { flex: 1 },
   list: { padding: theme.spacing.md },
   errorBanner: {
     color: theme.colors.error,

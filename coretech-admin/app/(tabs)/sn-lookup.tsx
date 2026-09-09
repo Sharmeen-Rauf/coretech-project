@@ -1,12 +1,14 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { Camera, SearchX } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
+import { haptics } from "../../lib/haptics";
 import BarcodeScanner from "../../components/BarcodeScanner";
 import ListRow from "../../components/ListRow";
 import EmptyState from "../../components/EmptyState";
 import Button from "../../components/Button";
+import AnimatedPressable from "../../components/AnimatedPressable";
 
 interface LookupResult {
   success: boolean;
@@ -45,7 +47,9 @@ export default function SnLookupScreen() {
       const res = await mobileApiFetch<LookupResult>(`/api/mobile/sn-lookup?serial=${encodeURIComponent(trimmed)}`);
       if (!res.success) throw new Error(res.error || "Lookup failed");
       setResult(res);
+      haptics[res.found ? "success" : "light"]();
     } catch (err) {
+      haptics.error();
       setError(err instanceof ApiError ? err.message : "Lookup failed");
     } finally {
       setLoading(false);
@@ -64,9 +68,15 @@ export default function SnLookupScreen() {
           onChangeText={setSerial}
           onSubmitEditing={() => runLookup(serial)}
         />
-        <TouchableOpacity style={styles.scanButton} onPress={() => setScannerOpen(true)}>
+        <AnimatedPressable
+          style={styles.scanButton}
+          onPress={() => {
+            haptics.light();
+            setScannerOpen(true);
+          }}
+        >
           <Camera color="#FFFFFF" size={20} />
-        </TouchableOpacity>
+        </AnimatedPressable>
       </View>
       <Button label="Look Up" onPress={() => runLookup(serial)} style={styles.searchButtonSpacing} />
 
