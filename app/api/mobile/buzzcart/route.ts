@@ -26,6 +26,11 @@ export async function GET(request: NextRequest) {
     products: productsResult.data,
     distributors: pickersResult.distributors,
     subDealers: pickersResult.subDealers,
+    // Approve/decline is a locked pair on web (hardcoded to country_head/
+    // admin, independent of buzzcart's own can_write - §8), not something
+    // Role Management's mobile column can grant. Mirrored here rather than
+    // exposed as a mobile permission.
+    canApprove: ["country_head", "admin"].includes(auth.caller.role),
   });
 }
 

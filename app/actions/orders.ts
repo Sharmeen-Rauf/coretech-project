@@ -217,9 +217,9 @@ export async function createBuzzcartOrderAction(params: {
   }
 }
 
-export async function approveOrderAction(orderId: string) {
+export async function approveOrderAction(orderId: string, opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller || !["country_head", "admin"].includes(caller.role || "")) {
       return { success: false, error: "Only Country Head or Admin can approve this order" };
     }
@@ -248,9 +248,9 @@ export async function approveOrderAction(orderId: string) {
   }
 }
 
-export async function declineOrderAction(orderId: string) {
+export async function declineOrderAction(orderId: string, opts?: CallerOpts) {
   try {
-    const caller = await getCallerIdentity();
+    const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller || !["country_head", "admin"].includes(caller.role || "")) {
       return { success: false, error: "Only Country Head or Admin can decline this order" };
     }
