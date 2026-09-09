@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
+import { Users } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import ListRow from "../../components/ListRow";
+import EmptyState from "../../components/EmptyState";
 
 interface DirectoryProfile {
   id: string;
@@ -49,7 +51,7 @@ export default function DirectoryScreen() {
           data={rows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.emptyText}>Nothing to show.</Text>}
+          ListEmptyComponent={<EmptyState icon={Users} title="Nothing to show" />}
           renderItem={({ item }) => (
             <ListRow
               title={`${item.first_name} ${item.last_name}`}
@@ -67,6 +69,5 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   centerLoader: { flex: 1 },
   list: { padding: theme.spacing.md },
-  emptyText: { textAlign: "center", color: theme.colors.textMuted, marginTop: theme.spacing.xl },
   errorText: { textAlign: "center", color: theme.colors.error, marginTop: theme.spacing.xl },
 });

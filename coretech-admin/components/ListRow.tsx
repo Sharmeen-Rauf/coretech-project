@@ -39,6 +39,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
     marginBottom: theme.spacing.sm,
+    ...theme.shadow.card,
   },
   row: {
     flexDirection: "row",

@@ -12,12 +12,14 @@ import {
   Platform,
 } from "react-native";
 import { Stack } from "expo-router";
-import { Plus } from "lucide-react-native";
+import { Plus, TrendingUp } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import BarcodeScanner from "../../components/BarcodeScanner";
 import { useScannedSerials } from "../../lib/useScannedSerials";
 import ListRow from "../../components/ListRow";
+import EmptyState from "../../components/EmptyState";
+import Button from "../../components/Button";
 
 interface SellOutRow {
   id: string;
@@ -130,7 +132,7 @@ export default function SellOutScreen() {
           data={rows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.emptyText}>No Sell Out records yet.</Text>}
+          ListEmptyComponent={<EmptyState icon={TrendingUp} title="No Sell Out records yet" />}
           renderItem={({ item }) => (
             <ListRow
               title={item.products?.name || "Unknown Product"}
@@ -184,9 +186,7 @@ export default function SellOutScreen() {
                   />
                 )}
               />
-              <TouchableOpacity style={styles.submitButton} onPress={() => setCreateOpen(false)}>
-                <Text style={styles.submitButtonText}>Done</Text>
-              </TouchableOpacity>
+              <Button label="Done" onPress={() => setCreateOpen(false)} />
             </View>
           ) : (
             <View style={styles.form}>
@@ -213,9 +213,7 @@ export default function SellOutScreen() {
                 onChangeText={setSiteAddress}
               />
 
-              <TouchableOpacity style={styles.scanButton} onPress={() => setScannerOpen(true)}>
-                <Text style={styles.scanButtonText}>Scan Serial Numbers</Text>
-              </TouchableOpacity>
+              <Button label="Scan Serial Numbers" variant="secondary" onPress={() => setScannerOpen(true)} />
 
               {scanned.duplicateError && <Text style={styles.errorText}>{scanned.duplicateError}</Text>}
 
@@ -237,15 +235,11 @@ export default function SellOutScreen() {
 
               {!!error && <Text style={styles.errorText}>{error}</Text>}
 
-              <TouchableOpacity
-                style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+              <Button
+                label={`Submit ${scanned.items.length || ""}`.trim()}
                 onPress={handleSubmit}
-                disabled={submitting}
-              >
-                <Text style={styles.submitButtonText}>
-                  {submitting ? "Submitting..." : `Submit ${scanned.items.length || ""}`.trim()}
-                </Text>
-              </TouchableOpacity>
+                loading={submitting}
+              />
             </View>
           )}
         </KeyboardAvoidingView>
@@ -265,7 +259,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   centerLoader: { flex: 1 },
   list: { padding: theme.spacing.md },
-  emptyText: { textAlign: "center", color: theme.colors.textMuted, marginTop: theme.spacing.xl },
   errorBanner: {
     color: theme.colors.error,
     fontSize: 12,
@@ -282,7 +275,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 4,
+    ...theme.shadow.fab,
   },
   modalContainer: { flex: 1, backgroundColor: theme.colors.card },
   modalHeader: {
@@ -305,27 +298,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.textStrong,
   },
-  scanButton: {
-    height: 44,
-    borderRadius: theme.radius.sm,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scanButtonText: { color: theme.colors.primary, fontWeight: "bold", fontSize: 13 },
   scannedList: { flex: 1 },
   removeText: { color: theme.colors.error, fontSize: 12, fontWeight: "bold" },
   errorText: { color: theme.colors.error, fontSize: 12 },
-  submitButton: {
-    height: 48,
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  submitButtonDisabled: { opacity: 0.6 },
-  submitButtonText: { color: "#FFFFFF", fontWeight: "bold", fontSize: 14 },
   resultsWrap: { flex: 1, padding: theme.spacing.md },
   resultsHeading: { fontSize: 14, fontWeight: "bold", color: theme.colors.textPrimary, marginBottom: theme.spacing.sm },
   resultMark: { fontSize: 16, fontWeight: "bold" },
