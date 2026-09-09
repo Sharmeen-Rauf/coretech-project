@@ -1,9 +1,9 @@
 import React, { useCallback, useState } from "react";
 import { Text, StyleSheet, ScrollView, View, RefreshControl } from "react-native";
-import { useFocusEffect } from "expo-router";
 import { Target as TargetIcon } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
+import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import EmptyState from "../../components/EmptyState";
 import ProgressRing from "../../components/ProgressRing";
 import SkeletonList from "../../components/SkeletonList";
@@ -45,11 +45,7 @@ export default function TargetScreen() {
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  useRefreshOnFocus(load);
 
   if (loading) {
     return <SkeletonList count={3} />;

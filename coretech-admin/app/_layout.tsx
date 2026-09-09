@@ -4,8 +4,17 @@ import React from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import * as SplashScreen from "expo-splash-screen";
 import ErrorBoundary from "../components/ErrorBoundary";
 import { screenHeaderOptions } from "../lib/navHeader";
+
+// Holds the native splash screen up past its default auto-hide (which fires
+// on the very first paint - the blank auth-check spinner in index.tsx, or
+// worse, a login screen caught mid fade-in). app/index.tsx explicitly calls
+// SplashScreen.hideAsync() once it has actually decided where to send the
+// user, so the handoff is always splash -> real destination screen, never
+// splash -> a transitional blank/low-opacity frame.
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   return (

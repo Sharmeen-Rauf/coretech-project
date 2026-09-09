@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
   brandContainer: {
     alignItems: "center",
     marginTop: theme.spacing.xl,
-    marginBottom: theme.spacing.xl,
+    marginBottom: theme.spacing.lg,
   },
   logoImage: {
     width: 64,
@@ -166,8 +166,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   cardSlot: {
-    flex: 1,
-    justifyContent: "center",
+    // Was flex: 1 + justifyContent: "center", which centered the card in
+    // whatever space was left below the logo - on a tall screen that space
+    // is large, so the card floated far below the logo instead of sitting
+    // close to it. A plain block here just stacks it right after the logo
+    // with a fixed, consistent gap regardless of screen height.
   },
   card: {
     backgroundColor: theme.colors.primaryTint,

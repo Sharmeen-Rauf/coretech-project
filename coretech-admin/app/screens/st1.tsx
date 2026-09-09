@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
-import { Stack, useFocusEffect } from "expo-router";
+import { Stack } from "expo-router";
+import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { TrendingUp } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
@@ -43,11 +44,7 @@ export default function St1Screen() {
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  useRefreshOnFocus(load);
 
   return (
     <View style={styles.container}>

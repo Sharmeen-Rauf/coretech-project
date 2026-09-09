@@ -134,8 +134,14 @@ export const PERMISSION_CATALOG: PermissionGroup[] = [
       // employee viewing their own distributor/sub-dealer record isn't a
       // meaningful scope the way it is for a distributor's own ST2 access.
       { key: "users.add_distributor", label: "Add Distributor", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"], mobileEligible: true, mobileWriteEligible: false, mobileSupportedScopes: ["region", "everything"] },
-      // Backs the admin app's Employee "Sub-Dealer View" - hard view-only on mobile.
-      { key: "users.add_sub_dealer", label: "Add Sub Dealer", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"], mobileEligible: true, mobileWriteEligible: false, mobileSupportedScopes: ["region", "everything"] },
+      // Backs the admin app's Employee "Sub-Dealer View" - hard view-only on
+      // mobile. "self" is a meaningful scope here too (unlike Add
+      // Distributor above) - fetchUsersAction already has a real branch for
+      // a distributor caller + self scope, filtering to just their own
+      // connected sub-dealers (distributor_id === caller.id), so a
+      // distributor granted self-only mobile access sees exactly their own
+      // assigned sub-dealers, not the whole directory.
+      { key: "users.add_sub_dealer", label: "Add Sub Dealer", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"], mobileEligible: true, mobileWriteEligible: false, mobileSupportedScopes: ["self", "region", "everything"] },
       { key: "users.add_installer", label: "Add Installer", route: "/dashboard/users", supportedScopes: ["self", "region", "everything"] },
       // Backs the admin app's Distributor "own Sub Dealer List" view.
       { key: "users.dealer_assignment", label: "Dealer Assignment", route: "/dashboard/users", mobileEligible: true },
