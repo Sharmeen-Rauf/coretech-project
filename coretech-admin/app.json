@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "CoreTech Admin",
+    "slug": "coretech-admin",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": false,
+    "scheme": "coretechadmin",
+    "ios": {
+      "supportsTablet": true,
+      "newArchEnabled": false
+    },
+    "android": {
+      "package": "com.coretechsolar.admin",
+      "versionCode": 1,
+      "newArchEnabled": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "image": "./assets/splash.png",
+            "resizeMode": "contain",
+            "backgroundColor": "#FFFFFF"
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "apiBaseUrl": "https://www.coretechsolar.com",
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "132112c1-cc54-489f-8327-8abdb273e48e"
+      }
+    },
+    "owner": "ymgroupofficial",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/132112c1-cc54-489f-8327-8abdb273e48e"
+    }
+  }
+}
