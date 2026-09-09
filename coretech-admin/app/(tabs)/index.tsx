@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { TrendingUp, ShoppingCart, Users, ShoppingBag, Wrench, Bell, LayoutGrid } from "lucide-react-native";
+import { TrendingUp, ShoppingCart, Users, ShoppingBag, Wrench, LayoutGrid } from "lucide-react-native";
 import { useMyPermissions } from "../../lib/permissionsContext";
 import { GRID_TILES } from "../../lib/navConfig";
 import { theme } from "../../lib/theme";
@@ -25,41 +25,26 @@ interface Announcement {
 // Home / Dashboard (§17 #2) - a DCR-style icon grid (§12), recolored in the
 // installer app's own palette rather than DCR's. Every mobileEligible
 // permission except SN Lookup/Target lives here, permanently (§12.1) -
-// those two live only in the bottom bar. The announcements card and
-// notifications bell (§18) refetch on every focus (fetch-on-open, not
-// real-time - keeps this app off direct Supabase access per §7).
+// those two live only in the bottom bar. The title and notifications bell
+// (§18) now live on the native tab header ((tabs)/_layout.tsx,
+// components/NotificationBell.tsx) instead of being hand-rolled here - this
+// screen's body is just the announcement card and the grid.
 export default function HomeScreen() {
   const { loading, keys } = useMyPermissions();
   const tiles = GRID_TILES.filter((tile) => keys.includes(tile.key));
 
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
 
-  const refresh = useCallback(() => {
-    mobileApiFetch<{ success: boolean; announcement: Announcement | null }>("/api/mobile/announcements")
-      .then((res) => setAnnouncement(res.success ? res.announcement : null))
-      .catch(() => {});
-    mobileApiFetch<{ success: boolean; unreadCount: number }>("/api/mobile/notifications")
-      .then((res) => setUnreadCount(res.success ? res.unreadCount : 0))
-      .catch(() => {});
-  }, []);
-
-  useFocusEffect(refresh);
+  useFocusEffect(
+    useCallback(() => {
+      mobileApiFetch<{ success: boolean; announcement: Announcement | null }>("/api/mobile/announcements")
+        .then((res) => setAnnouncement(res.success ? res.announcement : null))
+        .catch(() => {});
+    }, [])
+  );
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.heading}>Home</Text>
-        <TouchableOpacity style={styles.bellButton} onPress={() => router.push("/screens/notifications")}>
-          <Bell color={theme.colors.textPrimary} size={22} />
-          {unreadCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
-
       {announcement && (
         <View style={styles.announcementCard}>
           <Text style={styles.announcementTitle}>{announcement.title}</Text>
@@ -99,46 +84,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
-    paddingTop: theme.spacing.xl,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: theme.spacing.lg,
-    marginBottom: theme.spacing.md,
-  },
-  heading: {
-    fontSize: 22,
-    fontWeight: "bold",
-    color: theme.colors.textPrimary,
-  },
-  bellButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: theme.colors.card,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badge: {
-    position: "absolute",
-    top: -4,
-    right: -4,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: theme.colors.error,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 3,
-  },
-  badgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "bold",
+    paddingTop: theme.spacing.md,
   },
   announcementCard: {
     marginHorizontal: theme.spacing.lg,
