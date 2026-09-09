@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native";
 import { router, useFocusEffect } from "expo-router";
-import { TrendingUp, ShoppingCart, Users, ShoppingBag, Wrench, Bell } from "lucide-react-native";
+import { TrendingUp, ShoppingCart, Users, ShoppingBag, Wrench, Bell, LayoutGrid } from "lucide-react-native";
 import { useMyPermissions } from "../../lib/permissionsContext";
 import { GRID_TILES } from "../../lib/navConfig";
 import { theme } from "../../lib/theme";
 import { mobileApiFetch } from "../../lib/api";
+import EmptyState from "../../components/EmptyState";
 
 const ICONS: Record<string, React.ComponentType<{ color: string; size: number }>> = {
   TrendingUp,
@@ -69,10 +70,7 @@ export default function HomeScreen() {
       )}
 
       {!loading && tiles.length === 0 ? (
-        <View style={styles.empty}>
-          <Wrench color={theme.colors.textMuted} size={28} />
-          <Text style={styles.emptyText}>Nothing has been granted to this account yet.</Text>
-        </View>
+        <EmptyState icon={LayoutGrid} title="Nothing here yet" subtitle="Nothing has been granted to this account yet." />
       ) : (
         <FlatList
           data={tiles}
@@ -150,6 +148,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.primary,
     padding: theme.spacing.md,
+    ...theme.shadow.card,
   },
   announcementTitle: {
     fontSize: 13,
@@ -180,6 +179,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: theme.spacing.sm,
     padding: theme.spacing.sm,
+    ...theme.shadow.card,
   },
   tileIcon: {
     width: 40,
@@ -194,18 +194,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "bold",
     color: theme.colors.textStrong,
-    textAlign: "center",
-  },
-  empty: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: theme.spacing.xl,
-    gap: theme.spacing.sm,
-  },
-  emptyText: {
-    fontSize: 13,
-    color: theme.colors.textMuted,
     textAlign: "center",
   },
 });

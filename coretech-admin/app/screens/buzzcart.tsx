@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, ActivityIndicator } from "react-native";
 import { Stack } from "expo-router";
-import { Plus, Minus } from "lucide-react-native";
+import { Plus, Minus, ShoppingBag } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import ListRow from "../../components/ListRow";
 import StatusBadge, { BadgeTone } from "../../components/StatusBadge";
+import EmptyState from "../../components/EmptyState";
+import Button from "../../components/Button";
 
 interface OrderRow {
   id: string;
@@ -167,7 +169,7 @@ export default function BuzzcartScreen() {
           data={rows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.emptyText}>No orders yet.</Text>}
+          ListEmptyComponent={<EmptyState icon={ShoppingBag} title="No orders yet" subtitle="Orders you create will show up here." />}
           renderItem={({ item }) => (
             <ListRow
               title={item.order_code}
@@ -274,13 +276,7 @@ export default function BuzzcartScreen() {
 
             {!!error && <Text style={styles.errorText}>{error}</Text>}
 
-            <TouchableOpacity
-              style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
-              onPress={handleSubmit}
-              disabled={submitting}
-            >
-              <Text style={styles.submitButtonText}>{submitting ? "Submitting..." : "Submit Order"}</Text>
-            </TouchableOpacity>
+            <Button label="Submit Order" onPress={handleSubmit} loading={submitting} />
           </View>
         </View>
       </Modal>
@@ -292,7 +288,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   centerLoader: { flex: 1 },
   list: { padding: theme.spacing.md },
-  emptyText: { textAlign: "center", color: theme.colors.textMuted, marginTop: theme.spacing.xl },
   fab: {
     position: "absolute",
     right: theme.spacing.lg,
@@ -303,7 +298,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 4,
+    ...theme.shadow.fab,
   },
   modalContainer: { flex: 1, backgroundColor: theme.colors.card },
   modalHeader: {
@@ -357,15 +352,6 @@ const styles = StyleSheet.create({
   },
   qtyText: { fontSize: 14, fontWeight: "bold", color: theme.colors.textStrong, minWidth: 18, textAlign: "center" },
   errorText: { color: theme.colors.error, fontSize: 12 },
-  submitButton: {
-    height: 48,
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  submitButtonDisabled: { opacity: 0.6 },
-  submitButtonText: { color: "#FFFFFF", fontWeight: "bold", fontSize: 14 },
   decisionRow: { flexDirection: "row", gap: theme.spacing.sm },
   decisionButton: {
     flex: 1,

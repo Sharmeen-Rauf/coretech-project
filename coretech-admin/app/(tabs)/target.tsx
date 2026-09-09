@@ -76,6 +76,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
     marginBottom: theme.spacing.sm,
+    ...theme.shadow.card,
   },
   productName: { fontSize: 15, fontWeight: "bold", color: theme.colors.textPrimary },
   period: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2, marginBottom: theme.spacing.sm },

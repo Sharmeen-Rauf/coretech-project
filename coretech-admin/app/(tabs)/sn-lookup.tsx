@@ -1,10 +1,12 @@
 import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
-import { Camera } from "lucide-react-native";
+import { Camera, SearchX } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import BarcodeScanner from "../../components/BarcodeScanner";
 import ListRow from "../../components/ListRow";
+import EmptyState from "../../components/EmptyState";
+import Button from "../../components/Button";
 
 interface LookupResult {
   success: boolean;
@@ -66,14 +68,14 @@ export default function SnLookupScreen() {
           <Camera color="#FFFFFF" size={20} />
         </TouchableOpacity>
       </View>
-      <TouchableOpacity style={styles.searchButton} onPress={() => runLookup(serial)}>
-        <Text style={styles.searchButtonText}>Look Up</Text>
-      </TouchableOpacity>
+      <Button label="Look Up" onPress={() => runLookup(serial)} style={styles.searchButtonSpacing} />
 
       {loading && <ActivityIndicator style={styles.loader} size="large" color={theme.colors.primary} />}
       {!!error && <Text style={styles.errorText}>{error}</Text>}
 
-      {result && !result.found && <Text style={styles.emptyText}>No record found for that serial number.</Text>}
+      {result && !result.found && (
+        <EmptyState icon={SearchX} title="No record found" subtitle="Check the serial number and try again." />
+      )}
 
       {result?.found && result.stock && (
         <ScrollView style={styles.results}>
@@ -145,18 +147,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  searchButton: {
-    height: 44,
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: theme.spacing.md,
-  },
-  searchButtonText: { color: "#FFFFFF", fontWeight: "bold", fontSize: 14 },
+  searchButtonSpacing: { marginBottom: theme.spacing.md },
   loader: { marginTop: theme.spacing.lg },
   errorText: { color: theme.colors.error, fontSize: 13, textAlign: "center" },
-  emptyText: { textAlign: "center", color: theme.colors.textMuted, marginTop: theme.spacing.lg },
   results: { flex: 1 },
   stockCard: {
     backgroundColor: theme.colors.card,
@@ -165,6 +158,7 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
     marginBottom: theme.spacing.md,
+    ...theme.shadow.card,
   },
   stockTitle: { fontSize: 16, fontWeight: "bold", color: theme.colors.textPrimary },
   stockDetail: { fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 },

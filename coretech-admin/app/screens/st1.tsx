@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { Stack } from "expo-router";
+import { TrendingUp } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import ListRow from "../../components/ListRow";
 import StatusBadge from "../../components/StatusBadge";
+import EmptyState from "../../components/EmptyState";
 
 interface SaleRow {
   id: string;
@@ -45,7 +47,7 @@ export default function St1Screen() {
           data={rows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.emptyText}>No ST1 records yet.</Text>}
+          ListEmptyComponent={<EmptyState icon={TrendingUp} title="No ST1 records yet" />}
           renderItem={({ item }) => (
             <ListRow
               title={item.st_id}
@@ -64,6 +66,5 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   centerLoader: { flex: 1 },
   list: { padding: theme.spacing.md },
-  emptyText: { textAlign: "center", color: theme.colors.textMuted, marginTop: theme.spacing.xl },
   errorText: { textAlign: "center", color: theme.colors.error, marginTop: theme.spacing.xl },
 });

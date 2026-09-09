@@ -9,12 +9,14 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Stack } from "expo-router";
-import { Plus } from "lucide-react-native";
+import { Plus, TrendingUp } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import BarcodeScanner from "../../components/BarcodeScanner";
 import { useScannedSerials } from "../../lib/useScannedSerials";
 import ListRow from "../../components/ListRow";
+import EmptyState from "../../components/EmptyState";
+import Button from "../../components/Button";
 
 interface SaleRow {
   id: string;
@@ -121,7 +123,7 @@ export default function St2Screen() {
           data={rows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.emptyText}>No ST2 records yet.</Text>}
+          ListEmptyComponent={<EmptyState icon={TrendingUp} title="No ST2 records yet" />}
           renderItem={({ item }) => (
             <ListRow
               title={item.st_id}
@@ -169,9 +171,7 @@ export default function St2Screen() {
               ListEmptyComponent={<Text style={styles.emptyText}>No sub dealers assigned to you.</Text>}
             />
 
-            <TouchableOpacity style={styles.scanButton} onPress={() => setScannerOpen(true)}>
-              <Text style={styles.scanButtonText}>Scan Serial Numbers</Text>
-            </TouchableOpacity>
+            <Button label="Scan Serial Numbers" variant="secondary" onPress={() => setScannerOpen(true)} />
 
             {scanned.duplicateError && <Text style={styles.errorText}>{scanned.duplicateError}</Text>}
 
@@ -193,15 +193,11 @@ export default function St2Screen() {
 
             {!!error && <Text style={styles.errorText}>{error}</Text>}
 
-            <TouchableOpacity
-              style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+            <Button
+              label={`Submit ${scanned.items.length || ""}`.trim()}
               onPress={handleSubmit}
-              disabled={submitting}
-            >
-              <Text style={styles.submitButtonText}>
-                {submitting ? "Submitting..." : `Submit ${scanned.items.length || ""}`.trim()}
-              </Text>
-            </TouchableOpacity>
+              loading={submitting}
+            />
           </View>
         </View>
       </Modal>
@@ -231,7 +227,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
     alignItems: "center",
     justifyContent: "center",
-    elevation: 4,
+    ...theme.shadow.fab,
   },
   modalContainer: { flex: 1, backgroundColor: theme.colors.card },
   modalHeader: {
@@ -260,25 +256,7 @@ const styles = StyleSheet.create({
   pickerChipSelected: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
   pickerChipText: { fontSize: 12, color: theme.colors.textSecondary, fontWeight: "bold" },
   pickerChipTextSelected: { color: "#FFFFFF" },
-  scanButton: {
-    height: 44,
-    borderRadius: theme.radius.sm,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scanButtonText: { color: theme.colors.primary, fontWeight: "bold", fontSize: 13 },
   scannedList: { flex: 1 },
   removeText: { color: theme.colors.error, fontSize: 12, fontWeight: "bold" },
   errorText: { color: theme.colors.error, fontSize: 12 },
-  submitButton: {
-    height: 48,
-    borderRadius: theme.radius.sm,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  submitButtonDisabled: { opacity: 0.6 },
-  submitButtonText: { color: "#FFFFFF", fontWeight: "bold", fontSize: 14 },
 });

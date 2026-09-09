@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, TextInput, StyleSheet, FlatList, ActivityIndicator } from "react-native";
 import { Stack } from "expo-router";
+import { Package } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import ListRow from "../../components/ListRow";
 import StatusBadge, { BadgeTone } from "../../components/StatusBadge";
+import EmptyState from "../../components/EmptyState";
 
 interface StockRow {
   id: string;
@@ -65,7 +67,7 @@ export default function InventoryScreen() {
           data={filtered}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.emptyText}>No stock found.</Text>}
+          ListEmptyComponent={<EmptyState icon={Package} title="No stock found" subtitle={search ? "Try a different search." : undefined} />}
           renderItem={({ item }) => (
             <ListRow
               title={item.products?.name || "Unknown Product"}
@@ -96,6 +98,5 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.card,
   },
   list: { padding: theme.spacing.md },
-  emptyText: { textAlign: "center", color: theme.colors.textMuted, marginTop: theme.spacing.xl },
   errorText: { textAlign: "center", color: theme.colors.error, marginTop: theme.spacing.xl },
 });
