@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, FlatList, ActivityIndicator } from "react-native";
-import { Stack, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useState } from "react";
+import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
+import { Stack, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { Users } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import ListRow from "../../components/ListRow";
 import EmptyState from "../../components/EmptyState";
+import SkeletonList from "../../components/SkeletonList";
 
 interface DirectoryProfile {
   id: string;
@@ -23,27 +24,39 @@ export default function DirectoryScreen() {
   const { type } = useLocalSearchParams<{ type: "distributor" | "sub_dealer" }>();
   const [rows, setRows] = useState<DirectoryProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const title = type === "sub_dealer" ? "Sub-Dealer View" : "Distributor View";
 
-  useEffect(() => {
-    mobileApiFetch<{ success: boolean; data: DirectoryProfile[]; error?: string }>(
-      `/api/mobile/directory?type=${type}`
-    )
-      .then((res) => {
-        if (!res.success) throw new Error(res.error || "Failed to load directory");
-        setRows(res.data);
-      })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load directory"))
-      .finally(() => setLoading(false));
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    setError("");
+    try {
+      const res = await mobileApiFetch<{ success: boolean; data: DirectoryProfile[]; error?: string }>(
+        `/api/mobile/directory?type=${type}`
+      );
+      if (!res.success) throw new Error(res.error || "Failed to load directory");
+      setRows(res.data);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to load directory");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [type]);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title }} />
       {loading ? (
-        <ActivityIndicator style={styles.centerLoader} size="large" color={theme.colors.primary} />
+        <SkeletonList count={6} />
       ) : error ? (
         <Text style={styles.errorText}>{error}</Text>
       ) : (
@@ -51,6 +64,7 @@ export default function DirectoryScreen() {
           data={rows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={theme.colors.primary} />}
           ListEmptyComponent={<EmptyState icon={Users} title="Nothing to show" />}
           renderItem={({ item }) => (
             <ListRow
@@ -67,7 +81,6 @@ export default function DirectoryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
-  centerLoader: { flex: 1 },
   list: { padding: theme.spacing.md },
   errorText: { textAlign: "center", color: theme.colors.error, marginTop: theme.spacing.xl },
 });

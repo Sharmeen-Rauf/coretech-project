@@ -1,13 +1,16 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, ActivityIndicator } from "react-native";
-import { Stack } from "expo-router";
+import React, { useCallback, useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, RefreshControl } from "react-native";
+import { Stack, useFocusEffect } from "expo-router";
 import { Plus, Minus, ShoppingBag } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
+import { haptics } from "../../lib/haptics";
 import ListRow from "../../components/ListRow";
 import StatusBadge, { BadgeTone } from "../../components/StatusBadge";
 import EmptyState from "../../components/EmptyState";
+import SkeletonList from "../../components/SkeletonList";
 import Button from "../../components/Button";
+import AnimatedPressable from "../../components/AnimatedPressable";
 
 interface OrderRow {
   id: string;
@@ -49,6 +52,7 @@ export default function BuzzcartScreen() {
   const [canApprove, setCanApprove] = useState(false);
   const [actioningId, setActioningId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -60,8 +64,8 @@ export default function BuzzcartScreen() {
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
     setError("");
     try {
       const res = await mobileApiFetch<{
@@ -85,12 +89,15 @@ export default function BuzzcartScreen() {
       setError(err instanceof ApiError ? err.message : "Failed to load Buzzcart orders");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const openCreate = () => {
     setBuyerType("sub_dealer");
@@ -131,9 +138,11 @@ export default function BuzzcartScreen() {
         }),
       });
       if (!res.success) throw new Error(res.error || "Submission failed");
+      haptics.success();
       setCreateOpen(false);
       load();
     } catch (err) {
+      haptics.error();
       setError(err instanceof ApiError ? err.message : "Submission failed");
     } finally {
       setSubmitting(false);
@@ -143,6 +152,7 @@ export default function BuzzcartScreen() {
   const parties = buyerType === "distributor" ? distributors : subDealers;
 
   const handleDecision = async (orderId: string, decision: "approve" | "decline") => {
+    haptics.light();
     setActioningId(orderId);
     try {
       const res = await mobileApiFetch<{ success: boolean; error?: string }>(`/api/mobile/buzzcart/${decision}`, {
@@ -150,8 +160,10 @@ export default function BuzzcartScreen() {
         body: JSON.stringify({ orderId }),
       });
       if (!res.success) throw new Error(res.error || "Action failed");
+      haptics.success();
       load();
     } catch (err) {
+      haptics.error();
       setError(err instanceof ApiError ? err.message : "Action failed");
     } finally {
       setActioningId(null);
@@ -163,12 +175,13 @@ export default function BuzzcartScreen() {
       <Stack.Screen options={{ title: "Buzzcart" }} />
 
       {loading ? (
-        <ActivityIndicator style={styles.centerLoader} size="large" color={theme.colors.primary} />
+        <SkeletonList count={6} />
       ) : (
         <FlatList
           data={rows}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={theme.colors.primary} />}
           ListEmptyComponent={<EmptyState icon={ShoppingBag} title="No orders yet" subtitle="Orders you create will show up here." />}
           renderItem={({ item }) => (
             <ListRow
@@ -202,9 +215,15 @@ export default function BuzzcartScreen() {
       )}
 
       {canWrite && (
-        <TouchableOpacity style={styles.fab} onPress={openCreate}>
+        <AnimatedPressable
+          style={styles.fab}
+          onPress={() => {
+            haptics.light();
+            openCreate();
+          }}
+        >
           <Plus color="#FFFFFF" size={22} />
-        </TouchableOpacity>
+        </AnimatedPressable>
       )}
 
       <Modal visible={createOpen} animationType="slide" onRequestClose={() => setCreateOpen(false)}>
@@ -286,7 +305,6 @@ export default function BuzzcartScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
-  centerLoader: { flex: 1 },
   list: { padding: theme.spacing.md },
   fab: {
     position: "absolute",

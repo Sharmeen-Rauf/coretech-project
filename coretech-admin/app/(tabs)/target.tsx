@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from "react";
-import { Text, StyleSheet, ScrollView, ActivityIndicator, View } from "react-native";
+import React, { useCallback, useState } from "react";
+import { Text, StyleSheet, ScrollView, View, RefreshControl } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { Target as TargetIcon } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import EmptyState from "../../components/EmptyState";
+import ProgressRing from "../../components/ProgressRing";
+import SkeletonList from "../../components/SkeletonList";
 
 interface TargetRow {
   id: string;
@@ -24,24 +27,40 @@ interface TargetRow {
 export default function TargetScreen() {
   const [targets, setTargets] = useState<TargetRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    mobileApiFetch<{ success: boolean; targets: TargetRow[]; error?: string }>("/api/mobile/target")
-      .then((res) => {
-        if (!res.success) throw new Error(res.error || "Failed to load targets");
-        setTargets(res.targets);
-      })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load targets"))
-      .finally(() => setLoading(false));
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    setError("");
+    try {
+      const res = await mobileApiFetch<{ success: boolean; targets: TargetRow[]; error?: string }>("/api/mobile/target");
+      if (!res.success) throw new Error(res.error || "Failed to load targets");
+      setTargets(res.targets);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to load targets");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
+
   if (loading) {
-    return <ActivityIndicator style={styles.loader} size="large" color={theme.colors.primary} />;
+    return <SkeletonList count={3} />;
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={theme.colors.primary} />}
+    >
       {!!error && <Text style={styles.errorText}>{error}</Text>}
       {!error && targets.length === 0 && (
         <View style={styles.emptyWrap}>
@@ -50,19 +69,19 @@ export default function TargetScreen() {
       )}
 
       {targets.map((t) => {
-        const pct = t.target_units > 0 ? Math.min(100, Math.round((t.achieved_units / t.target_units) * 100)) : 0;
+        const pct = t.target_units > 0 ? (t.achieved_units / t.target_units) * 100 : 0;
         return (
           <View key={t.id} style={styles.card}>
-            <Text style={styles.productName}>{t.product?.name || "Unknown Product"}</Text>
-            <Text style={styles.period}>
-              {new Date(t.period_start).toLocaleDateString()} – {new Date(t.period_end).toLocaleDateString()}
-            </Text>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${pct}%` }]} />
+            <ProgressRing percent={pct} />
+            <View style={styles.cardText}>
+              <Text style={styles.productName}>{t.product?.name || "Unknown Product"}</Text>
+              <Text style={styles.period}>
+                {new Date(t.period_start).toLocaleDateString()} – {new Date(t.period_end).toLocaleDateString()}
+              </Text>
+              <Text style={styles.progressText}>
+                {t.achieved_units} / {t.target_units} units
+              </Text>
             </View>
-            <Text style={styles.progressText}>
-              {t.achieved_units} / {t.target_units} units ({pct}%)
-            </Text>
           </View>
         );
       })}
@@ -71,12 +90,14 @@ export default function TargetScreen() {
 }
 
 const styles = StyleSheet.create({
-  loader: { flex: 1, backgroundColor: theme.colors.background },
   container: { flex: 1, backgroundColor: theme.colors.background },
   content: { padding: theme.spacing.md, flexGrow: 1 },
   errorText: { color: theme.colors.error, fontSize: 13, textAlign: "center" },
   emptyWrap: { flex: 1 },
   card: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: theme.spacing.md,
     backgroundColor: theme.colors.card,
     borderRadius: theme.radius.md,
     borderWidth: 1,
@@ -85,18 +106,8 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
     ...theme.shadow.card,
   },
+  cardText: { flex: 1 },
   productName: { fontSize: 15, fontWeight: "bold", color: theme.colors.textPrimary },
-  period: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2, marginBottom: theme.spacing.sm },
-  progressTrack: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: theme.colors.background,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: theme.colors.primary,
-  },
-  progressText: { fontSize: 12, color: theme.colors.textSecondary, marginTop: theme.spacing.xs },
+  period: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2, marginBottom: theme.spacing.xs },
+  progressText: { fontSize: 12, color: theme.colors.textSecondary, fontWeight: "600" },
 });
