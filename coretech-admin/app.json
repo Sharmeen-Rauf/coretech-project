@@ -28,6 +28,12 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-camera",
+        {
+          "cameraPermission": "CoreTech Admin needs camera access to scan product serial number barcodes."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash.png",
