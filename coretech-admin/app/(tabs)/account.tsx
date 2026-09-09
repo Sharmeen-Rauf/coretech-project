@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router } from "expo-router";
 import { User, Phone, MapPin, Shield } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 import { resolveAdminAccess, AdminAccess } from "../../lib/access";
 import { theme } from "../../lib/theme";
 import { mobileApiFetch } from "../../lib/api";
+import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import Button from "../../components/Button";
 
 interface MyActivity {
@@ -38,13 +39,13 @@ export default function AccountScreen() {
     });
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      mobileApiFetch<{ success: boolean } & MyActivity>("/api/mobile/me/activity")
-        .then((res) => setActivity(res.success ? { sellOut: res.sellOut, st1: res.st1, st2: res.st2 } : null))
-        .catch(() => {});
-    }, [])
-  );
+  const loadActivity = useCallback(() => {
+    mobileApiFetch<{ success: boolean } & MyActivity>("/api/mobile/me/activity")
+      .then((res) => setActivity(res.success ? { sellOut: res.sellOut, st1: res.st1, st2: res.st2 } : null))
+      .catch(() => {});
+  }, []);
+
+  useRefreshOnFocus(loadActivity);
 
   const hasActivity = !!(activity && (activity.sellOut !== null || activity.st1 !== null || activity.st2 !== null));
 

@@ -8,7 +8,8 @@ import {
   Modal,
   RefreshControl,
 } from "react-native";
-import { Stack, useFocusEffect } from "expo-router";
+import { Stack } from "expo-router";
+import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { Plus, TrendingUp } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
@@ -71,11 +72,7 @@ export default function St2Screen() {
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  useRefreshOnFocus(load);
 
   const openCreate = async () => {
     setSelectedSubDealer(null);

@@ -1,9 +1,10 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { View, Text, TextInput, StyleSheet, FlatList, RefreshControl } from "react-native";
-import { Stack, useLocalSearchParams, useFocusEffect } from "expo-router";
+import { Stack, useLocalSearchParams } from "expo-router";
 import { Users, Search } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
+import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import ListRow from "../../components/ListRow";
 import EmptyState from "../../components/EmptyState";
 import SkeletonList from "../../components/SkeletonList";
@@ -47,11 +48,7 @@ export default function DirectoryScreen() {
     }
   }, [type]);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  useRefreshOnFocus(load);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

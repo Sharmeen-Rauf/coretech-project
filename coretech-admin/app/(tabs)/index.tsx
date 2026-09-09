@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router } from "expo-router";
 import { TrendingUp, ShoppingCart, Users, ShoppingBag, Wrench, LayoutGrid, ArrowUp, ArrowDown } from "lucide-react-native";
 import { useMyPermissions } from "../../lib/permissionsContext";
 import { GRID_TILES, TARGET_KEY, type GridTile } from "../../lib/navConfig";
@@ -9,6 +9,7 @@ import { mobileApiFetch } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
 import { resolveAdminAccess } from "../../lib/access";
 import { haptics } from "../../lib/haptics";
+import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import EmptyState from "../../components/EmptyState";
 import AnimatedPressable from "../../components/AnimatedPressable";
 import ProgressRing from "../../components/ProgressRing";
@@ -103,20 +104,20 @@ export default function HomeScreen() {
       .catch(() => setTargetPct(null));
   }, [keys]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadAnnouncement();
-      loadStats();
-      loadTarget();
-      supabase.auth.getSession().then(({ data }) => {
-        const userId = data?.session?.user?.id;
-        if (!userId) return;
-        resolveAdminAccess(userId).then((access) => {
-          if (access.allowed) setFirstName(access.name.split(" ")[0] || "");
-        });
+  const loadAll = useCallback(() => {
+    loadAnnouncement();
+    loadStats();
+    loadTarget();
+    supabase.auth.getSession().then(({ data }) => {
+      const userId = data?.session?.user?.id;
+      if (!userId) return;
+      resolveAdminAccess(userId).then((access) => {
+        if (access.allowed) setFirstName(access.name.split(" ")[0] || "");
       });
-    }, [loadAnnouncement, loadStats, loadTarget])
-  );
+    });
+  }, [loadAnnouncement, loadStats, loadTarget]);
+
+  useRefreshOnFocus(loadAll);
 
   const handleRefresh = async () => {
     setRefreshing(true);

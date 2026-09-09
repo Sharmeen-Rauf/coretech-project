@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { View, Text, TextInput, StyleSheet, FlatList, RefreshControl } from "react-native";
-import { Stack, useFocusEffect } from "expo-router";
+import { Stack } from "expo-router";
+import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { Package, Search, Boxes } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
@@ -61,11 +62,7 @@ export default function InventoryScreen() {
     }
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  useRefreshOnFocus(load);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

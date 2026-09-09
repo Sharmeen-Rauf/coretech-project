@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { Redirect } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { supabase } from "../lib/supabase";
 import { resolveAdminAccess } from "../lib/access";
 import { theme } from "../lib/theme";
@@ -13,12 +14,22 @@ export default function IndexScreen() {
   useEffect(() => {
     let isMounted = true;
 
+    // Only ever releases the splash screen once we actually know where the
+    // user is going - never while destination is still null, so there's no
+    // window where splash hides onto a blank/loading frame (root layout's
+    // preventAutoHideAsync is what makes this the real hide point).
+    const finish = (dest: Destination) => {
+      if (!isMounted) return;
+      setDestination(dest);
+      SplashScreen.hideAsync().catch(() => {});
+    };
+
     (async () => {
       try {
         const { data } = await supabase.auth.getSession();
         const session = data?.session || null;
         if (!session) {
-          if (isMounted) setDestination("/login");
+          finish("/login");
           return;
         }
 
@@ -31,14 +42,14 @@ export default function IndexScreen() {
         const access = await resolveAdminAccess(session.user.id);
         if (!access.allowed) {
           await supabase.auth.signOut();
-          if (isMounted) setDestination("/login");
+          finish("/login");
           return;
         }
 
-        if (isMounted) setDestination("/(tabs)");
+        finish("/(tabs)");
       } catch (err) {
         console.warn("Auth check error:", err);
-        if (isMounted) setDestination("/login");
+        finish("/login");
       }
     })();
 
