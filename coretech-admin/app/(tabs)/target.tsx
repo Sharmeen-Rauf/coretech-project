@@ -1,38 +1,94 @@
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
-import { Target as TargetIcon } from "lucide-react-native";
+import React, { useEffect, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 
-// Placeholder for Phase 5 - the real Target (Read Only) screen (§17 #20) is
-// built in Phase 6, wired to the already-verified app/api/mobile/target
-// route (Phase 3). This screen's job right now is proving it's correctly
-// present as a bottom-bar tab only when the target permission ("resources")
-// is mobile-granted, and absent otherwise (§12.1).
-export default function TargetPlaceholder() {
+interface TargetRow {
+  id: string;
+  target_units: number;
+  period_start: string;
+  period_end: string;
+  achieved_units: number;
+  product?: { name: string; brand: string; model: string } | null;
+}
+
+// Target (Read Only) - §17 #20, self-scoped (assignee_id = caller.id
+// inside the query itself, no write path anywhere on mobile). Same shared
+// computeAchievedUnitsForTargets logic the web dashboard uses, including
+// the 2026-09-07 fix (Distributor = ST1 only, Sub-Dealer = SO only).
+export default function TargetScreen() {
+  const [targets, setTargets] = useState<TargetRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    mobileApiFetch<{ success: boolean; targets: TargetRow[]; error?: string }>("/api/mobile/target")
+      .then((res) => {
+        if (!res.success) throw new Error(res.error || "Failed to load targets");
+        setTargets(res.targets);
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load targets"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return <ActivityIndicator style={styles.loader} size="large" color={theme.colors.primary} />;
+  }
+
   return (
-    <View style={styles.container}>
-      <TargetIcon color={theme.colors.textMuted} size={28} />
-      <Text style={styles.title}>Target (Read Only)</Text>
-      <Text style={styles.note}>Real screen lands in Phase 6.</Text>
-    </View>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.heading}>Target (Read Only)</Text>
+      {!!error && <Text style={styles.errorText}>{error}</Text>}
+      {!error && targets.length === 0 && <Text style={styles.emptyText}>No target assigned for the current period.</Text>}
+
+      {targets.map((t) => {
+        const pct = t.target_units > 0 ? Math.min(100, Math.round((t.achieved_units / t.target_units) * 100)) : 0;
+        return (
+          <View key={t.id} style={styles.card}>
+            <Text style={styles.productName}>{t.product?.name || "Unknown Product"}</Text>
+            <Text style={styles.period}>
+              {new Date(t.period_start).toLocaleDateString()} – {new Date(t.period_end).toLocaleDateString()}
+            </Text>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${pct}%` }]} />
+            </View>
+            <Text style={styles.progressText}>
+              {t.achieved_units} / {t.target_units} units ({pct}%)
+            </Text>
+          </View>
+        );
+      })}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: theme.spacing.sm,
+  loader: { flex: 1, backgroundColor: theme.colors.background },
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  content: { padding: theme.spacing.md },
+  heading: { fontSize: 20, fontWeight: "bold", color: theme.colors.textPrimary, marginBottom: theme.spacing.md },
+  errorText: { color: theme.colors.error, fontSize: 13, textAlign: "center" },
+  emptyText: { color: theme.colors.textMuted, fontSize: 13, textAlign: "center", marginTop: theme.spacing.lg },
+  card: {
+    backgroundColor: theme.colors.card,
+    borderRadius: theme.radius.md,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+  },
+  productName: { fontSize: 15, fontWeight: "bold", color: theme.colors.textPrimary },
+  period: { fontSize: 12, color: theme.colors.textMuted, marginTop: 2, marginBottom: theme.spacing.sm },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
     backgroundColor: theme.colors.background,
+    overflow: "hidden",
   },
-  title: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: theme.colors.textPrimary,
+  progressFill: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: theme.colors.primary,
   },
-  note: {
-    fontSize: 12,
-    color: theme.colors.textMuted,
-  },
+  progressText: { fontSize: 12, color: theme.colors.textSecondary, marginTop: theme.spacing.xs },
 });

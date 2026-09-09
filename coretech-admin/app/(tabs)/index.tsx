@@ -1,17 +1,24 @@
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList } from "react-native";
 import { router } from "expo-router";
-import { Box, Wrench } from "lucide-react-native";
+import { TrendingUp, ShoppingCart, Users, ShoppingBag, Wrench } from "lucide-react-native";
 import { useMyPermissions } from "../../lib/permissionsContext";
 import { GRID_TILES } from "../../lib/navConfig";
 import { theme } from "../../lib/theme";
 
+const ICONS: Record<string, React.ComponentType<{ color: string; size: number }>> = {
+  TrendingUp,
+  ShoppingCart,
+  Users,
+  ShoppingBag,
+};
+
 // Home / Dashboard (§17 #2) - a DCR-style icon grid (§12), recolored in the
 // installer app's own palette rather than DCR's. Every mobileEligible
 // permission except SN Lookup/Target lives here, permanently (§12.1) -
-// those two live only in the bottom bar. Tiles push a placeholder for now;
-// Phase 6 replaces each with its real screen. The announcements card and
-// notifications bell (§18) also land on this screen in Phase 6.
+// those two live only in the bottom bar. The announcements card and
+// notifications bell (§18) aren't built yet - a follow-up, not part of
+// Phase 6's screen list.
 export default function HomeScreen() {
   const { loading, keys } = useMyPermissions();
   const tiles = GRID_TILES.filter((tile) => keys.includes(tile.key));
@@ -32,17 +39,17 @@ export default function HomeScreen() {
           numColumns={3}
           columnWrapperStyle={styles.row}
           contentContainerStyle={styles.grid}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.tile}
-              onPress={() => router.push(`/placeholder?title=${encodeURIComponent(item.title)}`)}
-            >
-              <View style={styles.tileIcon}>
-                <Box color={theme.colors.primary} size={22} />
-              </View>
-              <Text style={styles.tileLabel}>{item.label}</Text>
-            </TouchableOpacity>
-          )}
+          renderItem={({ item }) => {
+            const Icon = ICONS[item.icon] || Wrench;
+            return (
+              <TouchableOpacity style={styles.tile} onPress={() => router.push(item.route as any)}>
+                <View style={styles.tileIcon}>
+                  <Icon color={theme.colors.primary} size={22} />
+                </View>
+                <Text style={styles.tileLabel}>{item.label}</Text>
+              </TouchableOpacity>
+            );
+          }}
         />
       )}
     </View>
