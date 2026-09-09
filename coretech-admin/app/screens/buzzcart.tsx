@@ -37,13 +37,15 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   delivered: "success",
 };
 
-// Buzzcart - list (§17 #16) + create (§17 #17). Employee only. Order
-// approve/decline (§17 #18) needs its own backend route, not yet built in
-// Phase 3 - this screen is read + create only, a known, deliberate gap
-// until that route exists.
+// Buzzcart - list (§17 #16) + create (§17 #17) + approve/decline (§17 #18).
+// Employee only for list/create. Approve/decline is a locked pair (§8) -
+// country_head/admin only, independent of the buzzcart mobile permission's
+// own read/write setting - `canApprove` comes from the route directly.
 export default function BuzzcartScreen() {
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [canWrite, setCanWrite] = useState(false);
+  const [canApprove, setCanApprove] = useState(false);
+  const [actioningId, setActioningId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -64,6 +66,7 @@ export default function BuzzcartScreen() {
         success: boolean;
         data: OrderRow[];
         canWrite: boolean;
+        canApprove: boolean;
         products: Product[];
         distributors: Party[];
         subDealers: Party[];
@@ -72,6 +75,7 @@ export default function BuzzcartScreen() {
       if (!res.success) throw new Error(res.error || "Failed to load Buzzcart orders");
       setRows(res.data);
       setCanWrite(res.canWrite);
+      setCanApprove(res.canApprove);
       setProducts(res.products || []);
       setDistributors(res.distributors || []);
       setSubDealers(res.subDealers || []);
@@ -136,6 +140,22 @@ export default function BuzzcartScreen() {
 
   const parties = buyerType === "distributor" ? distributors : subDealers;
 
+  const handleDecision = async (orderId: string, decision: "approve" | "decline") => {
+    setActioningId(orderId);
+    try {
+      const res = await mobileApiFetch<{ success: boolean; error?: string }>(`/api/mobile/buzzcart/${decision}`, {
+        method: "POST",
+        body: JSON.stringify({ orderId }),
+      });
+      if (!res.success) throw new Error(res.error || "Action failed");
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Action failed");
+    } finally {
+      setActioningId(null);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ title: "Buzzcart" }} />
@@ -154,6 +174,26 @@ export default function BuzzcartScreen() {
               subtitle={item.product?.name || ""}
               meta={new Date(item.created_at).toLocaleDateString()}
               right={<StatusBadge label={item.status.replace("_", " ")} tone={STATUS_TONE[item.status] || "neutral"} />}
+              footer={
+                canApprove && item.status === "pending" ? (
+                  <View style={styles.decisionRow}>
+                    <TouchableOpacity
+                      style={[styles.decisionButton, styles.declineButton]}
+                      onPress={() => handleDecision(item.id, "decline")}
+                      disabled={actioningId === item.id}
+                    >
+                      <Text style={styles.declineButtonText}>Reject</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.decisionButton, styles.approveButton]}
+                      onPress={() => handleDecision(item.id, "approve")}
+                      disabled={actioningId === item.id}
+                    >
+                      <Text style={styles.approveButtonText}>{actioningId === item.id ? "..." : "Approve"}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : undefined
+              }
             />
           )}
         />
@@ -326,4 +366,16 @@ const styles = StyleSheet.create({
   },
   submitButtonDisabled: { opacity: 0.6 },
   submitButtonText: { color: "#FFFFFF", fontWeight: "bold", fontSize: 14 },
+  decisionRow: { flexDirection: "row", gap: theme.spacing.sm },
+  decisionButton: {
+    flex: 1,
+    height: 36,
+    borderRadius: theme.radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  declineButton: { borderWidth: 1, borderColor: theme.colors.error },
+  declineButtonText: { color: theme.colors.error, fontWeight: "bold", fontSize: 12 },
+  approveButton: { backgroundColor: theme.colors.success },
+  approveButtonText: { color: "#FFFFFF", fontWeight: "bold", fontSize: 12 },
 });
