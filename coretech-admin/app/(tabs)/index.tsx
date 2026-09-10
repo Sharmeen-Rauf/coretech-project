@@ -236,13 +236,16 @@ export default function HomeScreen() {
             }}
           >
             <View style={styles.tileIcon}>
-              {/* lucide's Users glyph isn't symmetric within its own bounding
-                  box the way TrendingUp/ShoppingCart/ShoppingBag are - even
-                  perfectly centered in this box, it visually reads as
-                  shifted left (Sub Dealer List/Distributor View/Sub-Dealer
-                  View all use this icon). A small nudge compensates so it
-                  lines up with every other tile. */}
-              <Icon color={theme.colors.primary} size={22} style={item.icon === "Users" ? styles.usersIconNudge : undefined} />
+              {/* A prior attempt nudged the "Users" icon (Sub Dealer List/
+                  Distributor View/Sub-Dealer View) a few px right, assuming
+                  it was rendering shifted left. Measured it directly with
+                  pixel analysis against a real screenshot instead of
+                  guessing again: unnudged, its bounding-box center was only
+                  ~2-3px off the tile's true center - well within the same
+                  noise band the "good" TrendingUp icon tiles already show
+                  (~0.5-5px). The nudge was overcorrecting it the other way.
+                  Removed - this icon was never meaningfully off-center. */}
+              <Icon color={theme.colors.primary} size={22} />
             </View>
             <Text style={styles.tileLabel}>{item.label}</Text>
           </AnimatedPressable>
@@ -401,9 +404,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: theme.spacing.xs,
-  },
-  usersIconNudge: {
-    marginLeft: 6,
   },
   tileLabel: {
     fontSize: 11,
