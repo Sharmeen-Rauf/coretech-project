@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { router } from "expo-router";
-import { TrendingUp, ShoppingCart, Users, ShoppingBag, Wrench, LayoutGrid, ArrowUp, ArrowDown } from "lucide-react-native";
+import { TrendingUp, ShoppingCart, User, ShoppingBag, Wrench, LayoutGrid, ArrowUp, ArrowDown } from "lucide-react-native";
 import { useMyPermissions } from "../../lib/permissionsContext";
 import { GRID_TILES, TARGET_KEY, type GridTile } from "../../lib/navConfig";
 import { theme } from "../../lib/theme";
@@ -17,7 +17,7 @@ import ProgressRing from "../../components/ProgressRing";
 const ICONS: Record<string, React.ComponentType<{ color: string; size: number; style?: object }>> = {
   TrendingUp,
   ShoppingCart,
-  Users,
+  User,
   ShoppingBag,
 };
 

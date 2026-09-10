@@ -18,9 +18,14 @@ export const GRID_TILES: GridTile[] = [
   { key: "sales.st1", label: "ST1", route: "/screens/st1", icon: "TrendingUp" },
   { key: "sales.st2", label: "ST2", route: "/screens/st2", icon: "TrendingUp" },
   { key: "purchase.inventory", label: "Inventory", route: "/screens/inventory", icon: "ShoppingCart" },
-  { key: "users.dealer_assignment", label: "Sub Dealer List", route: "/screens/sub-dealers", icon: "Users" },
-  { key: "users.add_distributor", label: "Distributor View", route: "/screens/directory?type=distributor", icon: "Users" },
-  { key: "users.add_sub_dealer", label: "Sub-Dealer View", route: "/screens/directory?type=sub_dealer", icon: "Users" },
+  // Single-person icon, not the two-person "Users" glyph - the two
+  // overlapping figures in "Users" are different sizes, so even
+  // geometrically centered it reads as visually unbalanced (more ink on
+  // one side than the other). A single symmetric figure doesn't have that
+  // problem.
+  { key: "users.dealer_assignment", label: "Sub Dealer List", route: "/screens/sub-dealers", icon: "User" },
+  { key: "users.add_distributor", label: "Distributor View", route: "/screens/directory?type=distributor", icon: "User" },
+  { key: "users.add_sub_dealer", label: "Sub-Dealer View", route: "/screens/directory?type=sub_dealer", icon: "User" },
   { key: "buzzcart", label: "Buzzcart", route: "/screens/buzzcart", icon: "ShoppingBag" },
 ];
 
