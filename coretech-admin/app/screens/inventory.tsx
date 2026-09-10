@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { View, Text, TextInput, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { Stack } from "expo-router";
+import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { Package, Search, Boxes } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
@@ -74,7 +75,8 @@ export default function InventoryScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: "Inventory" }} />
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScreenHeader title="Inventory" />
 
       <View style={styles.searchRow}>
         <Search color={theme.colors.textMuted} size={16} style={styles.searchIcon} />
@@ -128,7 +130,7 @@ export default function InventoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   searchRow: {
     marginHorizontal: theme.spacing.md,
     marginTop: theme.spacing.md,

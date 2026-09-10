@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { Stack } from "expo-router";
+import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { Users } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
@@ -42,7 +43,8 @@ export default function SubDealersScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: "Sub Dealer List" }} />
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScreenHeader title="Sub Dealer List" />
       {loading ? (
         <SkeletonList count={6} />
       ) : error ? (
@@ -62,7 +64,7 @@ export default function SubDealersScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   list: { padding: theme.spacing.md },
   errorText: { textAlign: "center", color: theme.colors.error, marginTop: theme.spacing.xl },
 });

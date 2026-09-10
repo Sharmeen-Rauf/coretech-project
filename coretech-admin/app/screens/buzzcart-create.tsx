@@ -7,6 +7,7 @@ import { theme } from "../../lib/theme";
 import { haptics } from "../../lib/haptics";
 import ListRow from "../../components/ListRow";
 import Button from "../../components/Button";
+import ScreenHeader from "../../components/ScreenHeader";
 
 interface Party {
   id: string;
@@ -100,7 +101,8 @@ export default function BuzzcartCreateScreen() {
   if (loadingPickers) {
     return (
       <View style={styles.loadingContainer}>
-        <Stack.Screen options={{ title: "New Order" }} />
+        <Stack.Screen options={{ headerShown: false }} />
+        <ScreenHeader title="New Order" />
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
@@ -108,7 +110,8 @@ export default function BuzzcartCreateScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: "New Order" }} />
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScreenHeader title="New Order" />
 
       <View style={styles.stepIndicator}>
         <View style={[styles.stepDot, styles.stepDotDone]} />
@@ -205,7 +208,7 @@ export default function BuzzcartCreateScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.card, padding: theme.spacing.md, gap: theme.spacing.sm },
+  container: { flex: 1, backgroundColor: theme.colors.card, paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.md, gap: theme.spacing.sm },
   loadingContainer: { flex: 1, backgroundColor: theme.colors.card, alignItems: "center", justifyContent: "center" },
   toggleRow: { flexDirection: "row", gap: theme.spacing.sm },
   toggleButton: {

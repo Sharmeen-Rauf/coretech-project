@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { Stack } from "expo-router";
+import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { TrendingUp } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
@@ -48,7 +49,8 @@ export default function St1Screen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: "ST1" }} />
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScreenHeader title="ST1" />
       {loading ? (
         <SkeletonList count={6} />
       ) : error ? (
@@ -75,7 +77,7 @@ export default function St1Screen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   list: { padding: theme.spacing.md },
   errorText: { textAlign: "center", color: theme.colors.error, marginTop: theme.spacing.xl },
 });
