@@ -26,4 +26,11 @@ export const screenHeaderOptions = {
   // the clock." Declaring the real value here tells the native header the
   // truth, so it adds the same top padding the Tabs header already does.
   statusBarTranslucent: true,
+  // statusBarTranslucent alone left statusBarStyle at its "auto" default,
+  // which misjudged the contrast on at least one real device and rendered
+  // the status bar's own icons/clock invisible (light-on-light) - the
+  // "cutting the notification bar" regression. Pin it to "dark" explicitly,
+  // matching the dark icon style used everywhere else in the app
+  // (app/_layout.tsx's own <StatusBar style="dark" />).
+  statusBarStyle: "dark" as const,
 };
