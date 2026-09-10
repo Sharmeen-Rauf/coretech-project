@@ -14,7 +14,7 @@ import EmptyState from "../../components/EmptyState";
 import AnimatedPressable from "../../components/AnimatedPressable";
 import ProgressRing from "../../components/ProgressRing";
 
-const ICONS: Record<string, React.ComponentType<{ color: string; size: number }>> = {
+const ICONS: Record<string, React.ComponentType<{ color: string; size: number; style?: object }>> = {
   TrendingUp,
   ShoppingCart,
   Users,
@@ -236,7 +236,13 @@ export default function HomeScreen() {
             }}
           >
             <View style={styles.tileIcon}>
-              <Icon color={theme.colors.primary} size={22} />
+              {/* lucide's Users glyph isn't symmetric within its own bounding
+                  box the way TrendingUp/ShoppingCart/ShoppingBag are - even
+                  perfectly centered in this box, it visually reads as
+                  shifted left (Sub Dealer List/Distributor View/Sub-Dealer
+                  View all use this icon). A small nudge compensates so it
+                  lines up with every other tile. */}
+              <Icon color={theme.colors.primary} size={22} style={item.icon === "Users" ? styles.usersIconNudge : undefined} />
             </View>
             <Text style={styles.tileLabel}>{item.label}</Text>
           </AnimatedPressable>
@@ -395,6 +401,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: theme.spacing.xs,
+  },
+  usersIconNudge: {
+    marginLeft: 3,
   },
   tileLabel: {
     fontSize: 11,
