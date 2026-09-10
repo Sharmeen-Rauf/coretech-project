@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useState } from "react";
 import { View, Text, TextInput, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { Users, Search } from "lucide-react-native";
+import ScreenHeader from "../../components/ScreenHeader";
 import { mobileApiFetch, ApiError } from "../../lib/api";
 import { theme } from "../../lib/theme";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
@@ -58,7 +59,8 @@ export default function DirectoryScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title }} />
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScreenHeader title={title} />
 
       <View style={styles.searchRow}>
         <Search color={theme.colors.textMuted} size={16} style={styles.searchIcon} />
@@ -96,7 +98,7 @@ export default function DirectoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   searchRow: {
     marginHorizontal: theme.spacing.md,
     position: "relative",

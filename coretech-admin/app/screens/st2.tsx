@@ -9,6 +9,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { Stack } from "expo-router";
+import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { Plus, TrendingUp } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
@@ -120,7 +121,8 @@ export default function St2Screen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: "ST2" }} />
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScreenHeader title="ST2" />
 
       {loading ? (
         <SkeletonList count={6} />
@@ -226,7 +228,7 @@ export default function St2Screen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   list: { padding: theme.spacing.md },
   emptyText: { textAlign: "center", color: theme.colors.textMuted, marginTop: theme.spacing.md },
   fab: {

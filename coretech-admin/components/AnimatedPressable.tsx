@@ -43,7 +43,24 @@ export default function AnimatedPressable({
       }}
       {...rest}
     >
-      <Animated.View style={{ transform: [{ scale }] }}>{children}</Animated.View>
+      {/* width: "100%" + alignItems: "center" - without these, this
+          Animated.View sizes itself to its widest child's own natural
+          width (React Native's default) instead of filling the Pressable.
+          For Home's grid tiles specifically, that widest child is the
+          label Text, not the icon - for a short label ("Sell Out") that's
+          close enough to the icon's own 40px width that the bug was
+          invisible, but for longer labels ("Distributor View", "Sub
+          Dealer List", "Sub-Dealer View") the label became far wider than
+          the icon, and with no alignItems set here the icon (having an
+          explicit width) landed at this View's default cross-axis start -
+          its left edge - instead of centered under the label. Found by
+          measuring real device screenshots pixel-by-pixel (icon-box
+          center vs the tile's actual card boundary, not just the icon's
+          own small box, which was already fine) after two rounds of
+          chasing individual icon glyphs turned out to be the wrong layer
+          entirely - this wrapper affects every button and tile in the
+          app, not just Home's grid. */}
+      <Animated.View style={{ width: "100%", alignItems: "center", transform: [{ scale }] }}>{children}</Animated.View>
     </Pressable>
   );
 }

@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { Stack } from "expo-router";
+import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { BellOff } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
@@ -49,7 +50,8 @@ export default function NotificationsScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: "Notifications" }} />
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScreenHeader title="Notifications" />
       {loading ? (
         <SkeletonList count={6} />
       ) : error ? (
@@ -76,7 +78,7 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   list: { padding: theme.spacing.md },
   errorText: { textAlign: "center", color: theme.colors.error, marginTop: theme.spacing.xl },
   unreadDot: {

@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { Stack, router } from "expo-router";
+import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { Plus, ShoppingBag } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
@@ -99,7 +100,8 @@ export default function BuzzcartScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: "Buzzcart" }} />
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScreenHeader title="Buzzcart" />
 
       {loading ? (
         <SkeletonList count={6} />
@@ -177,7 +179,7 @@ export default function BuzzcartScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   list: { padding: theme.spacing.md },
   fab: {
     position: "absolute",

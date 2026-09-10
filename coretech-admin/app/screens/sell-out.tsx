@@ -12,6 +12,7 @@ import {
   Platform,
 } from "react-native";
 import { Stack } from "expo-router";
+import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { Plus, TrendingUp } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
@@ -129,7 +130,8 @@ export default function SellOutScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ title: "Sell Out" }} />
+      <Stack.Screen options={{ headerShown: false }} />
+      <ScreenHeader title="Sell Out" />
 
       {loading ? (
         <SkeletonList count={6} />
@@ -264,7 +266,7 @@ export default function SellOutScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: theme.colors.background, paddingTop: theme.spacing.md },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   list: { padding: theme.spacing.md },
   errorBanner: {
     color: theme.colors.error,
