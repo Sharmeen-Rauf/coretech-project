@@ -12,23 +12,18 @@ export const screenHeaderOptions = {
   headerTitleStyle: { color: theme.colors.textPrimary, fontSize: 16, fontWeight: "bold" as const },
   headerTintColor: theme.colors.primary,
   headerShadowVisible: false,
-  // Traced statusBarTranslucent into react-native-screens' actual Android
-  // source (ScreenWindowTraits.kt) before touching this again - its own
-  // code comment says setting it true makes the screen "consume all the
-  // top insets so no padding will be added under the status bar." That's
-  // backwards from what was needed here: it suppresses the header's own
-  // default top-inset padding (isTopInsetEnabled defaults to true in
-  // ScreenStackHeaderConfig.kt) instead of adding any. A prior attempt set
-  // this to true, which never actually fixed the original spacing
-  // complaint - removed entirely now, back to native-stack's own default
-  // inset handling.
-  //
-  // statusBarStyle is unrelated to translucency - it only controls the
-  // status bar content's contrast color, and correctly fixed a real
-  // regression (the prior attempt above left it on "auto," which
-  // misjudged contrast on a real device and rendered the clock/icons
-  // invisible). Keeping this one, pinned to match the dark icon style used
-  // everywhere else in the app (app/_layout.tsx's own <StatusBar
-  // style="dark" />).
+  // The real lever for the header-squeezed-against-the-status-bar bug -
+  // confirmed by reading react-native-screens' own type definitions, not
+  // guessed. Two earlier attempts (statusBarTranslucent, statusBarStyle)
+  // targeted the wrong prop entirely - those control the *status bar's*
+  // own translucency/content color, not the *header's* own inset padding.
+  // headerTopInsetEnabled is the one that actually controls whether the
+  // native header reserves space for the status bar; it's documented as
+  // defaulting to true, but every app/screens/* page (Sell Out, ST1,
+  // Sub Dealer List, Buzzcart, etc, confirmed via real device screenshots)
+  // is still rendering squeezed against the status bar, so that default
+  // isn't reliably applying in practice. Set explicitly instead of relying
+  // on it.
+  headerTopInsetEnabled: true,
   statusBarStyle: "dark" as const,
 };
