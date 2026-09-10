@@ -403,7 +403,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xs,
   },
   usersIconNudge: {
-    marginLeft: 3,
+    marginLeft: 6,
   },
   tileLabel: {
     fontSize: 11,
