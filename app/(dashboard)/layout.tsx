@@ -21,6 +21,10 @@ export default function DashboardLayout({
   // those independently re-running the same auth.getSession() + profiles
   // fetch this layout already has to do to gate the page in the first place.
   const [profile, setProfile] = useState<any>(null);
+  // Mobile nav drawer. Owned here because the trigger (Topbar hamburger) and
+  // the thing it opens (Sidebar) are siblings. Always starts closed, and
+  // above `lg` nothing reads it - the sidebar is a static column there.
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   useEffect(() => {
     const verifyRole = async () => {
@@ -84,15 +88,26 @@ export default function DashboardLayout({
       <AnnouncementPopup />
 
       {/* Sidebar Navigation */}
-      <Sidebar profile={profile} />
+      <Sidebar
+        profile={profile}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+      />
 
       {/* Main Content Area */}
-      <div className="pl-56 flex flex-col min-h-screen">
+      {/* `pl-56` reserves the sidebar column on desktop; below `lg` the
+          sidebar is off-canvas, so that reservation is cancelled. */}
+      <div className="pl-56 flex flex-col min-h-screen max-lg:pl-0">
         {/* Topbar Actions */}
-        <Topbar profile={profile} />
+        <Topbar profile={profile} onMenuClick={() => setIsSidebarOpen(true)} />
 
         {/* Dashboard Pages */}
-        <main className="flex-1 pt-16 p-6 overflow-x-hidden">
+        {/* Only the horizontal and bottom padding is tightened for mobile.
+            The 4rem top padding is deliberately left alone: it clears the
+            fixed 64px Topbar, and Tailwind emits all-sides padding utilities
+            ahead of single-side ones, so a mobile all-sides override would
+            win over it and slide content up under the header. */}
+        <main className="flex-1 pt-16 p-6 overflow-x-hidden max-lg:px-3 max-lg:pb-4">
           {children}
         </main>
       </div>

@@ -28,6 +28,7 @@ import {
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import StatusBadge from "@/components/StatusBadge";
+import CameraCaptureButton from "@/components/CameraCaptureButton";
 import { getLocalItems, saveLocalItem } from "@/lib/supabaseLocalFallback";
 import { reloadSchemaAction } from "@/app/actions/users";
 import { verifySerialNumberAction, submitInstallationAction } from "@/app/actions/products";
@@ -328,12 +329,17 @@ export default function WebInstallerPage() {
   };
 
   // Handle Photo additions
+  // Shared by the file picker and the camera button below it.
+  const addPhotos = (filesArray: File[]) => {
+    if (!filesArray.length) return;
+    setPhotoFiles(prev => [...prev, ...filesArray]);
+    const newPreviews = filesArray.map(file => URL.createObjectURL(file));
+    setPhotoPreviews(prev => [...prev, ...newPreviews]);
+  };
+
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const filesArray = Array.from(e.target.files);
-      setPhotoFiles(prev => [...prev, ...filesArray]);
-      const newPreviews = filesArray.map(file => URL.createObjectURL(file));
-      setPhotoPreviews(prev => [...prev, ...newPreviews]);
+      addPhotos(Array.from(e.target.files));
     }
   };
 
@@ -1025,6 +1031,14 @@ export default function WebInstallerPage() {
                       <Video className="w-4 h-4 text-[#00B4D8]" />
                       <span>Upload Video Proof of Installation</span>
                     </button>
+                    <CameraCaptureButton
+                      kind="video"
+                      className="w-full mt-1.5"
+                      onCapture={(files) => {
+                        setVideoFile(files[0]);
+                        setVideoPreview(URL.createObjectURL(files[0]));
+                      }}
+                    />
                   </>
                 )}
                 {siteFormErrors.video && <p className="text-[9px] text-rose-500 mt-1 font-bold">{siteFormErrors.video}</p>}
@@ -1080,6 +1094,7 @@ export default function WebInstallerPage() {
                   <Camera className="w-3.5 h-3.5 text-slate-400" />
                   <span>Select Images ({photoPreviews.length}/{MIN_PHOTOS} minimum)</span>
                 </button>
+                <CameraCaptureButton className="w-full mt-1.5" onCapture={addPhotos} />
                 {siteFormErrors.photos && <p className="text-[9px] text-rose-500 mt-1 font-bold">{siteFormErrors.photos}</p>}
               </div>
 

@@ -7,17 +7,44 @@
   --foreground: #171717;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* A prefers-color-scheme:dark override used to sit here, re-pointing
+   --background at #0a0a0a and --foreground at #ededed. Removed deliberately
+   2026-09-11, because it never produced a dark theme - it produced
+   unreadable text.
+
+   Only half of it was ever live. The body element carries its own #F8FAFC
+   colour utility class, and a class selector outranks the element selector
+   below it, so the --background value never won and the page stayed light in
+   both colour schemes. The --foreground value had no such competition: body
+   text became #ededed while the page behind it stayed #F8FAFC. Anything that
+   inherited its colour instead of declaring one therefore rendered at roughly
+   a 1.05:1 contrast ratio against the page - i.e. not readable at all - for
+   any user whose OS is set to dark mode, on desktop just as much as on a
+   phone.
+
+   Nothing else reads these two variables: the body rule below is the only
+   consumer, and no component uses the two colour utilities tailwind.config.ts
+   derives from them. Real dark mode would mean theming every component, which
+   is separate work. Committing to light explicitly instead. */
 
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Mobile only. iOS Safari force-zooms the whole page whenever a focused
+   input has a font-size under 16px, then leaves the user scrolled sideways.
+   Every form control in this app is 12px or smaller, so it fired everywhere.
+   Scoped inside a max-width query so the desktop cascade cannot see it -
+   above 1023px these rules do not exist. Does not reproduce in Chrome device
+   emulation; needs a real iPhone to verify. */
+@media (max-width: 1023px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 @layer utilities {

@@ -14,6 +14,7 @@ import {
   Shield,
   Plus,
   ChevronDown,
+  Menu,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
@@ -38,9 +39,13 @@ interface TopbarProps {
     email?: string;
     role?: string;
   } | null;
+  // Opens the mobile nav drawer. State lives in DashboardLayout, which also
+  // renders the Sidebar this controls. Optional - the hamburger that calls it
+  // is `lg:hidden`, so desktop never invokes it.
+  onMenuClick?: () => void;
 }
 
-export default function Topbar({ profile }: TopbarProps) {
+export default function Topbar({ profile, onMenuClick }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClientComponentClient();
@@ -193,14 +198,44 @@ export default function Topbar({ profile }: TopbarProps) {
 
   return (
     <>
-      <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 fixed top-0 right-0 left-56 z-40 select-none">
+      <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 fixed top-0 right-0 left-56 z-40 select-none max-lg:left-0 max-lg:px-3">
         {/* Left Side: Breadcrumb */}
-        <div className="flex items-center gap-2">
-          <Link href="/dashboard" className="text-slate-400 hover:text-slate-600 text-xs">
+        {/* The mobile-only min-width:0 lets this group narrow past its
+            content width, so a long page title gets an ellipsis rather than
+            pushing the action buttons off the right edge. Scoped to mobile:
+            at desktop widths there is free space so it would do nothing
+            anyway, but an unscoped utility still emits a rule the desktop
+            cascade can see, and the whole point of the max-width convention
+            here is that it cannot.
+            NB: these comments describe utilities as CSS properties on
+            purpose. Tailwind scans raw file text, comments included, so
+            writing a utility's name here emits an unused rule into the
+            production bundle. */}
+        <div className="flex items-center gap-2 max-lg:min-w-0">
+          {/* Drawer trigger - the only way to reach navigation below `lg`,
+              where the sidebar is off-canvas. */}
+          <button
+            onClick={onMenuClick}
+            aria-label="Open navigation menu"
+            className="lg:hidden -ml-1 mr-1 p-2 text-slate-600 hover:text-[#00B4D8] hover:bg-slate-50 rounded-md transition-colors"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
+          {/* Full trail, desktop only. On a phone it wraps or pushes the
+              right-hand actions off-screen, so mobile gets just the leaf
+              page name instead - already computed above for the <title>.
+              The mobile-hide class is applied to each item individually
+              rather than to a wrapper around them: a wrapper would be a new
+              element that is still rendered at desktop widths, and however
+              harmless that is, the guarantee here is that the desktop DOM is
+              untouched, not merely that it looks the same. Verified by
+              element-count and geometry diff against the pre-change build. */}
+          <Link href="/dashboard" className="text-slate-400 hover:text-slate-600 text-xs max-lg:hidden">
             Dashboard
           </Link>
           {breadcrumbs.map((crumb, idx) => (
-            <div key={crumb.url} className="flex items-center gap-1.5 text-xs">
+            <div key={crumb.url} className="flex items-center gap-1.5 text-xs max-lg:hidden">
               <span className="text-slate-300">/</span>
               <span
                 className={
@@ -213,10 +248,14 @@ export default function Topbar({ profile }: TopbarProps) {
               </span>
             </div>
           ))}
+
+          <span className="lg:hidden text-sm font-bold text-slate-800 truncate">
+            {currentPageName}
+          </span>
         </div>
 
         {/* Right Side Actions */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 max-lg:gap-1 max-lg:shrink-0">
           {/* Quick Actions Dropdown */}
           <div className="relative">
             <button
@@ -224,8 +263,10 @@ export default function Topbar({ profile }: TopbarProps) {
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-semibold rounded-[6px] shadow transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Quick Add</span>
-              <ChevronDown className="w-3 h-3" />
+              {/* Label and caret drop away on a phone - the + alone is the
+                  affordance, and the row has to fit beside the page title. */}
+              <span className="max-lg:hidden">Quick Add</span>
+              <ChevronDown className="w-3 h-3 max-lg:hidden" />
             </button>
 
             {isQuickAddOpen && (

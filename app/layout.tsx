@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Toaster } from "react-hot-toast";
 import "./globals.css";
@@ -34,6 +34,24 @@ export const metadata: Metadata = {
     ],
     type: "website",
   },
+};
+
+// Next injects a default width=device-width viewport tag when this isn't
+// declared, so phones already scaled - but nothing was declared, which left
+// two things unset that matter on mobile:
+//   - interactiveWidget: without it, the phone keyboard opening resizes the
+//     visual viewport and shoves `fixed` elements (Topbar, modal footers)
+//     around. 'resizes-content' keeps the layout viewport stable instead.
+//   - maximumScale/userScalable: left explicit and permissive on purpose.
+//     Pinch-zoom must stay available - disabling it is an accessibility
+//     regression, and it is NOT the fix for iOS's focus-zoom (that's the
+//     16px input rule in globals.css).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({
