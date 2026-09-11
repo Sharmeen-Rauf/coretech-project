@@ -329,7 +329,7 @@ export default function UserModal({
         {/* Scrollable Form */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
           {role === "Distributor" ? (
-            <div className="grid grid-cols-2 gap-6 text-slate-800 text-left">
+            <div className="grid grid-cols-2 gap-6 text-slate-800 text-left max-sm:grid-cols-1">
               {/* Left Column: Distributor Details */}
               <div className="space-y-4">
                 <h4 className="text-xs font-bold text-[#00B4D8] uppercase tracking-wider border-b pb-1">
@@ -508,7 +508,7 @@ export default function UserModal({
                   System Credentials
                 </h4>
                 {!isEdit ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
                     <div>
                       <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                         Email*
@@ -576,7 +576,7 @@ export default function UserModal({
               </div>
             </div>
           ) : role === "Sub Dealer" ? (
-            <div className="grid grid-cols-2 gap-6 text-slate-800 text-left">
+            <div className="grid grid-cols-2 gap-6 text-slate-800 text-left max-sm:grid-cols-1">
               {/* Left Column: Sub Dealer Details */}
               <div className="space-y-4">
                 <h4 className="text-xs font-bold text-[#00B4D8] uppercase tracking-wider border-b pb-1">
@@ -775,7 +775,7 @@ export default function UserModal({
                   System Credentials
                 </h4>
                 {!isEdit ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
                     <div>
                       <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                         Email*
@@ -843,7 +843,7 @@ export default function UserModal({
               </div>
             </div>
           ) : role === "Installer" ? (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                   First Name*
@@ -1029,7 +1029,7 @@ export default function UserModal({
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                     First Name*
@@ -1065,7 +1065,7 @@ export default function UserModal({
               </div>
 
               {!isEdit && (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                       Email Address*
@@ -1101,7 +1101,7 @@ export default function UserModal({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                     Designation*
@@ -1137,7 +1137,7 @@ export default function UserModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                     Department Group
@@ -1181,7 +1181,7 @@ export default function UserModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
                     Status

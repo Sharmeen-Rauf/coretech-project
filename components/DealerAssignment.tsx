@@ -195,7 +195,7 @@ export default function DealerAssignment() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-2 gap-6">
+            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-2 gap-6 max-sm:grid-cols-1">
               {/* Left: Distributors (radio) */}
               <div className="space-y-2">
                 <h4 className="text-xs font-bold text-[#00B4D8] uppercase tracking-wider border-b pb-1">
