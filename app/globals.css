@@ -47,6 +47,37 @@ body {
   }
 }
 
+/* Legibility floor, phones only (under 640px, matching where DataTable swaps
+   to its card list).
+
+   This app leans hard on sub-11px type - 317 uses of 10px, 126 of 9px, 20 of
+   8px at the time of writing - which is fine at arm's length on a 27in monitor
+   and is not fine on a phone held at 30cm. Raising them at the ~460 call sites
+   would be a huge, risky diff for a purely visual change, so the floor is
+   applied here by overriding the generated utilities themselves.
+
+   This works because these rules sit after `@tailwind utilities` in this file,
+   so at equal specificity they win. It is deliberately scoped inside a
+   max-width query: above 639px these declarations do not exist at all, and the
+   desktop cascade is untouched.
+
+   Only the three smallest steps are lifted. `text-xs` (12px) is left alone -
+   it is already at the usual minimum for secondary text, and moving it would
+   reflow almost every screen in the app. */
+@media (max-width: 639px) {
+  .text-\[8px\],
+  .text-\[9px\],
+  .text-\[10px\] {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .text-\[11px\] {
+    font-size: 11.5px;
+    line-height: 1.45;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
