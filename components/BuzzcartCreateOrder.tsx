@@ -546,11 +546,11 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                     </button>
 
                     {isDistributorOpen && (
-                      <div className="absolute left-0 mt-1.5 w-[420px] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div className="absolute left-0 mt-1.5 w-[420px] max-sm:max-w-[calc(100vw-2rem)] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
                         {displayDistributorsList.length === 0 ? (
                           <p className="text-xs text-slate-400 p-2 text-center italic">No distributors assigned to this employee's region.</p>
                         ) : (
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 max-sm:grid-cols-1">
                             {displayDistributorsList.map((d) => {
                               const labelText = `${d.first_name} ${d.last_name || ""}`.trim();
                               const subText = d.region ? ` (${d.region})` : d.warehouse ? ` (${d.warehouse})` : "";
@@ -592,11 +592,11 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                     </button>
 
                     {isSubDealerBuyerOpen && (
-                      <div className="absolute left-0 mt-1.5 w-[420px] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+                      <div className="absolute left-0 mt-1.5 w-[420px] max-sm:max-w-[calc(100vw-2rem)] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
                         {subDealers.length === 0 ? (
                           <p className="text-xs text-slate-400 p-2 text-center italic">No sub dealers found.</p>
                         ) : (
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 max-sm:grid-cols-1">
                             {subDealers.map((sd) => {
                               const labelText = `${sd.first_name} ${sd.last_name || ""}`.trim();
                               const subText = sd.region ? ` (${sd.region})` : "";

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Search, ChevronLeft, ChevronRight, Edit2, Info, ArrowUpDown, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import StatusBadge from "./StatusBadge";
@@ -81,6 +81,36 @@ export default function DataTable({
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [searchValue, setSearchValue] = useState("");
 
+  // Below 640px the table is swapped for a stacked card list. This is a real
+  // render switch rather than two copies hidden from each other with utility
+  // classes, for two reasons: only one of the two is ever in the DOM, so the
+  // desktop tree stays exactly what it was before this component learned
+  // about phones; and the biggest caller (warehouse inventory) renders ~18,700
+  // elements, which a CSS-only approach would have doubled on every page.
+  //
+  // Starts false so the server render and the first client render agree - the
+  // table is the safe default. On a phone that means one frame of table before
+  // the cards take over, which no one sees in practice because every caller
+  // is still loading its data at that point.
+  const [isCardView, setIsCardView] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const apply = () => setIsCardView(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  // How many cards are rendered at once. Callers pass their *whole* filtered
+  // dataset as `allData` and this component renders all of it, which is
+  // survivable as table rows but not as cards: warehouse inventory is 1,235
+  // rows, and a card carries roughly twice the markup of a row, so the phone
+  // was being handed ~40,000 elements. A card list that long is not something
+  // anyone scrolls through anyway - they search or filter - so it is batched.
+  // Table rendering is deliberately left exactly as it was.
+  const CARD_BATCH = 40;
+  const [cardLimit, setCardLimit] = useState(CARD_BATCH);
+
   const rawData = allData || data || [];
   const displayData = onSearch
     ? rawData
@@ -147,6 +177,13 @@ export default function DataTable({
           return sortDir === "asc" ? cmp : -cmp;
         })
         .map((w) => w.row);
+
+  // Back to the first batch whenever the visible set changes underneath us -
+  // searching, sorting or a data refresh should not leave the list expanded
+  // from whatever the user had scrolled to before.
+  useEffect(() => {
+    setCardLimit(CARD_BATCH);
+  }, [searchValue, sortKey, sortDir, sortedData.length]);
 
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     const checked = e.target.checked;
@@ -431,7 +468,7 @@ export default function DataTable({
   return (
     <div className="bg-white border border-slate-200 rounded-[8px] overflow-hidden shadow-sm flex flex-col">
       {/* Header Controls */}
-      <div className="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 bg-slate-50/50">
+      <div className="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 bg-slate-50/50 max-sm:p-3 max-sm:gap-3">
         <div>
           <h3 className="text-sm font-bold text-slate-800 tracking-tight">{title}</h3>
           {isAnySelected && (
@@ -441,7 +478,7 @@ export default function DataTable({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 ml-auto">
+        <div className="flex flex-wrap items-center gap-3 ml-auto max-sm:w-full max-sm:gap-2">
           {/* Bulk Actions */}
           {isAnySelected && (onBulkDelete || onDeleteClick) && (
             <button
@@ -460,7 +497,10 @@ export default function DataTable({
               <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
               </svg>
-              <span>Import</span>
+              {/* Label drops away on a phone; the icon carries it, and these
+                  two secondary controls are what crowd the primary action and
+                  the search field off the row. */}
+              <span className="max-sm:hidden">Import</span>
               <input
                 type="file"
                 accept=".csv"
@@ -483,7 +523,7 @@ export default function DataTable({
               <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              <span>Export</span>
+              <span className="max-sm:hidden">Export</span>
             </button>
           )}
 
@@ -497,25 +537,28 @@ export default function DataTable({
             </button>
           )}
 
-          {/* Search Field */}
-          <div className="relative">
+          {/* Search Field - takes the full row on a phone, where a fixed 15rem
+              field alongside the buttons is what forces the wrap. */}
+          <div className="relative max-sm:w-full max-sm:order-last">
             <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
             <input
               type="text"
               placeholder={searchPlaceholder}
               value={searchValue}
               onChange={handleSearchChange}
-              className="h-9 w-60 pl-9 pr-4 rounded-[6px] border border-slate-200 text-xs text-slate-800 bg-white placeholder-slate-400 focus:outline-none focus:border-[#00B4D8] transition-colors"
+              className="h-9 w-60 pl-9 pr-4 rounded-[6px] border border-slate-200 text-xs text-slate-800 bg-white placeholder-slate-400 focus:outline-none focus:border-[#00B4D8] transition-colors max-sm:w-full max-sm:h-11"
             />
           </div>
         </div>
       </div>
 
-      {/* Filter Row */}
+      {/* Filter Row. On a phone these scroll sideways as one row instead of
+          wrapping - inventory has five of them, which stacked into a block
+          taller than the content they filter. */}
       {filters.length > 0 && (
-        <div className="px-5 py-3 border-b border-slate-100 bg-white flex flex-wrap items-center gap-3">
+        <div className="px-5 py-3 border-b border-slate-100 bg-white flex flex-wrap items-center gap-3 max-sm:px-3 max-sm:flex-nowrap max-sm:overflow-x-auto">
           {filters.map((filter) => (
-            <div key={filter.label} className="flex items-center gap-2">
+            <div key={filter.label} className="flex items-center gap-2 max-sm:shrink-0">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                 {filter.label}:
               </span>
@@ -536,7 +579,9 @@ export default function DataTable({
         </div>
       )}
 
-      {/* Table Grid */}
+      {/* Table Grid - the 640px-and-up presentation. Mounted only when the
+          card view is off, so the two renderers never coexist in the DOM. */}
+      {!isCardView && (
       <div className="flex-1 overflow-x-auto min-w-full">
         <table className="w-full text-left border-collapse select-none">
           <thead>
@@ -697,10 +742,154 @@ export default function DataTable({
           </tbody>
         </table>
       </div>
+      )}
+
+      {/* Card list - the under-640px presentation of the same rows. Each row
+          becomes a self-contained card of label/value pairs with its actions
+          inline, because a 13-column table on a 390px screen is only reachable
+          by horizontal scrolling, which hides the columns people actually came
+          for behind the ones they didn't. */}
+      {isCardView && (
+        <div className="flex-1 p-3 space-y-2 bg-slate-50/30">
+          {/* Select-all lives in the table's header cell, which the card view
+              has no equivalent of - without this, bulk delete is unreachable
+              on a phone for anything but one row at a time. */}
+          {!isLoading && sortedData.length > 0 && (
+            <label className="flex items-center gap-2 min-h-11 px-1">
+              <input
+                type="checkbox"
+                checked={isAllSelected}
+                onChange={handleSelectAll}
+                className="w-4 h-4 border-slate-300 text-[#00B4D8] focus:ring-[#00B4D8] rounded-[4px]"
+              />
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Select all ({sortedData.length})
+              </span>
+            </label>
+          )}
+
+          {isLoading ? (
+            Array.from({ length: 4 }).map((_, idx) => (
+              <div
+                key={`card-skeleton-${idx}`}
+                className="border border-slate-200 rounded-[8px] bg-white p-3 space-y-2 animate-pulse"
+              >
+                <div className="h-4 bg-slate-200 rounded w-1/3"></div>
+                <div className="h-3 bg-slate-100 rounded w-2/3"></div>
+                <div className="h-3 bg-slate-100 rounded w-1/2"></div>
+              </div>
+            ))
+          ) : sortedData.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 text-slate-400 py-12">
+              <Info className="w-8 h-8 text-slate-300" />
+              <p className="text-xs font-semibold">No records found</p>
+              <p className="text-[11px] text-slate-500 text-center">
+                Try adjusting filters or searching for another term.
+              </p>
+            </div>
+          ) : (
+            sortedData.slice(0, cardLimit).map((row, rowIdx) => {
+              const rowId = row.id || `row-${rowIdx}`;
+              const isSelected = selectedRows[rowId] || false;
+              return (
+                <div
+                  key={rowId}
+                  onClick={() => onRowClick && onRowClick(row)}
+                  className={`border rounded-[8px] p-3 transition-colors ${
+                    isSelected ? "border-[#00B4D8] bg-[#F0FAFE]/40" : "border-slate-200 bg-white"
+                  } ${onRowClick ? "cursor-pointer" : ""}`}
+                >
+                  {/* Card header: selection on the left, row actions on the
+                      right, matching what the table puts in its first and
+                      last columns. */}
+                  <div className="flex items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-100">
+                    <label
+                      className="flex items-center gap-2 min-h-11 pr-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={(e) => handleSelectRow(rowId, e.target.checked)}
+                        className="w-4 h-4 border-slate-300 text-[#00B4D8] focus:ring-[#00B4D8] rounded-[4px]"
+                      />
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                        Select
+                      </span>
+                    </label>
+
+                    {(onEditClick || onDeleteClick) && (
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        {onEditClick && (
+                          <button
+                            onClick={() => onEditClick(row)}
+                            className="w-11 h-11 flex items-center justify-center hover:bg-slate-100 text-slate-500 hover:text-[#00B4D8] rounded-[6px] transition-colors"
+                            title="Edit"
+                            aria-label="Edit"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                        )}
+                        {onDeleteClick && (
+                          <button
+                            onClick={() => onDeleteClick(row)}
+                            className="w-11 h-11 flex items-center justify-center hover:bg-slate-100 text-slate-500 hover:text-rose-500 rounded-[6px] transition-colors"
+                            title={deleteLabel}
+                            aria-label={deleteLabel}
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <dl className="space-y-1.5">
+                    {columns.map((col) => {
+                      const value = row[col.key];
+                      return (
+                        <div key={col.key} className="flex items-start justify-between gap-3">
+                          <dt className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0 pt-0.5">
+                            {col.label}
+                          </dt>
+                          <dd className="text-xs text-slate-700 font-medium text-right break-words min-w-0">
+                            {col.render ? (
+                              col.render(value, row)
+                            ) : col.key === "status" ? (
+                              <StatusBadge status={value} />
+                            ) : (
+                              value ?? <span className="text-slate-300">-</span>
+                            )}
+                          </dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                </div>
+              );
+            })
+          )}
+
+          {!isLoading && sortedData.length > cardLimit && (
+            <button
+              type="button"
+              onClick={() => setCardLimit((n) => n + CARD_BATCH)}
+              className="w-full h-11 text-xs font-semibold text-[#00B4D8] bg-white hover:bg-slate-50 border border-slate-200 rounded-[6px] transition-colors"
+            >
+              Show {Math.min(CARD_BATCH, sortedData.length - cardLimit)} more
+              <span className="text-slate-400 font-normal">
+                {" "}({cardLimit} of {sortedData.length})
+              </span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Footer / Entry count Info */}
       {!isLoading && displayData.length > 0 && (
-        <div className="px-5 py-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="px-5 py-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 max-sm:px-3">
           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
             Showing all {displayData.length} entries
           </span>
