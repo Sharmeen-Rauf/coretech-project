@@ -78,6 +78,29 @@ body {
   }
 }
 
+/* Tap-target floor for text inputs and dropdowns, phones only.
+
+   Form controls in this app are 32-36px tall, which is a comfortable mouse
+   target and an awkward thumb target - the usual guidance is ~44px. The
+   filter panels are the clearest case: warehouse inventory stacks five 32px
+   dropdowns, and they are the whole point of that screen on a phone.
+
+   Applied here rather than at the call sites because the controls are spread
+   across every page and several of them are built inline. Checkboxes and
+   radios are excluded on purpose: they are square, so a min-height would
+   either distort them or leave a large dead area around a small hit target.
+   Buttons are deliberately not included either - many are icon-only controls
+   sitting inside table cells and badges, where forcing 44px would stretch the
+   rows around them. Those are handled per-component instead, the way the
+   DataTable card list already does. */
+@media (max-width: 639px) {
+  select,
+  textarea,
+  input:not([type="checkbox"]):not([type="radio"]) {
+    min-height: 44px;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

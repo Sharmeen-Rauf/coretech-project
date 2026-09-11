@@ -793,7 +793,7 @@ export default function InstallerListPage() {
             </div>
 
             <div className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3.5 bg-slate-50/50 border border-slate-100 rounded-[8px] p-3.5">
+              <div className="grid grid-cols-2 gap-3.5 bg-slate-50/50 border border-slate-100 rounded-[8px] p-3.5 max-sm:grid-cols-1">
                 <div>
                   <p className="text-[9px] font-extrabold text-slate-700 uppercase">First Name</p>
                   <p className="font-bold text-slate-900 mt-0.5">{selectedInstaller.first_name}</p>

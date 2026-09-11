@@ -111,7 +111,7 @@ export default function ReportingDashboardClient({ jobsCount, claimsCount, activ
                       </div>
 
                       {/* Horizontal Progress Timeline */}
-                      <div className="grid grid-cols-4 gap-2 relative pt-2">
+                      <div className="grid grid-cols-4 gap-2 relative pt-2 max-sm:grid-cols-2">
                         <div className="absolute top-5 left-8 right-8 h-0.5 bg-slate-100 -z-10"></div>
                         {steps.map((step, idx) => (
                           <div key={idx} className="flex flex-col items-center text-center">

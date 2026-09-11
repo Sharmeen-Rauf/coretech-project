@@ -198,7 +198,7 @@ export default function DistributorDashboardHome({
           <span className="text-[11px] font-bold text-[#00B4D8] hover:underline cursor-pointer">View All</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-xs max-sm:min-w-[560px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50 text-slate-400 uppercase tracking-wider text-[9.5px] font-bold">
                 <th className="py-2.5 px-4 font-bold">To</th>

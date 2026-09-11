@@ -390,7 +390,7 @@ async function TopSellingProductsTable() {
       <div>
         <h3 className="text-sm font-bold text-slate-800 mb-3">Top Selling Products</h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-xs max-sm:min-w-[480px]">
             <thead>
               <tr className="border-b border-slate-100 text-[#00B4D8] uppercase tracking-wider text-[10px] font-bold">
                 <th className="pb-2 font-bold">Name</th>
@@ -956,7 +956,7 @@ export default async function DashboardPage({
             <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold uppercase">Active Standings</span>
           </div>
           <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left border-collapse text-xs select-none">
+            <table className="w-full text-left border-collapse text-xs select-none max-sm:min-w-[480px]">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/10">
                   <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider">Role/Category</th>

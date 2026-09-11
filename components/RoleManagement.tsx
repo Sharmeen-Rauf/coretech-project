@@ -203,8 +203,13 @@ export default function RoleManagement() {
         </button>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-[12px] overflow-hidden shadow-sm">
-        <table className="w-full text-left border-collapse text-xs">
+      {/* overflow-hidden here exists to clip the rounded corners, but it also
+          clips the table itself - on a phone the Actions column was cut off
+          and unreachable rather than scrollable. Restoring horizontal scroll
+          on small screens only; the corner clipping is unchanged above 640px,
+          where the table has never needed to scroll. */}
+      <div className="bg-white border border-slate-200 rounded-[12px] overflow-hidden shadow-sm max-sm:overflow-x-auto">
+        <table className="w-full text-left border-collapse text-xs max-sm:min-w-[520px]">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50/40">
               <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider">Role</th>

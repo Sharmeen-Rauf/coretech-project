@@ -647,7 +647,7 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs select-none">
+              <table className="w-full text-left border-collapse text-xs select-none max-sm:min-w-[600px]">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/10">
                     <th className="px-5 py-3 font-bold text-slate-400 uppercase tracking-wider">Model Name</th>
@@ -751,8 +751,11 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
               </button>
             </div>
 
-            <div className="overflow-y-auto flex-1 mb-6 pr-1">
-              <table className="w-full text-left border-collapse text-xs select-none">
+            {/* This wrapper only scrolled vertically, so on a phone the five
+                columns had nowhere to go and were squeezed to unreadable
+                widths instead of scrolling. */}
+            <div className="overflow-y-auto flex-1 mb-6 pr-1 max-sm:overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs select-none max-sm:min-w-[600px]">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50/50 sticky top-0 bg-white z-10">
                     <th className="px-4 py-3 w-12 text-center">Select</th>
