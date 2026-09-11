@@ -47,3 +47,6 @@ bug_mobile.md
 # one-off local debug/migration scripts - run once, then deleted, never committed
 scratch*
 scratch/
+
+# Play Store submission assets (contains a live demo-account password; local-only)
+play-store-assets/
