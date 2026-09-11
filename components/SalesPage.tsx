@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
+import BarcodeScannerButton from "@/components/BarcodeScannerButton";
 import {
   Loader2,
   ArrowLeft,
@@ -326,9 +327,13 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
 
   // Scan / Check serial number input (supports bulk copy-paste split by
   // comma/newline/tabs/spaces, since that's how a pasted Excel column comes through).
-  const handleCheckImei = async (e?: React.FormEvent) => {
+  // `scannedValue` lets the barcode scanner hand the decoded serial straight
+  // in. It cannot go through setImeiInput and then read state here - the state
+  // update would not have landed by the time this runs - and the field is
+  // cleared on success anyway, so the value has to be passed, not read.
+  const handleCheckImei = async (e?: React.FormEvent, scannedValue?: string) => {
     if (e) e.preventDefault();
-    const cleanInput = imeiInput.trim();
+    const cleanInput = (scannedValue ?? imeiInput).trim();
     if (!cleanInput) {
       toast.error("Enter at least one serial number");
       return;
@@ -803,14 +808,22 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
               </h3>
               <div className="space-y-3">
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">Please enter Serial Number(s), press enter or Check button to check</label>
-                <div className="flex gap-2">
+                <div className="flex gap-2 max-sm:flex-wrap">
                   <input
                     type="text"
                     placeholder="Enter Serial Number"
                     value={imeiInput}
                     onChange={(e) => setImeiInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCheckImei(); } }}
-                    className="flex-1 h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+                    className="flex-1 h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] max-sm:w-full"
+                  />
+                  {/* Scanning checks the serial immediately, the same as a
+                      barcode gun would - the gun types the value and sends
+                      Enter, and this is the phone equivalent of that. */}
+                  <BarcodeScannerButton
+                    className="max-sm:w-full max-sm:order-last"
+                    disabled={isCheckingImei}
+                    onScan={(code) => handleCheckImei(undefined, code)}
                   />
                   <button type="button" onClick={() => handleCheckImei()} disabled={isCheckingImei} className="h-10 px-4 bg-[#00B4D8] hover:bg-[#0077B6] text-white text-xs font-bold rounded-[6px] shadow flex items-center justify-center transition-colors min-w-[70px]">
                     {isCheckingImei ? <Loader2 className="w-4 h-4 animate-spin" /> : "Check"}

@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Search, Loader2, Package, ArrowRight, Wrench, CheckCircle2, XCircle, Clock, RotateCw } from "lucide-react";
 import toast from "react-hot-toast";
+import BarcodeScannerButton from "@/components/BarcodeScannerButton";
 import { fetchSnLookupAction } from "@/app/actions/snLookup";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -27,9 +28,12 @@ export default function SnLookupPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [result, setResult] = useState<any>(null);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!serialNo.trim()) {
+  // Split out from the submit handler so the barcode scanner can run the same
+  // lookup with the value it just decoded, rather than depending on the state
+  // update from setSerialNo having landed first.
+  const runSearch = async (rawSerial: string) => {
+    const serial = rawSerial.trim();
+    if (!serial) {
       toast.error("Enter a serial number");
       return;
     }
@@ -37,7 +41,7 @@ export default function SnLookupPage() {
     setIsLoading(true);
     setHasSearched(true);
     try {
-      const res = await fetchSnLookupAction(serialNo.trim());
+      const res = await fetchSnLookupAction(serial);
       if (!res.success) {
         toast.error(res.error || "Failed to look up serial number");
         setResult(null);
@@ -52,6 +56,11 @@ export default function SnLookupPage() {
     }
   };
 
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    runSearch(serialNo);
+  };
+
   return (
     <div className="space-y-6 select-none">
       <div>
@@ -61,13 +70,23 @@ export default function SnLookupPage() {
         </p>
       </div>
 
-      <form onSubmit={handleSearch} className="flex gap-2 max-w-lg">
+      <form onSubmit={handleSearch} className="flex gap-2 max-w-lg max-sm:flex-wrap">
         <input
           type="text"
           value={serialNo}
           onChange={(e) => setSerialNo(e.target.value)}
           placeholder="Enter serial number..."
-          className="flex-1 h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8]"
+          className="flex-1 h-10 px-3 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] max-sm:w-full"
+        />
+        {/* Scanning fills the field and runs the lookup in one step - stopping
+            to let the user press Search afterwards would waste the point of
+            not typing it. */}
+        <BarcodeScannerButton
+          className="max-sm:w-full max-sm:order-last"
+          onScan={(code) => {
+            setSerialNo(code);
+            runSearch(code);
+          }}
         />
         <button
           type="submit"
