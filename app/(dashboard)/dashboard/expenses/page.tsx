@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
+import CameraCaptureButton from "@/components/CameraCaptureButton";
 import { Loader2, Plus, X, Trash2, Check, ImagePlus } from "lucide-react";
 import toast from "react-hot-toast";
 import {
@@ -513,6 +514,13 @@ export default function ExpensesPage() {
                   multiple
                   onChange={(e) => setReceiptFiles(Array.from(e.target.files || []))}
                   className="w-full text-xs text-slate-600 file:mr-3 file:h-8 file:px-3 file:rounded-[6px] file:border-0 file:bg-[#F0FAFE] file:text-[#00B4D8] file:text-xs file:font-semibold"
+                />
+                {/* Appends rather than replaces, unlike the picker above:
+                    the camera returns one shot per tap, so photographing a
+                    second receipt must not discard the first. */}
+                <CameraCaptureButton
+                  className="w-full mt-2"
+                  onCapture={(files) => setReceiptFiles((prev) => [...prev, ...files])}
                 />
                 {receiptFiles.length > 0 && (
                   <p className="text-[10px] text-slate-500 mt-1">{receiptFiles.length} file(s) selected</p>

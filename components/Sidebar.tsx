@@ -19,6 +19,7 @@ import {
   Download,
   HelpCircle,
   Search,
+  X,
 } from "lucide-react";
 import { createClientComponentClient } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
@@ -45,9 +46,15 @@ const USER_SUBVIEWS: { key: string; label: string; roleParam: string }[] = [
 
 interface SidebarProps {
   profile?: { role?: string } | null;
+  // Mobile drawer state, owned by DashboardLayout (which also renders the
+  // Topbar hamburger that opens it). Both are optional so the desktop render
+  // path is unchanged when they aren't passed - above `lg` the sidebar is a
+  // permanently visible column and neither value is read.
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export default function Sidebar({ profile }: SidebarProps) {
+export default function Sidebar({ profile, isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -99,6 +106,28 @@ export default function Sidebar({ profile }: SidebarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGroupKey]);
 
+  // Close the mobile drawer whenever the route actually changes. Keyed on the
+  // resolved path+query rather than wiring onClose into every <Link>, so it
+  // also covers the Topbar's Quick Add shortcuts and browser back/forward -
+  // and so expanding a nav group (which changes no route) leaves it open.
+  const routeKey = `${pathname}?${searchParams.toString()}`;
+  useEffect(() => {
+    if (isOpen) onClose?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeKey]);
+
+  // Lock body scroll while the drawer is over the page, so dragging the
+  // backdrop doesn't scroll the content underneath it. Desktop never opens
+  // the drawer, so `isOpen` stays false and this never runs there.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [isOpen]);
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push("/login");
@@ -123,7 +152,23 @@ export default function Sidebar({ profile }: SidebarProps) {
   const isGranted = (key: string) => userRole === "admin" || grantedKeys.has(key);
 
   return (
-    <aside className="w-56 h-screen bg-white border-r border-slate-200 flex flex-col fixed left-0 top-0 z-30 select-none overflow-y-auto">
+    <>
+      {/* Mobile-only backdrop. `lg:hidden` keeps it out of the desktop tree
+          entirely; it also only ever renders while the drawer is open. */}
+      {isOpen && (
+        <div
+          onClick={onClose}
+          aria-hidden="true"
+          className="lg:hidden fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-[1px]"
+        />
+      )}
+
+      <aside
+        aria-label="Main navigation"
+        className={`w-56 h-screen bg-white border-r border-slate-200 flex flex-col fixed left-0 top-0 z-30 select-none overflow-y-auto max-lg:z-50 max-lg:shadow-2xl max-lg:transition-transform max-lg:duration-300 ${
+          isOpen ? "max-lg:translate-x-0" : "max-lg:-translate-x-full"
+        }`}
+      >
       {/* Brand Logo */}
       <div className="h-16 px-6 border-b border-slate-100 flex items-center gap-2">
         <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#0077B6] to-[#00B4D8] flex items-center justify-center text-white font-extrabold text-sm shadow">
@@ -132,6 +177,15 @@ export default function Sidebar({ profile }: SidebarProps) {
         <span className="text-lg font-bold text-slate-800 tracking-tight">
           Core<span className="text-[#00B4D8]">TECH</span>
         </span>
+        {/* Explicit dismiss, for reachability with one thumb. The backdrop
+            closes it too, but that's top-of-screen on a tall phone. */}
+        <button
+          onClick={onClose}
+          aria-label="Close navigation menu"
+          className="lg:hidden ml-auto -mr-2 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-md transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
       </div>
 
       {/* Nav List */}
@@ -242,6 +296,7 @@ export default function Sidebar({ profile }: SidebarProps) {
           Logout
         </button>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

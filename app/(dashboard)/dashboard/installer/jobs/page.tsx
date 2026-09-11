@@ -3,8 +3,9 @@
 import React, { useEffect, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
-import { 
-  X, 
+import CameraCaptureButton from "@/components/CameraCaptureButton";
+import {
+  X,
   Loader2, 
   Plus, 
   DollarSign, 
@@ -212,13 +213,19 @@ export default function AdminJobsPage() {
     fetchData();
   }, []);
 
+  // Shared by the file picker and the mobile camera button, so both paths
+  // stay in sync on appending and preview generation.
+  const addPhotos = (filesArray: File[]) => {
+    if (!filesArray.length) return;
+    setPhotoFiles(prev => [...prev, ...filesArray]);
+
+    const newPreviews = filesArray.map(file => URL.createObjectURL(file));
+    setPhotoPreviews(prev => [...prev, ...newPreviews]);
+  };
+
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const filesArray = Array.from(e.target.files);
-      setPhotoFiles(prev => [...prev, ...filesArray]);
-      
-      const newPreviews = filesArray.map(file => URL.createObjectURL(file));
-      setPhotoPreviews(prev => [...prev, ...newPreviews]);
+      addPhotos(Array.from(e.target.files));
     }
   };
 
@@ -926,6 +933,12 @@ export default function AdminJobsPage() {
                 <p className="text-[10px] font-bold text-slate-600">Drag & Drop or Click to Select</p>
                 <p className="text-[9px] text-slate-400 mt-1">Upload reference pictures or pre-installation checks</p>
               </div>
+
+              {/* Sits outside the dropzone on purpose - the dropzone's own
+                  input is `absolute inset-0` with zero opacity, so anything
+                  placed inside it would sit under that overlay and never
+                  receive the click. */}
+              <CameraCaptureButton className="w-full mt-2" onCapture={addPhotos} />
             </div>
 
             {/* Remarks / Remarks Box */}
