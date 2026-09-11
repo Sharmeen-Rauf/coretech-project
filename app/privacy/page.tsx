@@ -83,8 +83,7 @@ export default function PrivacyPolicyPage() {
           </h1>
           <p className="text-xs text-slate-500 mb-8">
             Effective date: <span className="font-semibold text-slate-600">{EFFECTIVE_DATE}</span>
-            {" · "}Applies to: the CoreTech Digital mobile app (Android package{" "}
-            <span className="font-mono text-slate-600">com.coretechsolar.admin</span>)
+            {" · "}Applies to: the CoreTech Digital mobile app
           </p>
 
           <p className="text-lg text-slate-600 leading-relaxed mb-10 pb-8 border-b border-slate-100">
