@@ -272,8 +272,8 @@ export default function PrivacyPolicyPage() {
               </p>
               <p className="text-[15px] text-slate-600 leading-relaxed">
                 Email{" "}
-                <a href="mailto:privacy@coretechsolar.com" className="text-[#0077B6] font-medium">
-                  privacy@coretechsolar.com
+                <a href="mailto:info@coretechsolar.pk" className="text-[#0077B6] font-medium">
+                  info@coretechsolar.pk
                 </a>{" "}
                 from the address associated with your account, or visit{" "}
                 <Link href="/privacy/delete-account" className="text-[#0077B6] font-medium">
@@ -314,8 +314,8 @@ export default function PrivacyPolicyPage() {
             </h2>
             <p className="text-slate-600 leading-relaxed">
               Questions about this policy or how your information is handled can be sent to{" "}
-              <a href="mailto:privacy@coretechsolar.com" className="text-[#0077B6] font-medium">
-                privacy@coretechsolar.com
+              <a href="mailto:info@coretechsolar.pk" className="text-[#0077B6] font-medium">
+                info@coretechsolar.pk
               </a>
               .
             </p>

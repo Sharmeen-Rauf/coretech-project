@@ -19,7 +19,7 @@ export default function DeleteAccountPage() {
       `Account email: ${email.trim()}\n` +
       (reason.trim() ? `Reason: ${reason.trim()}\n` : "") +
       `\nPlease delete my CoreTech Digital account and associated personal data.`;
-    const mailto = `mailto:privacy@coretechsolar.com?subject=${encodeURIComponent(
+    const mailto = `mailto:info@coretechsolar.pk?subject=${encodeURIComponent(
       subject
     )}&body=${encodeURIComponent(body)}`;
 
@@ -68,7 +68,7 @@ export default function DeleteAccountPage() {
             {sent ? (
               <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg px-4 py-3 text-sm leading-relaxed">
                 Opening your email app with a message addressed to{" "}
-                <span className="font-semibold">privacy@coretechsolar.com</span> — review it and
+                <span className="font-semibold">info@coretechsolar.pk</span> — review it and
                 hit send from there.
               </div>
             ) : (
