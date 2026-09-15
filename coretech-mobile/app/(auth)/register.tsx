@@ -10,9 +10,12 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronLeft, CheckCircle } from "lucide-react-native";
+import { ChevronLeft, CheckCircle, Check } from "lucide-react-native";
+
+const PRIVACY_POLICY_URL = "https://www.coretechsolar.com/privacy/installer";
 import { API_BASE_URL } from "../../lib/installerAccess";
 import AnimatedPressable from "../../components/AnimatedPressable";
 import FadeInView from "../../components/FadeInView";
@@ -51,6 +54,7 @@ export default function RegisterScreen() {
   const [maritalStatus, setMaritalStatus] = useState("Single");
   const [paymentProvider, setPaymentProvider] = useState("EasyPaisa");
   const [paymentAccountNo, setPaymentAccountNo] = useState("");
+  const [consentAccepted, setConsentAccepted] = useState(false);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState("");
@@ -79,6 +83,10 @@ export default function RegisterScreen() {
     else if (password.length < 6) errs.password = "Password must be at least 6 characters";
 
     if (!paymentAccountNo.trim()) errs.paymentAccountNo = "Payment account number is required";
+
+    if (!consentAccepted) {
+      errs.consent = "You must review and accept the Privacy Policy to continue";
+    }
 
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -215,6 +223,29 @@ export default function RegisterScreen() {
             keyboardType="phone-pad"
           />
 
+          <View style={styles.consentBox}>
+            <TouchableOpacity
+              onPress={() => setConsentAccepted((v) => !v)}
+              style={styles.consentRow}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.checkbox, consentAccepted && styles.checkboxChecked]}>
+                {consentAccepted ? <Check size={13} color="#FFFFFF" /> : null}
+              </View>
+              <Text style={styles.consentText}>
+                I understand this app collects my CNIC number, address, and EasyPaisa/JazzCash
+                payment account details to register me as an installer and process payments, and
+                installation photos/videos I capture to document completed jobs. I've read and
+                agree to the{" "}
+                <Text style={styles.consentLink} onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
+                  Privacy Policy
+                </Text>
+                .
+              </Text>
+            </TouchableOpacity>
+            {errors.consent ? <Text style={styles.errorText}>{errors.consent}</Text> : null}
+          </View>
+
           <AnimatedPressable
             onPress={handleRegister}
             disabled={isLoading}
@@ -346,6 +377,22 @@ const styles = StyleSheet.create({
   pickerChipSelected: { backgroundColor: "#00B4D8", borderColor: "#00B4D8" },
   pickerChipText: { fontSize: 12, color: "#475569", fontWeight: "600" },
   pickerChipTextSelected: { color: "#FFFFFF" },
+  consentBox: { marginBottom: 16 },
+  consentRow: { flexDirection: "row", alignItems: "flex-start" },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: "#94A3B8",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    marginTop: 1,
+  },
+  checkboxChecked: { backgroundColor: "#00B4D8", borderColor: "#00B4D8" },
+  consentText: { flex: 1, fontSize: 11.5, color: "#475569", lineHeight: 17 },
+  consentLink: { color: "#0077B6", fontWeight: "700" },
   primaryButton: {
     height: 44,
     backgroundColor: "#00B4D8",
