@@ -20,8 +20,6 @@ const SECTIONS = [
   { id: "contact", label: "Contact" },
 ];
 
-const EFFECTIVE_DATE = "September 15, 2026";
-
 export default function InstallerPrivacyPolicyPage() {
   return (
     <div className="min-h-screen bg-white">
@@ -82,10 +80,6 @@ export default function InstallerPrivacyPolicyPage() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-900 mb-2">
             CoreTech Installer Privacy Policy
           </h1>
-          <p className="text-xs text-slate-500 mb-8">
-            Effective date: <span className="font-semibold text-slate-600">{EFFECTIVE_DATE}</span>
-            {" · "}Applies to: the CoreTech Installer mobile app
-          </p>
 
           <p className="text-lg text-slate-600 leading-relaxed mb-10 pb-8 border-b border-slate-100">
             CoreTech Installer is a workplace app for CoreTech Solar&apos;s installer partners and
