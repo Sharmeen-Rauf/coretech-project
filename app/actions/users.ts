@@ -717,11 +717,13 @@ export async function fetchUsersAction(activeRole: string, opts?: CallerOpts) {
     const supabase = getAdminClient();
     let query = supabase.from("profiles").select("*");
     if (activeRole === "employee") {
-      // Literal "employee" role permanently removed 2026-09-08 (client
-      // request) - nobody can hold it anymore, so it's dropped from this
-      // list. Kept out of this array rather than deleted entirely so the
-      // Employee tab's five real office roles still resolve correctly.
-      query = query.in("role", ["rsm", "country_head", "retail_manager", "admin", "marketing_manager"]);
+      // Employee tab = every role except the three field/channel roles that
+      // get their own dedicated tabs. Was previously a hardcoded allow-list
+      // of the 5 original office roles, which silently excluded any new
+      // custom role created via Role Management (e.g. "customer_support")
+      // from ever appearing here - switched to a deny-list so new roles
+      // resolve correctly without this query needing to be updated again.
+      query = query.not("role", "in", "(distributor,sub_dealer,installer)");
     } else {
       query = query.eq("role", activeRole);
     }

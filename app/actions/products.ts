@@ -566,14 +566,22 @@ export async function approveJobStage2Action(jobId: string, serialNumber: string
   }
 }
 
-// Incentive payment status: admin-only, one-way (unpaid -> paid), and only
-// once the job has cleared Stage 2 approval. Re-verified server-side rather
-// than trusting the client, since a client-only check is trivially bypassed.
+// Incentive payment status: gated by write access on the same permission
+// (installer.verify_installation) that gates the page this button lives on,
+// one-way (unpaid -> paid), and only once the job has cleared Stage 2
+// approval. Re-verified server-side rather than trusting the client, since a
+// client-only check is trivially bypassed. Was hardcoded to caller.role ===
+// "admin" - predates Role Management and never got migrated to it, unlike
+// every other write action in this file.
 export async function setJobPaymentPaidAction(jobId: string) {
   try {
     const caller = await getCallerIdentity();
-    if (!caller || caller.role !== "admin") {
-      return { success: false, error: "Only Admin can mark incentive payments as paid" };
+    if (!caller) {
+      return { success: false, error: "Not authenticated" };
+    }
+    const { canWrite } = await getMyScopeAction("installer.verify_installation");
+    if (!canWrite) {
+      return { success: false, error: "You don't have permission to mark incentive payments as paid" };
     }
 
     const supabase = getAdminClient();
@@ -600,7 +608,7 @@ export async function setJobPaymentPaidAction(jobId: string) {
     try {
       await supabase.from("activity_logs").insert({
         action: "Job Payment Settlement",
-        details: `Installer incentive for job "${job.job_title}" marked as Paid by admin`,
+        details: `Installer incentive for job "${job.job_title}" marked as Paid`,
       });
     } catch {
       // Non-critical, don't fail the payment update over a log-write failure
