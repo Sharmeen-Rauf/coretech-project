@@ -32,6 +32,7 @@ import {
   rejectJobStage2Action,
   setJobPaymentPaidAction,
 } from "@/app/actions/products";
+import { getMyScopeAction } from "@/app/actions/roles";
 
 interface JobRow {
   id: string;
@@ -82,6 +83,10 @@ export default function AdminJobsPage() {
   const [activeMediaModal, setActiveMediaModal] = useState<{ type: "image" | "video"; url: string; title?: string } | null>(null);
 
   const [userRole, setUserRole] = useState("");
+  // Gates the "mark incentive as paid" button - matches the write permission
+  // on this same page's own installer.verify_installation permission, rather
+  // than being hardcoded to the admin role.
+  const [canMarkPaid, setCanMarkPaid] = useState(false);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -121,6 +126,10 @@ export default function AdminJobsPage() {
       if (profileRes.data?.role) {
         setUserRole(profileRes.data.role);
       }
+
+      getMyScopeAction("installer.verify_installation")
+        .then(({ canWrite }) => setCanMarkPaid(canWrite))
+        .catch(() => setCanMarkPaid(false));
 
       const formatted: JobRow[] = jobsData.map((row: any) => {
         let sn = row.serial_number || "";
@@ -555,7 +564,7 @@ export default function AdminJobsPage() {
             </span>
           );
         }
-        if (userRole === "admin") {
+        if (canMarkPaid) {
           return (
             <button
               onClick={() => handleMarkPaymentPaid(row.id, row.job_title || row.serial_number || "this job")}
