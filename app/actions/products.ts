@@ -713,14 +713,14 @@ export async function fetchSellOutAction(opts?: CallerOpts) {
     // sales/sale_items row (type='sellout') carrying the consumer's details -
     // enrich each stock row with that, where it exists.
     const stockIds = rows.map((r: any) => r.id);
-    const consumerMap = new Map<string, { consumer_name: string; consumer_phone: string; site_address: string | null }>();
+    const consumerMap = new Map<string, { consumer_name: string; consumer_phone: string; site_address: string | null; receipt_url: string | null }>();
     if (stockIds.length > 0) {
       const { data: items } = await supabase.from("sale_items").select("stock_id, sale_id").in("stock_id", stockIds);
       const saleIds = Array.from(new Set((items || []).map((i: any) => i.sale_id)));
       if (saleIds.length > 0) {
         const { data: salesRows } = await supabase
           .from("sales")
-          .select("id, consumer_name, consumer_phone, site_address")
+          .select("id, consumer_name, consumer_phone, site_address, receipt_url")
           .in("id", saleIds)
           .eq("type", "sellout");
         const saleMap = new Map((salesRows || []).map((s: any) => [s.id, s]));

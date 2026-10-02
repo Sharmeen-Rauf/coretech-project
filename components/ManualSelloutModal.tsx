@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { X, Loader2, CheckCircle2, XCircle, Receipt } from "lucide-react";
 import toast from "react-hot-toast";
 import { createClientComponentClient } from "@/lib/supabase";
 import { submitManualSelloutAction } from "@/app/actions/sales";
@@ -32,6 +32,8 @@ export default function ManualSelloutModal({ isOpen, onClose, onSuccess }: Manua
   const [consumerPhone, setConsumerPhone] = useState("");
   const [siteAddress, setSiteAddress] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
 
   if (!isOpen) return null;
 
@@ -43,6 +45,7 @@ export default function ManualSelloutModal({ isOpen, onClose, onSuccess }: Manua
     setConsumerName("");
     setConsumerPhone("");
     setSiteAddress("");
+    setReceiptFile(null);
   };
 
   const handleClose = () => {
@@ -111,6 +114,24 @@ export default function ManualSelloutModal({ isOpen, onClose, onSuccess }: Manua
 
     setIsSubmitting(true);
     try {
+      let receiptUrl: string | undefined;
+      if (receiptFile) {
+        setIsUploadingReceipt(true);
+        try {
+          const fileExt = receiptFile.name.split(".").pop();
+          const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+          const filePath = `sellout-receipts/${fileName}`;
+          const { error: uploadErr } = await supabase.storage.from("job-photos").upload(filePath, receiptFile);
+          if (uploadErr) throw uploadErr;
+          const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
+          receiptUrl = pUrl.publicUrl;
+        } catch (uploadErr: any) {
+          toast.error("Failed to upload receipt image - continuing without it");
+        } finally {
+          setIsUploadingReceipt(false);
+        }
+      }
+
       const stId = `SO-${Date.now()}`;
       const res = await submitManualSelloutAction({
         serialNo: serialNo.trim(),
@@ -119,6 +140,7 @@ export default function ManualSelloutModal({ isOpen, onClose, onSuccess }: Manua
         consumerPhone: consumerPhone.trim(),
         siteAddress: siteAddress.trim() || undefined,
         stId,
+        receiptUrl,
       });
       if (!res.success) {
         toast.error(res.error || "Failed to record sell out");
@@ -192,13 +214,27 @@ export default function ManualSelloutModal({ isOpen, onClose, onSuccess }: Manua
             <textarea rows={2} value={siteAddress} onChange={(e) => setSiteAddress(e.target.value)} className="w-full p-2 border border-slate-200 rounded-[6px] text-xs text-slate-800 focus:outline-none focus:border-[#00B4D8] resize-none" />
           </div>
 
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+              <Receipt className="w-3 h-3" />
+              Receipt Image (optional)
+            </label>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => setReceiptFile(e.target.files?.[0] || null)}
+              className="w-full text-xs text-slate-600 file:mr-3 file:h-8 file:px-3 file:border-0 file:rounded-[6px] file:bg-[#F0FAFE] file:text-[#0077B6] file:text-xs file:font-semibold hover:file:bg-[#E0F4FA]"
+            />
+            {receiptFile && <p className="text-[10px] text-slate-400 mt-1">{receiptFile.name}</p>}
+          </div>
+
           <div className="flex items-center gap-3 pt-2">
             <button type="button" onClick={handleClose} className="flex-1 h-9 border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-[6px] transition-colors">
               Cancel
             </button>
             <button type="submit" disabled={!verified || isSubmitting} className="flex-[2] h-9 bg-[#00B4D8] hover:bg-[#0077B6] disabled:bg-[#00B4D8]/60 text-white font-semibold text-xs rounded-[6px] shadow flex items-center justify-center gap-1.5 transition-colors">
               {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              Submit
+              {isUploadingReceipt ? "Uploading Receipt..." : "Submit"}
             </button>
           </div>
         </form>

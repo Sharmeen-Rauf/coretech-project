@@ -36,6 +36,9 @@ import {
 import ReportingDashboardClient from "@/components/ReportingDashboardClient";
 import InventoryHealthPanel from "@/components/InventoryHealthPanel";
 import HomeDateRangeFilter from "@/components/HomeDateRangeFilter";
+import { getCallerIdentity } from "@/app/actions/users";
+import { getMyScopeAction } from "@/app/actions/roles";
+import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
 export const revalidate = 0; // Disable caching for realtime updates
 
@@ -74,56 +77,167 @@ async function DashboardStats({ dateRange }: { dateRange: DateRange | null }) {
     // window", so they stay all-time regardless of the filter. Total
     // Valuation in particular sums every unit currently in stock, sold or
     // not - it was never actually a "revenue in period" metric to begin with.
-    let st1Query = supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST1");
-    let st2Query = supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST2");
-    let soQuery = supabase.from("stock").select("id", { count: "exact", head: true }).eq("status", "sold_out");
-    let instQuery = supabase.from("installer_jobs").select("id", { count: "exact", head: true });
+    const caller = await getCallerIdentity();
 
+    // Total Stock Units/Valuation, ST-1, ST-2 and Sell Out each reuse the
+    // exact scope (self/region/everything) the caller's role already holds
+    // on that feature's own page (Inventory, ST-1, ST-2, Sell Out) via Role
+    // Management - same permission key, same meaning, no separate "home
+    // widget" permission to configure. Total Accounts, Registered Installers
+    // and Completed Jobs have no equivalent scoped permission anywhere else
+    // in the app yet, so they stay company-wide for every role for now.
+    const [inventoryScope, st1Scope, st2Scope, selloutScope] = await Promise.all([
+      getMyScopeAction("purchase.inventory"),
+      getMyScopeAction("sales.st1"),
+      getMyScopeAction("sales.st2"),
+      getMyScopeAction("sales.sellout"),
+    ]);
+
+    let instQuery = supabase.from("installer_jobs").select("id", { count: "exact", head: true });
     if (dateRange) {
       const toExclusive = dayAfter(dateRange.to);
-      st1Query = st1Query.gte("date", dateRange.from).lt("date", toExclusive);
-      st2Query = st2Query.gte("date", dateRange.from).lt("date", toExclusive);
-      soQuery = soQuery.gte("sold_out_at", dateRange.from).lt("sold_out_at", toExclusive);
       instQuery = instQuery.gte("created_at", dateRange.from).lt("created_at", toExclusive);
     }
 
-    // Execute all 7 statistical database queries concurrently via Promise.all for maximum speed.
-    // (Was 8 - the old separate "quantity only" stock query was a strict subset
-    // of the "quantity + product price" one below, so ordersVal is now derived
-    // from that same result instead of running a second full-table query.)
+    // Stock rows (Total Stock Units, Total Valuation) - "everything" keeps the
+    // original cheap path (no ownership/region columns needed); self/region
+    // need those columns to resolve scope, same pattern fetchStock/
+    // fetchSellOutAction already use.
+    const fetchScopedStock = async () => {
+      if (inventoryScope.scope === "everything") {
+        const { data } = await supabase.from("stock").select("quantity, products(price)");
+        return data || [];
+      }
+      let query = supabase.from("stock").select("quantity, distributor_id, sub_dealer_id, warehouse_name, products(price)");
+      if (inventoryScope.scope === "self" && inventoryScope.callerId) {
+        if (caller?.role === "distributor") {
+          query = query.eq("distributor_id", inventoryScope.callerId).is("sub_dealer_id", null);
+        } else if (caller?.role === "sub_dealer") {
+          query = query.eq("sub_dealer_id", inventoryScope.callerId);
+        } else {
+          query = query.eq("id", "00000000-0000-0000-0000-000000000000");
+        }
+      }
+      const { data } = await query;
+      let rows = data || [];
+      if (inventoryScope.scope === "region" && inventoryScope.callerRegion) {
+        const parties: PartyRef[] = rows.map((r: any) =>
+          r.sub_dealer_id
+            ? { type: "sub_dealer", id: r.sub_dealer_id }
+            : r.distributor_id
+            ? { type: "distributor", id: r.distributor_id }
+            : { type: "warehouse", warehouseName: r.warehouse_name }
+        );
+        const regionMap = await buildPartyRegionMap(supabase, parties);
+        rows = rows.filter((_r: any, idx: number) => regionsMatch(regionForParty(regionMap, parties[idx]), inventoryScope.callerRegion));
+      }
+      return rows;
+    };
+
+    // ST-1/ST-2 ledger count - mirrors computeLedgerWeeklyCount in
+    // app/actions/mobileStats.ts (same region-match rule: either side touches
+    // the caller's region), just all-time instead of "this week" and plus the
+    // existing Home date-range filter.
+    const fetchScopedLedgerCount = async (type: "ST1" | "ST2", scope: Awaited<ReturnType<typeof getMyScopeAction>>) => {
+      if (scope.scope === "everything") {
+        let q = supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", type);
+        if (dateRange) {
+          const toExclusive = dayAfter(dateRange.to);
+          q = q.gte("date", dateRange.from).lt("date", toExclusive);
+        }
+        const { count } = await q;
+        return count || 0;
+      }
+      let query = supabase.from("sales").select("source_type, source_id, destination_type, destination_id").eq("type", type);
+      if (dateRange) {
+        const toExclusive = dayAfter(dateRange.to);
+        query = query.gte("date", dateRange.from).lt("date", toExclusive);
+      }
+      if (scope.scope === "self" && scope.callerId) {
+        query = query.or(`source_id.eq.${scope.callerId},destination_id.eq.${scope.callerId}`);
+      }
+      const { data } = await query;
+      let rows = data || [];
+      if (scope.scope === "region" && scope.callerRegion) {
+        const parties: PartyRef[] = rows.flatMap((r: any) => [
+          { type: r.source_type, id: r.source_id },
+          { type: r.destination_type, id: r.destination_id },
+        ]);
+        const regionMap = await buildPartyRegionMap(supabase, parties);
+        rows = rows.filter((r: any) =>
+          regionsMatch(regionForParty(regionMap, { type: r.source_type, id: r.source_id }), scope.callerRegion) ||
+          regionsMatch(regionForParty(regionMap, { type: r.destination_type, id: r.destination_id }), scope.callerRegion)
+        );
+      }
+      return rows.length;
+    };
+
+    // Total Sell Out - mirrors computeSellOutStats in app/actions/mobileStats.ts.
+    const fetchScopedSelloutCount = async () => {
+      if (selloutScope.scope === "everything") {
+        let q = supabase.from("stock").select("id", { count: "exact", head: true }).eq("status", "sold_out");
+        if (dateRange) {
+          const toExclusive = dayAfter(dateRange.to);
+          q = q.gte("sold_out_at", dateRange.from).lt("sold_out_at", toExclusive);
+        }
+        const { count } = await q;
+        return count || 0;
+      }
+      let query = supabase.from("stock").select("sold_out_at, distributor_id, sub_dealer_id, warehouse_name").eq("status", "sold_out");
+      if (dateRange) {
+        const toExclusive = dayAfter(dateRange.to);
+        query = query.gte("sold_out_at", dateRange.from).lt("sold_out_at", toExclusive);
+      }
+      if (selloutScope.scope === "self" && selloutScope.callerId) {
+        query = query.or(`distributor_id.eq.${selloutScope.callerId},sub_dealer_id.eq.${selloutScope.callerId}`);
+      }
+      const { data } = await query;
+      let rows = data || [];
+      if (selloutScope.scope === "region" && selloutScope.callerRegion) {
+        const parties: PartyRef[] = rows.map((r: any) =>
+          r.sub_dealer_id
+            ? { type: "sub_dealer", id: r.sub_dealer_id }
+            : r.distributor_id
+            ? { type: "distributor", id: r.distributor_id }
+            : { type: "warehouse", warehouseName: r.warehouse_name }
+        );
+        const regionMap = await buildPartyRegionMap(supabase, parties);
+        rows = rows.filter((_r: any, idx: number) => regionsMatch(regionForParty(regionMap, parties[idx]), selloutScope.callerRegion));
+      }
+      return rows.length;
+    };
+
     const [
       profRes,
-      st1Res,
-      st2Res,
-      soRes,
+      st1Count,
+      st2Count,
+      soCount,
       instRes,
-      stockPricesRes,
+      stockRows,
       actInstRes
     ] = await Promise.all([
       supabase.from("profiles").select("id", { count: "exact", head: true }),
-      st1Query,
-      st2Query,
-      soQuery,
+      fetchScopedLedgerCount("ST1", st1Scope),
+      fetchScopedLedgerCount("ST2", st2Scope),
+      fetchScopedSelloutCount(),
       instQuery,
-      supabase.from("stock").select("quantity, products(price)"),
+      fetchScopedStock(),
       supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "installer")
     ]);
 
     if (profRes.count !== null && profRes.count > 0) customersVal = profRes.count;
-    if (stockPricesRes.data && stockPricesRes.data.length > 0) {
-      ordersVal = stockPricesRes.data.reduce((sum, s) => sum + (s.quantity || 1), 0);
-    }
-    if (st1Res.count !== null && st1Res.count > 0) st1Val = st1Res.count;
-    if (st2Res.count !== null && st2Res.count > 0) st2Val = st2Res.count;
-    if (soRes.count !== null && soRes.count > 0) soVal = soRes.count;
-    if (instRes.count !== null && instRes.count > 0) installationsVal = instRes.count;
-    if (stockPricesRes.data && stockPricesRes.data.length > 0) {
-      revenueVal = stockPricesRes.data.reduce((sum, item: any) => {
+    if (stockRows.length > 0) {
+      ordersVal = stockRows.reduce((sum: number, s: any) => sum + (s.quantity || 1), 0);
+      revenueVal = stockRows.reduce((sum: number, item: any) => {
         const p = item.products?.price ? parseFloat(item.products.price) : 0;
         const q = item.quantity || 1;
         return sum + (p * q);
       }, 0);
     }
+    st1Val = st1Count;
+    st2Val = st2Count;
+    soVal = soCount;
+    if (instRes.count !== null && instRes.count > 0) installationsVal = instRes.count;
     if (actInstRes.count !== null && actInstRes.count > 0) activeInstallersCount = actInstRes.count;
   } catch (err) {
     console.error("Dashboard stats database error:", err);
@@ -446,6 +560,35 @@ export default async function DashboardPage({
   const dateRange: DateRange | null =
     searchParams.from && searchParams.to ? { from: searchParams.from, to: searchParams.to } : null;
 
+  // Shared scope for every stock-based widget below (donut chart, aging
+  // stock) - same "purchase.inventory" permission/scope the caller's role
+  // already holds on the Inventory page itself, see DashboardStats above for
+  // the full Total Stock Units/Valuation version of this same pattern.
+  const inventoryScope = await getMyScopeAction("purchase.inventory");
+  const scopeStockParties = async (rows: any[]): Promise<any[]> => {
+    if (inventoryScope.scope === "self" && inventoryScope.callerId) {
+      if (userRole === "distributor") {
+        return rows.filter((r: any) => r.distributor_id === inventoryScope.callerId && !r.sub_dealer_id);
+      }
+      if (userRole === "sub_dealer") {
+        return rows.filter((r: any) => r.sub_dealer_id === inventoryScope.callerId);
+      }
+      return [];
+    }
+    if (inventoryScope.scope === "region" && inventoryScope.callerRegion) {
+      const parties: PartyRef[] = rows.map((r: any) =>
+        r.sub_dealer_id
+          ? { type: "sub_dealer", id: r.sub_dealer_id }
+          : r.distributor_id
+          ? { type: "distributor", id: r.distributor_id }
+          : { type: "warehouse", warehouseName: r.warehouse_name }
+      );
+      const regionMap = await buildPartyRegionMap(supabase, parties);
+      return rows.filter((_r: any, idx: number) => regionsMatch(regionForParty(regionMap, parties[idx]), inventoryScope.callerRegion));
+    }
+    return rows; // scope === "everything"
+  };
+
   if (userRole === "sub_dealer" || userRole === "distributor") {
     let custCount = 0;
     let ordCount = 0;
@@ -519,14 +662,19 @@ export default async function DashboardPage({
   let otherQty = 0;
 
   try {
-    const { data: stockItems } = await supabase
+    const { data: stockItemsRaw } = await supabase
       .from("stock")
       .select(`
         quantity,
+        distributor_id,
+        sub_dealer_id,
+        warehouse_name,
         products (
           category
         )
       `);
+
+    const stockItems = await scopeStockParties(stockItemsRaw || []);
 
     if (stockItems && stockItems.length > 0) {
       stockItems.forEach((item: any) => {
@@ -673,18 +821,26 @@ export default async function DashboardPage({
   // 5. Aging Stock
   let agingStock: any[] = [];
   try {
-    const { data: oldestStock } = await supabase
+    // Scoping needs to happen before the "oldest 2" cut, so a region/self
+    // caller's oldest 2 are the oldest 2 within their own scope, not
+    // whatever the company-wide oldest 2 happen to be - fetch a wider
+    // unfiltered batch (still oldest-first), scope it, then take the first 2.
+    const { data: oldestStockRaw } = await supabase
       .from("stock")
       .select(`
         quantity,
         warehouse_name,
+        distributor_id,
+        sub_dealer_id,
         created_at,
         products (
           name
         )
       `)
       .order("created_at", { ascending: true })
-      .limit(2);
+      .limit(inventoryScope.scope === "everything" ? 2 : 200);
+
+    const oldestStock = (await scopeStockParties(oldestStockRaw || [])).slice(0, 2);
 
     if (oldestStock) {
       agingStock = oldestStock.map((s: any) => {

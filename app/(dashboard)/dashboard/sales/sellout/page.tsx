@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import { fetchSellOutAction, revertStockBySerialAction } from "@/app/actions/products";
 import { fetchRecordsAction, deleteRecordAction } from "@/app/actions/users";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
-import { Eye, X, Calendar, Clipboard, MapPin, User, Trash2, Plus } from "lucide-react";
+import { Eye, X, Calendar, Clipboard, MapPin, User, Trash2, Plus, Receipt } from "lucide-react";
 import ManualSelloutModal from "@/components/ManualSelloutModal";
 
 interface SellOutItem {
@@ -26,6 +26,7 @@ interface SellOutItem {
   consumer_phone: string;
   seller_type: string;
   seller_name: string;
+  receipt_url: string | null;
   raw: any;
 }
 
@@ -36,6 +37,7 @@ export default function SellOutPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedInstallation, setSelectedInstallation] = useState<any>(null);
   const [isLoadingJob, setIsLoadingJob] = useState(false);
+  const [selectedReceiptImage, setSelectedReceiptImage] = useState<string | null>(null);
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [canWrite, setCanWrite] = useState(false); // deny-until-resolved, same as SalesPage.tsx
   const perPage = 10;
@@ -97,6 +99,7 @@ export default function SellOutPage() {
           consumer_phone: row.consumer?.consumer_phone || "-",
           seller_type: row.sellerType || "-",
           seller_name: row.sellerName || "-",
+          receipt_url: row.consumer?.receipt_url || null,
           raw: row
         };
       });
@@ -260,6 +263,15 @@ export default function SellOutPage() {
         onBulkDelete={handleBulkDeleteSellOuts}
         rowActions={(row: SellOutItem) => (
           <div className="flex items-center gap-1">
+            {row.receipt_url && (
+              <button
+                onClick={() => setSelectedReceiptImage(row.receipt_url)}
+                className="p-1 hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700 rounded-full transition-colors"
+                title="View Receipt Image"
+              >
+                <Receipt className="w-4 h-4" />
+              </button>
+            )}
             <button
               onClick={() => handleViewInstallation(row)}
               className="p-1 hover:bg-sky-50 text-sky-600 hover:text-sky-700 rounded-full transition-colors"
@@ -283,6 +295,22 @@ export default function SellOutPage() {
         onClose={() => setIsManualModalOpen(false)}
         onSuccess={fetchSellOuts}
       />
+
+      {/* View Receipt Image Modal */}
+      {selectedReceiptImage && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSelectedReceiptImage(null)}>
+          <div className="relative bg-white max-w-lg w-full rounded-[12px] shadow-2xl p-3" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setSelectedReceiptImage(null)}
+              className="absolute -top-3 -right-3 p-1.5 bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-700 rounded-full shadow-md"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={selectedReceiptImage} alt="Sell Out Receipt" className="w-full h-auto max-h-[75vh] object-contain rounded-[8px]" />
+          </div>
+        </div>
+      )}
 
       {/* View Installation Detail Modal */}
       {selectedInstallation && (
