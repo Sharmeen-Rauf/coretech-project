@@ -52,6 +52,11 @@ interface DataTableProps {
   // row (e.g. Dealer Assignment's unassign action) - defaults to "Delete"
   // everywhere else, unaffected.
   deleteLabel?: string;
+  // Extra per-row buttons rendered into the same sticky Actions cell,
+  // before the built-in Edit/Delete buttons - for page-specific actions
+  // (e.g. Sell Out's "View Receipt"/"View Installation") that don't fit
+  // onEditClick/onDeleteClick's fixed edit-or-delete shape.
+  rowActions?: (row: any) => React.ReactNode;
   onRowClick?: (row: any) => void;
   onBulkDelete?: (selectedIds: string[]) => void;
   onImportCSV?: (file: File) => void;
@@ -72,6 +77,7 @@ export default function DataTable({
   onEditClick,
   onDeleteClick,
   deleteLabel = "Delete",
+  rowActions,
   onRowClick,
   onBulkDelete,
   onImportCSV,
@@ -626,8 +632,8 @@ export default function DataTable({
                   </th>
                 );
               })}
-              {(onEditClick || onDeleteClick) && (
-                <th className="sticky right-0 z-10 w-24 px-5 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)]">
+              {(onEditClick || onDeleteClick || rowActions) && (
+                <th className={`sticky right-0 z-10 px-5 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)] ${rowActions ? "min-w-[140px]" : "w-24"}`}>
                   Actions
                 </th>
               )}
@@ -657,7 +663,7 @@ export default function DataTable({
               // Empty State UI
               <tr>
                 <td
-                  colSpan={columns.length + ((onEditClick || onDeleteClick) ? 2 : 1)}
+                  colSpan={columns.length + ((onEditClick || onDeleteClick || rowActions) ? 2 : 1)}
                   className="px-5 py-12 text-center"
                 >
                   <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
@@ -706,13 +712,14 @@ export default function DataTable({
                       );
                     })}
                     {/* Inline Actions */}
-                    {(onEditClick || onDeleteClick) && (
+                    {(onEditClick || onDeleteClick || rowActions) && (
                       <td
                         className={`sticky right-0 z-10 px-5 py-3.5 text-right flex items-center justify-end gap-2 shadow-[-4px_0_6px_-4px_rgba(0,0,0,0.1)] group-hover:bg-slate-50 ${
                           isSelected ? "bg-[#F0FAFE]" : "bg-white"
                         }`}
                         onClick={(e) => e.stopPropagation()}
                       >
+                        {rowActions && rowActions(row)}
                         {onEditClick && (
                           <button
                             onClick={() => onEditClick(row)}
@@ -818,8 +825,9 @@ export default function DataTable({
                       </span>
                     </label>
 
-                    {(onEditClick || onDeleteClick) && (
+                    {(onEditClick || onDeleteClick || rowActions) && (
                       <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        {rowActions && rowActions(row)}
                         {onEditClick && (
                           <button
                             onClick={() => onEditClick(row)}

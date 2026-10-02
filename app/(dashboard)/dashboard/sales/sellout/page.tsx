@@ -6,7 +6,7 @@ import toast from "react-hot-toast";
 import { fetchSellOutAction, revertStockBySerialAction } from "@/app/actions/products";
 import { fetchRecordsAction, deleteRecordAction } from "@/app/actions/users";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
-import { Eye, X, Calendar, Clipboard, MapPin, User, Trash2, Plus, Receipt } from "lucide-react";
+import { Eye, X, Calendar, Clipboard, MapPin, User, Plus, Receipt } from "lucide-react";
 import ManualSelloutModal from "@/components/ManualSelloutModal";
 
 interface SellOutItem {
@@ -278,13 +278,6 @@ export default function SellOutPage() {
               title="View Associated Installation"
             >
               <Eye className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => handleDeleteSellOut(row)}
-              className="p-1 hover:bg-rose-50 text-rose-500 hover:text-rose-700 rounded-full transition-colors"
-              title="Delete Sell Out Record"
-            >
-              <Trash2 className="w-4 h-4" />
             </button>
           </div>
         )}
