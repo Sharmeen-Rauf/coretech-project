@@ -428,6 +428,7 @@ export async function submitManualSelloutAction(params: {
   consumerPhone: string;
   siteAddress?: string;
   stId: string;
+  receiptUrl?: string;
 }, opts?: CallerOpts) {
   try {
     const caller = await getCallerIdentity(opts?.accessToken);
@@ -495,6 +496,7 @@ export async function submitManualSelloutAction(params: {
         consumer_name: params.consumerName.trim(),
         consumer_phone: params.consumerPhone.trim(),
         site_address: params.siteAddress?.trim() || null,
+        receipt_url: params.receiptUrl || null,
         st_id: params.stId,
         date: params.date,
       })
