@@ -596,18 +596,45 @@ export default async function DashboardPage({
     let liveTransfers: any[] = [];
     let liveLocations: { name: string; value: string }[] = [];
 
+    // Every query below is scoped to the logged-in distributor/sub-dealer's
+    // own records - this block used to run all four as company-wide
+    // queries with no ownership filter at all, so every distributor/sub-
+    // dealer saw everyone's totals (and Recent Transfers even showed other
+    // distributors' names). "Self" ownership here mirrors the same
+    // distributor_id/sub_dealer_id pattern purchase.inventory already uses:
+    // a distributor's own stock excludes units that have moved on to one of
+    // their sub-dealers, a sub-dealer's own stock is just their own id.
+    const callerId = user?.id || "";
+
     try {
-      const [cRes, oRes, stRes, trRes, regRes] = await Promise.all([
-        supabase.from("profiles").select("*", { count: "exact", head: true }),
-        supabase.from("stock").select("*", { count: "exact", head: true }),
-        supabase.from("stock").select("quantity, products(price)"),
-        supabase.from("sales").select("*, distributor:profiles!distributor_id(first_name, last_name)").order("created_at", { ascending: false }).limit(5),
+      const isDistributor = userRole === "distributor";
+
+      const customersQuery = isDistributor
+        // A distributor's "network accounts" are the sub-dealers under them.
+        ? supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "sub_dealer").eq("distributor_id", callerId)
+        // A sub-dealer has no downstream network - their "clients" are the
+        // consumers they've personally sold units to.
+        : supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "sellout").eq("source_type", "sub_dealer").eq("source_id", callerId);
+
+      const stockQuery = isDistributor
+        ? supabase.from("stock").select("quantity, products(price)").eq("distributor_id", callerId).is("sub_dealer_id", null)
+        : supabase.from("stock").select("quantity, products(price)").eq("sub_dealer_id", callerId);
+
+      const [cRes, stRes, trRes, regRes] = await Promise.all([
+        customersQuery,
+        stockQuery,
+        supabase
+          .from("sales")
+          .select("*, distributor:profiles!distributor_id(first_name, last_name)")
+          .or(`source_id.eq.${callerId},destination_id.eq.${callerId}`)
+          .order("created_at", { ascending: false })
+          .limit(5),
         supabase.from("regions").select("name, warehouse").limit(4)
       ]);
 
       if (cRes.count) custCount = cRes.count;
-      if (oRes.count) ordCount = oRes.count;
       if (stRes.data) {
+        ordCount = stRes.data.length;
         revTotal = stRes.data.reduce((sum, item: any) => sum + ((item.quantity || 1) * (parseFloat(item.products?.price || "0"))), 0);
       }
       if (trRes.data) liveTransfers = trRes.data;
