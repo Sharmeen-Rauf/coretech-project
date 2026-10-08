@@ -10,12 +10,19 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
+  Image,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { Stack } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
+import { decode as decodeBase64 } from "base64-arraybuffer";
 import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
-import { Plus, TrendingUp } from "lucide-react-native";
+import { Plus, TrendingUp, X } from "lucide-react-native";
 import { mobileApiFetch, ApiError } from "../../lib/api";
+import { supabase } from "../../lib/supabase";
 import { theme } from "../../lib/theme";
 import { haptics } from "../../lib/haptics";
 import BarcodeScanner from "../../components/BarcodeScanner";
@@ -61,6 +68,9 @@ export default function SellOutScreen() {
   const [siteAddress, setSiteAddress] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<SellOutResult[] | null>(null);
+  const [receiptUri, setReceiptUri] = useState<string | null>(null);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
   const scanned = useScannedSerials();
 
   const load = useCallback(async (isRefresh = false) => {
@@ -89,6 +99,70 @@ export default function SellOutScreen() {
     setSiteAddress("");
     scanned.clear();
     setResults(null);
+    setReceiptUri(null);
+    setReceiptUrl(null);
+  };
+
+  // Same job-photos bucket + sellout-receipts/ path web's Manual Sell Out
+  // form already uploads to. React Native's fetch(uri).blob() isn't a
+  // spec-compliant Blob and Supabase Storage uploads are unreliable with it
+  // there - read as base64 and upload as an ArrayBuffer instead, same fix
+  // already proven in the Installer app's job photo upload.
+  const uploadReceiptToStorage = async (uri: string): Promise<string> => {
+    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    const arrayBuffer = decodeBase64(base64);
+    const fileExt = uri.split(".").pop() || "jpg";
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+    const filePath = `sellout-receipts/${fileName}`;
+
+    const { error: uploadErr } = await supabase.storage.from("job-photos").upload(filePath, arrayBuffer, {
+      contentType: `image/${fileExt}`,
+    });
+    if (uploadErr) throw uploadErr;
+
+    const { data: pUrl } = supabase.storage.from("job-photos").getPublicUrl(filePath);
+    return pUrl.publicUrl;
+  };
+
+  const pickReceipt = async (useCamera: boolean) => {
+    const permission = useCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Permission Denied", "Camera/gallery access is required to attach a receipt.");
+      return;
+    }
+
+    const result = useCamera
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
+    if (result.canceled || !result.assets?.length) return;
+
+    const uri = result.assets[0].uri;
+    setReceiptUri(uri);
+    setIsUploadingReceipt(true);
+    try {
+      const url = await uploadReceiptToStorage(uri);
+      setReceiptUrl(url);
+    } catch (err: any) {
+      Alert.alert("Upload Failed", err?.message || "Failed to upload receipt image.");
+      setReceiptUri(null);
+    } finally {
+      setIsUploadingReceipt(false);
+    }
+  };
+
+  const handlePickReceipt = () => {
+    Alert.alert("Attach Receipt", "Choose a source", [
+      { text: "Take Photo", onPress: () => pickReceipt(true) },
+      { text: "Choose from Gallery", onPress: () => pickReceipt(false) },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
+  const handleRemoveReceipt = () => {
+    setReceiptUri(null);
+    setReceiptUrl(null);
   };
 
   const handleSubmit = async () => {
@@ -113,6 +187,7 @@ export default function SellOutScreen() {
             consumerPhone: consumerPhone.trim(),
             siteAddress: siteAddress.trim() || undefined,
             items: scanned.items.map((i) => ({ serialNo: i.serialNo })),
+            receiptUrl: receiptUrl || undefined,
           }),
         }
       );
@@ -223,6 +298,22 @@ export default function SellOutScreen() {
                 onChangeText={setSiteAddress}
               />
 
+              {receiptUri ? (
+                <View style={styles.receiptPreviewWrap}>
+                  <Image source={{ uri: receiptUri }} style={styles.receiptPreview} />
+                  {isUploadingReceipt && (
+                    <View style={styles.receiptUploadingOverlay}>
+                      <ActivityIndicator color="#FFFFFF" />
+                    </View>
+                  )}
+                  <TouchableOpacity style={styles.receiptRemoveBtn} onPress={handleRemoveReceipt}>
+                    <X color="#FFFFFF" size={14} />
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <Button label="Attach Receipt Photo (Optional)" variant="secondary" onPress={handlePickReceipt} />
+              )}
+
               <Button label="Scan Serial Numbers" variant="secondary" onPress={() => setScannerOpen(true)} />
 
               {scanned.duplicateError && <Text style={styles.errorText}>{scanned.duplicateError}</Text>}
@@ -249,6 +340,7 @@ export default function SellOutScreen() {
                 label={`Submit ${scanned.items.length || ""}`.trim()}
                 onPress={handleSubmit}
                 loading={submitting}
+                disabled={isUploadingReceipt}
               />
             </View>
           )}
@@ -285,6 +377,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     ...theme.shadow.fab,
+  },
+  receiptPreviewWrap: {
+    width: 96,
+    height: 96,
+    borderRadius: theme.radius.sm,
+    overflow: "hidden",
+    position: "relative",
+  },
+  receiptPreview: { width: "100%", height: "100%" },
+  receiptUploadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  receiptRemoveBtn: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalContainer: { flex: 1, backgroundColor: theme.colors.card },
   modalHeader: {

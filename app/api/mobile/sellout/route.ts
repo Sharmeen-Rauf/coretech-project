@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid request body" }, { status: 400 });
   }
 
-  const { date, consumerName, consumerPhone, siteAddress, items } = body || {};
+  const { date, consumerName, consumerPhone, siteAddress, items, receiptUrl } = body || {};
   if (!Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ success: false, error: "No scanned serials to submit" }, { status: 400 });
   }
@@ -48,8 +48,11 @@ export async function POST(request: NextRequest) {
       results.push({ serialNo: items[i]?.serialNo ?? "", success: false, error: "Missing serial number" });
       continue;
     }
+    // One receipt photo per batch submission, not per serial - the same
+    // photo is attached to every Sell Out record this batch creates, same
+    // as web's single-record form attaches one receipt to one record.
     const res = await submitManualSelloutAction(
-      { serialNo, date, consumerName, consumerPhone, siteAddress, stId: `MOBILE-SO-${batchStamp}-${i}` },
+      { serialNo, date, consumerName, consumerPhone, siteAddress, stId: `MOBILE-SO-${batchStamp}-${i}`, receiptUrl },
       { accessToken: auth.caller.accessToken, surface: "mobile" }
     );
     results.push({ serialNo, success: res.success, error: res.success ? undefined : res.error });

@@ -33,6 +33,13 @@
         }
       ],
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "CoreTech Digital needs photo library access to attach a receipt image to Sell Out records.",
+          "cameraPermission": "CoreTech Digital needs camera access to take a photo of the receipt for Sell Out records."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash.png",
