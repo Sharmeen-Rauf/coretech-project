@@ -590,94 +590,145 @@ export default async function DashboardPage({
   };
 
   if (userRole === "sub_dealer" || userRole === "distributor") {
-    let custCount = 0;
-    let ordCount = 0;
-    let revTotal = 0;
-    let liveTransfers: any[] = [];
-    let liveLocations: { name: string; value: string }[] = [];
+    let inventoryCount = 0;
+    let subDealerCount = 0;
+    let soCount = 0;
+    let st2Count = 0;
+    let soTrendData: { name: string; current: number; previous: number }[] = [
+      { name: "Mon", current: 0, previous: 0 },
+      { name: "Tue", current: 0, previous: 0 },
+      { name: "Wed", current: 0, previous: 0 },
+      { name: "Thu", current: 0, previous: 0 },
+      { name: "Fri", current: 0, previous: 0 },
+      { name: "Sat", current: 0, previous: 0 },
+      { name: "Sun", current: 0, previous: 0 },
+    ];
+    let inventoryDonutData: { name: string; value: number }[] = [
+      { name: "Inverter", value: 0 },
+      { name: "Battery", value: 0 },
+      { name: "AIO", value: 0 },
+      { name: "Other", value: 0 },
+    ];
 
-    // Every query below is scoped to the logged-in distributor/sub-dealer's
-    // own records - this block used to run all four as company-wide
-    // queries with no ownership filter at all, so every distributor/sub-
-    // dealer saw everyone's totals (and Recent Transfers even showed other
-    // distributors' names). "Self" ownership here mirrors the same
-    // distributor_id/sub_dealer_id pattern purchase.inventory already uses:
-    // a distributor's own stock excludes units that have moved on to one of
-    // their sub-dealers, a sub-dealer's own stock is just their own id.
+    // Ownership scope mirrors the same distributor_id/sub_dealer_id pattern
+    // purchase.inventory already uses: a distributor's own stock excludes
+    // units that have moved on to one of their sub-dealers, a sub-dealer's
+    // own stock is just their own id. Client-requested redesign (2026-10-08):
+    // these two roles' Home now shows only Total Inventory/Total SO (+Total
+    // Sub Dealers/Total ST-2 for distributor) plus two charts - everything
+    // else (Customers/Revenue/Growth cards, Projections chart, Revenue by
+    // Location, Transfer Requests) is intentionally gone.
     const callerId = user?.id || "";
 
     try {
       const isDistributor = userRole === "distributor";
 
-      const customersQuery = isDistributor
-        // A distributor's "network accounts" are the sub-dealers under them.
-        ? supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "sub_dealer").eq("distributor_id", callerId)
-        // A sub-dealer has no downstream network - their "clients" are the
-        // consumers they've personally sold units to.
-        : supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "sellout").eq("source_type", "sub_dealer").eq("source_id", callerId);
+      // Total Inventory = current on-hand units (not sold out yet), per
+      // client confirmation - not an all-time total.
+      const inventoryQuery = isDistributor
+        ? supabase.from("stock").select("quantity, products(category)").neq("status", "sold_out").eq("distributor_id", callerId).is("sub_dealer_id", null)
+        : supabase.from("stock").select("quantity, products(category)").neq("status", "sold_out").eq("sub_dealer_id", callerId);
 
-      const stockQuery = isDistributor
-        ? supabase.from("stock").select("quantity, products(price)").eq("distributor_id", callerId).is("sub_dealer_id", null)
-        : supabase.from("stock").select("quantity, products(price)").eq("sub_dealer_id", callerId);
+      const soQuery = isDistributor
+        ? supabase.from("stock").select("sold_out_at").eq("status", "sold_out").eq("distributor_id", callerId).is("sub_dealer_id", null)
+        : supabase.from("stock").select("sold_out_at").eq("status", "sold_out").eq("sub_dealer_id", callerId);
 
-      const [cRes, stRes, trRes, regRes] = await Promise.all([
-        customersQuery,
-        stockQuery,
-        supabase
-          .from("sales")
-          .select("*, distributor:profiles!distributor_id(first_name, last_name)")
-          .or(`source_id.eq.${callerId},destination_id.eq.${callerId}`)
-          .order("created_at", { ascending: false })
-          .limit(5),
-        supabase.from("regions").select("name, warehouse").limit(4)
-      ]);
-
-      if (cRes.count) custCount = cRes.count;
-      if (stRes.data) {
-        ordCount = stRes.data.length;
-        revTotal = stRes.data.reduce((sum, item: any) => sum + ((item.quantity || 1) * (parseFloat(item.products?.price || "0"))), 0);
+      const queries: any[] = [inventoryQuery, soQuery];
+      if (isDistributor) {
+        queries.push(
+          supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "sub_dealer").eq("distributor_id", callerId),
+          supabase.from("sales").select("id", { count: "exact", head: true }).eq("type", "ST2").or(`source_id.eq.${callerId},destination_id.eq.${callerId}`)
+        );
       }
-      if (trRes.data) liveTransfers = trRes.data;
-      if (regRes.data && regRes.data.length > 0) {
-        liveLocations = regRes.data.map((r: any) => ({
-          name: `${r.warehouse} (${r.name})`,
-          value: "Active Hub"
+
+      const [invRes, soRes, subDealerRes, st2Res] = await Promise.all(queries);
+
+      if (invRes.data && invRes.data.length > 0) {
+        inventoryCount = invRes.data.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0);
+
+        let inverterQty = 0, batteryQty = 0, aioQty = 0, otherQty = 0;
+        invRes.data.forEach((item: any) => {
+          const qty = item.quantity || 0;
+          const cat = item.products?.category;
+          if (cat === "inverter") inverterQty += qty;
+          else if (cat === "battery") batteryQty += qty;
+          else if (cat === "aio") aioQty += qty;
+          else otherQty += qty;
+        });
+        const totalQty = inverterQty + batteryQty + aioQty + otherQty;
+        if (totalQty > 0) {
+          inventoryDonutData = [
+            { name: "Inverter", value: Math.round((inverterQty / totalQty) * 1000) / 10 },
+            { name: "Battery", value: Math.round((batteryQty / totalQty) * 1000) / 10 },
+            { name: "AIO", value: Math.round((aioQty / totalQty) * 1000) / 10 },
+            { name: "Other", value: Math.round((otherQty / totalQty) * 1000) / 10 },
+          ];
+        }
+      }
+
+      if (soRes.data) {
+        soCount = soRes.data.length;
+
+        // Bucket into current-week/previous-week by weekday - same windowing
+        // the admin Home's Weekly Sales Volume chart already uses.
+        const now = new Date();
+        const currentMonday = new Date(now);
+        const day = currentMonday.getDay();
+        const diff = currentMonday.getDate() - day + (day === 0 ? -6 : 1);
+        currentMonday.setDate(diff);
+        currentMonday.setHours(0, 0, 0, 0);
+        const previousMonday = new Date(currentMonday);
+        previousMonday.setDate(previousMonday.getDate() - 7);
+
+        const currentWeekCounts: Record<string, number> = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
+        const previousWeekCounts: Record<string, number> = { Mon: 0, Tue: 0, Wed: 0, Thu: 0, Fri: 0, Sat: 0, Sun: 0 };
+
+        soRes.data.forEach((row: any) => {
+          if (!row.sold_out_at) return;
+          const d = new Date(row.sold_out_at);
+          const dayName = d.toLocaleString("en-US", { weekday: "short" });
+          if (!(dayName in currentWeekCounts)) return;
+          if (d >= currentMonday && d < new Date(currentMonday.getTime() + 7 * 24 * 60 * 60 * 1000)) {
+            currentWeekCounts[dayName] += 1;
+          } else if (d >= previousMonday && d < currentMonday) {
+            previousWeekCounts[dayName] += 1;
+          }
+        });
+
+        soTrendData = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => ({
+          name: d,
+          current: currentWeekCounts[d] || 0,
+          previous: previousWeekCounts[d] || 0,
         }));
+      }
+
+      if (isDistributor) {
+        if (subDealerRes?.count) subDealerCount = subDealerRes.count;
+        if (st2Res?.count) st2Count = st2Res.count;
       }
     } catch (dbErr) {
       console.warn("Dashboard db stats fetch warning:", dbErr);
     }
 
-    if (liveLocations.length === 0) {
-      liveLocations = [
-        { name: "Karachi Central Hub", value: "72K Units" },
-        { name: "Lahore Region", value: "39K Units" },
-        { name: "Islamabad Capital", value: "25K Units" },
-        { name: "Peshawar / KPK", value: "61K Units" }
-      ];
-    }
-
-    const formattedRev = revTotal >= 1000000 ? `Rs. ${(revTotal / 1000000).toFixed(1)}M` : `Rs. ${revTotal.toLocaleString()}`;
-
     if (userRole === "sub_dealer") {
       return (
         <SubDealerDashboardHome
-          customersCount={custCount}
-          ordersCount={ordCount}
-          revenueVal={formattedRev}
-          transfers={liveTransfers}
-          locationStats={liveLocations}
+          inventoryCount={inventoryCount}
+          soCount={soCount}
+          soTrendData={soTrendData}
+          inventoryDonutData={inventoryDonutData}
         />
       );
     }
 
     return (
       <DistributorDashboardHome
-        customersCount={custCount}
-        ordersCount={ordCount}
-        revenueVal={formattedRev}
-        transfers={liveTransfers}
-        locationStats={liveLocations}
+        inventoryCount={inventoryCount}
+        subDealerCount={subDealerCount}
+        soCount={soCount}
+        st2Count={st2Count}
+        soTrendData={soTrendData}
+        inventoryDonutData={inventoryDonutData}
       />
     );
   }
