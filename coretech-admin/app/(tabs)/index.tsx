@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { router } from "expo-router";
 import { TrendingUp, ShoppingCart, User, ShoppingBag, Wrench, LayoutGrid, ArrowUp, ArrowDown } from "lucide-react-native";
 import { useMyPermissions } from "../../lib/permissionsContext";
-import { GRID_TILES, TARGET_KEY, type GridTile } from "../../lib/navConfig";
+import { GRID_TILES, type GridTile } from "../../lib/navConfig";
 import { theme } from "../../lib/theme";
 import { mobileApiFetch } from "../../lib/api";
 import { supabase } from "../../lib/supabase";
@@ -74,26 +74,28 @@ export default function HomeScreen() {
   const [stats, setStats] = useState<HomeStats | null>(null);
   const [targetPct, setTargetPct] = useState<number | null>(null);
 
-  const loadAnnouncement = useCallback(() => {
-    return mobileApiFetch<{ success: boolean; announcement: Announcement | null }>("/api/mobile/announcements")
-      .then((res) => setAnnouncement(res.success ? res.announcement : null))
-      .catch(() => {});
-  }, []);
-
-  const loadStats = useCallback(() => {
-    return mobileApiFetch<{ success: boolean } & HomeStats>("/api/mobile/home/stats")
-      .then((res) => setStats(res.success ? { sellOut: res.sellOut, st1: res.st1, st2: res.st2 } : null))
-      .catch(() => {});
-  }, []);
-
-  const loadTarget = useCallback(() => {
-    if (!keys.includes(TARGET_KEY)) {
-      setTargetPct(null);
-      return Promise.resolve();
-    }
-    return mobileApiFetch<{ success: boolean; targets: TargetRow[] }>("/api/mobile/target")
+  // One combined call instead of three separate ones (announcement, stats,
+  // target) - each used to be its own round trip through the backend on
+  // every Home focus/refresh. /api/mobile/home/bootstrap runs all three
+  // server-side (in parallel where independent) behind a single verified
+  // identity instead of three.
+  const loadBootstrap = useCallback(() => {
+    return mobileApiFetch<{
+      success: boolean;
+      announcement: Announcement | null;
+      stats: HomeStats | null;
+      targets: TargetRow[];
+    }>("/api/mobile/home/bootstrap")
       .then((res) => {
-        if (!res.success || res.targets.length === 0) {
+        if (!res.success) {
+          setAnnouncement(null);
+          setStats(null);
+          setTargetPct(null);
+          return;
+        }
+        setAnnouncement(res.announcement);
+        setStats(res.stats);
+        if (!res.targets || res.targets.length === 0) {
           setTargetPct(null);
           return;
         }
@@ -101,13 +103,15 @@ export default function HomeScreen() {
         const totalAchieved = res.targets.reduce((sum, t) => sum + (t.achieved_units || 0), 0);
         setTargetPct(totalTarget > 0 ? (totalAchieved / totalTarget) * 100 : 0);
       })
-      .catch(() => setTargetPct(null));
-  }, [keys]);
+      .catch(() => {
+        setAnnouncement(null);
+        setStats(null);
+        setTargetPct(null);
+      });
+  }, []);
 
   const loadAll = useCallback(() => {
-    loadAnnouncement();
-    loadStats();
-    loadTarget();
+    loadBootstrap();
     supabase.auth.getSession().then(({ data }) => {
       const userId = data?.session?.user?.id;
       if (!userId) return;
@@ -115,13 +119,13 @@ export default function HomeScreen() {
         if (access.allowed) setFirstName(access.name.split(" ")[0] || "");
       });
     });
-  }, [loadAnnouncement, loadStats, loadTarget]);
+  }, [loadBootstrap]);
 
   useRefreshOnFocus(loadAll);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadAnnouncement(), loadStats(), loadTarget()]);
+    await loadBootstrap();
     setRefreshing(false);
   };
 
