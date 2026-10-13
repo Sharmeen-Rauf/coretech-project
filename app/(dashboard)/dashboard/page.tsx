@@ -37,7 +37,7 @@ import ReportingDashboardClient from "@/components/ReportingDashboardClient";
 import InventoryHealthPanel from "@/components/InventoryHealthPanel";
 import HomeDateRangeFilter from "@/components/HomeDateRangeFilter";
 import { getCallerIdentity } from "@/app/actions/users";
-import { getMyScopeAction } from "@/app/actions/roles";
+import { getMyScopeAction, getMyScopesAction } from "@/app/actions/roles";
 import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
 
 export const revalidate = 0; // Disable caching for realtime updates
@@ -86,12 +86,17 @@ async function DashboardStats({ dateRange }: { dateRange: DateRange | null }) {
     // widget" permission to configure. Total Accounts, Registered Installers
     // and Completed Jobs have no equivalent scoped permission anywhere else
     // in the app yet, so they stay company-wide for every role for now.
-    const [inventoryScope, st1Scope, st2Scope, selloutScope] = await Promise.all([
-      getMyScopeAction("purchase.inventory"),
-      getMyScopeAction("sales.st1"),
-      getMyScopeAction("sales.st2"),
-      getMyScopeAction("sales.sellout"),
-    ]);
+    //
+    // Resolved in one batched call (getMyScopesAction) instead of four
+    // separate getMyScopeAction calls - each one re-fetches the caller's
+    // identity/profile/role from scratch, so four separate calls meant up to
+    // a dozen redundant round trips just to figure out scope, before any
+    // real widget data had even been fetched. Same per-key result either way.
+    const scopes = await getMyScopesAction(["purchase.inventory", "sales.st1", "sales.st2", "sales.sellout"]);
+    const inventoryScope = scopes["purchase.inventory"];
+    const st1Scope = scopes["sales.st1"];
+    const st2Scope = scopes["sales.st2"];
+    const selloutScope = scopes["sales.sellout"];
 
     let instQuery = supabase.from("installer_jobs").select("id", { count: "exact", head: true });
     if (dateRange) {
