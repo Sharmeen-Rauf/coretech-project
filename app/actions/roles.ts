@@ -110,6 +110,68 @@ export async function getMyScopeAction(permissionKey: string, opts?: CallerOpts)
   return { scope, callerId: caller.id, callerRegion: profile?.region || null, canWrite, granted };
 }
 
+export type ScopeResult = {
+  scope: "self" | "region" | "everything";
+  callerId: string | null;
+  callerRegion: string | null;
+  canWrite: boolean;
+  granted: boolean;
+};
+
+// Batched version of getMyScopeAction for callers that need several
+// permission keys at once (e.g. the Home dashboard checking
+// purchase.inventory/sales.st1/sales.st2/sales.sellout on one page load).
+// getMyScopeAction re-resolves the caller's identity, profile region, and
+// role id fresh on every single call - fine for one key, wasteful when a
+// page needs four, since those three lookups are identical regardless of
+// which permission key is being checked. This does them once and fetches
+// every requested key's role_permissions row in a single query, producing
+// byte-for-byte the same per-key result getMyScopeAction would - not a new
+// authorization rule, just fewer round trips to compute the existing one.
+export async function getMyScopesAction(permissionKeys: string[], opts?: CallerOpts): Promise<Record<string, ScopeResult>> {
+  const caller = await getCallerIdentity(opts?.accessToken);
+  const deny = (): ScopeResult => ({ scope: "self", callerId: null, callerRegion: null, canWrite: false, granted: false });
+  if (!caller) {
+    return Object.fromEntries(permissionKeys.map((k) => [k, deny()]));
+  }
+  if (caller.role === "admin") {
+    const everything: ScopeResult = { scope: "everything", callerId: caller.id, callerRegion: null, canWrite: true, granted: true };
+    return Object.fromEntries(permissionKeys.map((k) => [k, everything]));
+  }
+
+  const mobile = opts?.surface === "mobile";
+  const supabase = getAdminClient();
+  const [{ data: profile }, { data: roleRow }] = await Promise.all([
+    supabase.from("profiles").select("region").eq("id", caller.id).maybeSingle(),
+    supabase.from("roles").select("id").eq("name", caller.role || "").maybeSingle(),
+  ]);
+  const callerRegion = profile?.region || null;
+
+  const base = (): ScopeResult => ({ scope: "self", callerId: caller.id, callerRegion, canWrite: false, granted: false });
+  if (!roleRow) {
+    return Object.fromEntries(permissionKeys.map((k) => [k, base()]));
+  }
+
+  const { data: permRows } = await supabase
+    .from("role_permissions")
+    .select("permission_key, scope_level, granted, can_write, mobile_scope_level, mobile_granted, mobile_can_write")
+    .eq("role_id", roleRow.id)
+    .in("permission_key", permissionKeys);
+
+  const rowByKey = new Map((permRows || []).map((r: any) => [r.permission_key, r]));
+
+  return Object.fromEntries(
+    permissionKeys.map((key) => {
+      const permRow = rowByKey.get(key);
+      const granted = !!(mobile ? permRow?.mobile_granted : permRow?.granted);
+      if (!granted) return [key, base()];
+      const scope = ((mobile ? permRow?.mobile_scope_level : permRow?.scope_level) as "self" | "region" | "everything") || "self";
+      const canWrite = (mobile ? permRow?.mobile_can_write : permRow?.can_write) !== false;
+      return [key, { scope, callerId: caller.id, callerRegion, canWrite, granted }];
+    })
+  );
+}
+
 export async function fetchRolesAction() {
   try {
     const caller = await getCallerIdentity();
