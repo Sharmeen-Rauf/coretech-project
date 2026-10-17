@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveMobileCaller } from "@/lib/mobileAuth";
-import { fetchSalesLedgerAction } from "@/app/actions/sales";
+import { fetchSalesLedgerAction, enrichSalesRowsForMobile } from "@/app/actions/sales";
 
 // ST-1 is view-only on mobile everywhere it appears (§2's confirmed
 // decision, mobileWriteEligible: false on this key in permissionCatalog.ts)
@@ -10,5 +10,6 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return auth.response;
 
   const result = await fetchSalesLedgerAction("ST1", { accessToken: auth.caller.accessToken, surface: "mobile" });
+  if (result.success) result.data = await enrichSalesRowsForMobile(result.data);
   return NextResponse.json(result, { status: result.success ? 200 : 400 });
 }

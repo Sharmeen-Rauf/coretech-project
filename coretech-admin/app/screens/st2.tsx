@@ -18,6 +18,7 @@ import { haptics } from "../../lib/haptics";
 import BarcodeScanner from "../../components/BarcodeScanner";
 import { useScannedSerials } from "../../lib/useScannedSerials";
 import ListRow from "../../components/ListRow";
+import StatusBadge from "../../components/StatusBadge";
 import EmptyState from "../../components/EmptyState";
 import SkeletonList from "../../components/SkeletonList";
 import Button from "../../components/Button";
@@ -29,6 +30,9 @@ interface SaleRow {
   date: string;
   source_type: string;
   destination_type: string;
+  source_name: string;
+  destination_name: string;
+  unit_count: number;
 }
 
 interface SubDealer {
@@ -136,8 +140,9 @@ export default function St2Screen() {
           renderItem={({ item }) => (
             <ListRow
               title={item.st_id}
-              subtitle={`${item.source_type} → ${item.destination_type}`}
+              subtitle={`${item.source_name} → ${item.destination_name}`}
               meta={new Date(item.date).toLocaleDateString()}
+              right={<StatusBadge label={`${item.unit_count} unit${item.unit_count === 1 ? "" : "s"}`} tone="info" />}
             />
           )}
         />
