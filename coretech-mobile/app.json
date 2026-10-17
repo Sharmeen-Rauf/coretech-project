@@ -51,7 +51,8 @@
         {
           "android": {
             "compileSdkVersion": 36,
-            "targetSdkVersion": 36
+            "targetSdkVersion": 36,
+            "enableProguardInReleaseBuilds": true
           }
         }
       ]

@@ -23,12 +23,13 @@ export default function ProfileScreen() {
   const router = useRouter();
 
   const [profile, setProfile] = useState<any>(null);
-  const [stats, setStats] = useState({ total: 0, completed: 0, pending: 0 });
+  const [stats, setStats] = useState({ total: 0, completed: 0, rejected: 0, pending: 0 });
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchProfileAndStats = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) return;
 
       // 1. Fetch Profile
@@ -49,11 +50,17 @@ export default function ProfileScreen() {
 
       if (jobsErr) throw jobsErr;
 
+      // "Pending" used to be `total - completed`, which silently folded
+      // rejected jobs in with genuinely pending ones - a rejected job (which
+      // needs the installer to fix and resubmit) showed as "Pending" here
+      // while the Dashboard correctly broke it out into its own bucket.
+      // Matches Dashboard's (app/(tabs)/index.tsx) exact categorization now.
       const total = jobs?.length || 0;
       const completed = jobs?.filter((j) => j.status === "completed" || j.status === "approved").length || 0;
-      const pending = total - completed;
+      const rejected = jobs?.filter((j) => j.status === "rejected").length || 0;
+      const pending = total - completed - rejected;
 
-      setStats({ total, completed, pending });
+      setStats({ total, completed, rejected, pending });
     } catch (err: any) {
       Alert.alert("Error", "Failed to fetch profile statistics.");
     } finally {
@@ -168,17 +175,23 @@ export default function ProfileScreen() {
               <Text style={styles.statNumber}>{stats.total}</Text>
               <Text style={styles.statLabel}>Total Jobs</Text>
             </View>
-            <View style={[styles.statColumn, styles.statBorder]}>
+            <View style={[styles.statColumn, styles.statBorderLeft]}>
               <Text style={[styles.statNumber, { color: "#059669" }]}>
                 {stats.completed}
               </Text>
               <Text style={styles.statLabel}>Completed</Text>
             </View>
-            <View style={styles.statColumn}>
+            <View style={[styles.statColumn, styles.statBorderLeft]}>
               <Text style={[styles.statNumber, { color: "#EA580C" }]}>
                 {stats.pending}
               </Text>
               <Text style={styles.statLabel}>Pending</Text>
+            </View>
+            <View style={[styles.statColumn, styles.statBorderLeft]}>
+              <Text style={[styles.statNumber, { color: "#DC2626" }]}>
+                {stats.rejected}
+              </Text>
+              <Text style={styles.statLabel}>Rejected</Text>
             </View>
           </View>
         </View>
@@ -353,9 +366,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
   },
-  statBorder: {
+  statBorderLeft: {
     borderLeftWidth: 1,
-    borderRightWidth: 1,
     borderColor: "#F1F5F9",
   },
   statNumber: {

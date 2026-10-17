@@ -14,6 +14,7 @@ export default function RootLayout() {
           <Stack.Screen name="(auth)" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="job/[id]" options={{ headerShown: true, title: "Job Details" }} />
+          <Stack.Screen name="notifications" options={{ headerShown: true, title: "Notifications" }} />
         </Stack>
       </GestureHandlerRootView>
     </ErrorBoundary>

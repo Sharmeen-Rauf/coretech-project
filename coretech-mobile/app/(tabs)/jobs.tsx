@@ -63,7 +63,11 @@ export default function JobsScreen() {
 
   const fetchJobs = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      // getSession() reads the already-validated local session instead of
+      // getUser()'s network round trip - same fix already applied to
+      // Dashboard and Profile, missed here on the first pass.
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) return;
 
       // Retry anything that failed to submit while offline, same as the web
