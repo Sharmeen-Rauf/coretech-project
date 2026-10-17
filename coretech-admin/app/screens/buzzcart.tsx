@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { Stack, router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { Plus, ShoppingBag } from "lucide-react-native";
@@ -39,6 +40,10 @@ const STATUS_TONE: Record<string, BadgeTone> = {
 // own read/write setting - canApprove/canManageInvoice come from the route
 // directly.
 export default function BuzzcartScreen() {
+  // Fixed `bottom: theme.spacing.lg` put this FAB behind the system gesture
+  // nav bar on edge-to-edge Android (15+) - confirmed live on a real Android
+  // 16 device, the button's bottom edge was cut off under the nav bar.
+  const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<OrderRow[]>([]);
   const [canWrite, setCanWrite] = useState(false);
   const [canApprove, setCanApprove] = useState(false);
@@ -165,7 +170,7 @@ export default function BuzzcartScreen() {
 
       {canWrite && (
         <AnimatedPressable
-          style={styles.fab}
+          style={[styles.fab, { bottom: theme.spacing.lg + insets.bottom }]}
           onPress={() => {
             haptics.light();
             router.push("/screens/buzzcart-create");

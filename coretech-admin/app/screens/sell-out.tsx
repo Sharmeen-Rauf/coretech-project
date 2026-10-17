@@ -15,6 +15,7 @@ import {
   Alert,
 } from "react-native";
 import { Stack } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import { decode as decodeBase64 } from "base64-arraybuffer";
@@ -55,6 +56,10 @@ interface SellOutResult {
 // per-serial Success/Fail breakdown - shown here exactly as returned, not
 // collapsed into one pass/fail message.
 export default function SellOutScreen() {
+  // Fixed `bottom: theme.spacing.lg` put this FAB behind the system gesture
+  // nav bar on edge-to-edge Android (15+) - confirmed live on a real Android
+  // 16 device, the button's bottom edge was cut off under the nav bar.
+  const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<SellOutRow[]>([]);
   const [canWrite, setCanWrite] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -231,7 +236,7 @@ export default function SellOutScreen() {
 
       {canWrite && (
         <AnimatedPressable
-          style={styles.fab}
+          style={[styles.fab, { bottom: theme.spacing.lg + insets.bottom }]}
           onPress={() => {
             haptics.light();
             resetCreateForm();
