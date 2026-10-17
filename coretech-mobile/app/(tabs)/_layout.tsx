@@ -95,11 +95,17 @@ export default function TabsLayout() {
   // default tab bar, which otherwise accounts for the bottom safe-area
   // inset automatically (confirmed by comparison: the admin app's Tabs,
   // which has no such override, renders correctly on the same Android 16
-  // device). Without insets.bottom added back in here, the bar's own
-  // background stopped short of the real bottom edge and the system
-  // gesture-nav icons rendered overlapping the tab labels - reproduced and
-  // confirmed live before this fix.
-  const insets = useSafeAreaInsets();
+  // device).
+  //
+  // A manual `height: 60 + insets.bottom` was tried first and failed live:
+  // debug output confirmed insets.bottom really was 48 (SafeAreaProvider
+  // working correctly), yet the bar still rendered with the old broken
+  // layout - screenOptions.tabBarStyle doesn't reliably re-apply when
+  // insets arrive asynchronously after the first render. Dropping
+  // height/padding from the override entirely instead, so React
+  // Navigation's own default tab bar sizing (which already handles this
+  // internally and correctly, same as admin's) takes over - no manual
+  // insets math left to go stale.
   return (
     <View style={{ flex: 1 }}>
       <Tabs
@@ -110,8 +116,6 @@ export default function TabsLayout() {
             backgroundColor: "#FFFFFF",
             borderTopWidth: 1,
             borderTopColor: "#E2E8F0",
-            height: 60 + insets.bottom,
-            paddingBottom: 8 + insets.bottom,
             paddingTop: 8,
           },
           tabBarLabelStyle: {
