@@ -17,6 +17,9 @@ interface SaleRow {
   date: string;
   source_type: string;
   destination_type: string;
+  source_name: string;
+  destination_name: string;
+  unit_count: number;
 }
 
 // ST1 - list, view only everywhere it appears (§2.3/§9/§17 #7) - no create,
@@ -65,9 +68,9 @@ export default function St1Screen() {
           renderItem={({ item }) => (
             <ListRow
               title={item.st_id}
-              subtitle={`${item.source_type} → ${item.destination_type}`}
+              subtitle={`${item.source_name} → ${item.destination_name}`}
               meta={new Date(item.date).toLocaleDateString()}
-              right={<StatusBadge label="ST1" tone="info" />}
+              right={<StatusBadge label={`${item.unit_count} unit${item.unit_count === 1 ? "" : "s"}`} tone="info" />}
             />
           )}
         />

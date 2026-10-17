@@ -670,3 +670,64 @@ export async function fetchSalesLedgerAction(type: string, opts?: CallerOpts) {
     return { success: false, error: err.message || "Failed to fetch sales ledger", data: [], role: null };
   }
 }
+
+// Mobile ST1/ST2 list rows only ever rendered the raw source_type/
+// destination_type strings ("warehouse", "distributor", "sub_dealer")
+// instead of a real name, and had no sense of how many units a transfer
+// actually moved - both already resolvable from data the row carries
+// (source_id/destination_id, and sale_items rows keyed by sale_id), the same
+// way web's SalesPage.tsx and lib/regionScope.ts already resolve a party's
+// name/region. Kept out of fetchSalesLedgerAction itself (and out of the
+// Return/Transfer routes, which don't call this) so the shared ledger
+// query's existing callers are untouched - this is opt-in enrichment the
+// ST1/ST2 mobile routes call on top of it.
+export async function enrichSalesRowsForMobile(rows: any[]) {
+  if (rows.length === 0) return rows;
+  const supabase = getAdminClient();
+
+  const warehouseIds = Array.from(
+    new Set(
+      rows.flatMap((r: any) => [
+        r.source_type === "warehouse" ? r.source_id : null,
+        r.destination_type === "warehouse" ? r.destination_id : null,
+      ]).filter(Boolean)
+    )
+  );
+  const profileIds = Array.from(
+    new Set(
+      rows.flatMap((r: any) => [
+        r.source_type === "distributor" || r.source_type === "sub_dealer" ? r.source_id : null,
+        r.destination_type === "distributor" || r.destination_type === "sub_dealer" ? r.destination_id : null,
+      ]).filter(Boolean)
+    )
+  );
+  const saleIds = rows.map((r: any) => r.id);
+
+  const [{ data: warehouses }, { data: profiles }, { data: items }] = await Promise.all([
+    warehouseIds.length > 0 ? supabase.from("warehouses").select("id, name").in("id", warehouseIds) : Promise.resolve({ data: [] }),
+    profileIds.length > 0 ? supabase.from("profiles").select("id, first_name, last_name").in("id", profileIds) : Promise.resolve({ data: [] }),
+    saleIds.length > 0 ? supabase.from("sale_items").select("sale_id").in("sale_id", saleIds) : Promise.resolve({ data: [] }),
+  ]);
+
+  const warehouseNameById = new Map((warehouses || []).map((w: any) => [w.id, w.name]));
+  const profileNameById = new Map((profiles || []).map((p: any) => [p.id, `${p.first_name} ${p.last_name || ""}`.trim()]));
+  const unitCountBySaleId = new Map<string, number>();
+  (items || []).forEach((i: any) => unitCountBySaleId.set(i.sale_id, (unitCountBySaleId.get(i.sale_id) || 0) + 1));
+
+  const resolveName = (type: string, id: string | null) => {
+    if (!id) return null;
+    if (type === "warehouse") return warehouseNameById.get(id) || null;
+    if (type === "distributor" || type === "sub_dealer") return profileNameById.get(id) || null;
+    return null;
+  };
+
+  // Fall back to the raw type word when a party can't be resolved (e.g. a
+  // deleted profile/warehouse) rather than showing a blank - matches the
+  // row's current behavior for that case instead of regressing it.
+  return rows.map((r: any) => ({
+    ...r,
+    source_name: resolveName(r.source_type, r.source_id) || r.source_type,
+    destination_name: resolveName(r.destination_type, r.destination_id) || r.destination_type,
+    unit_count: unitCountBySaleId.get(r.id) || 0,
+  }));
+}

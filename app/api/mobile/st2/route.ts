@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveMobileCaller } from "@/lib/mobileAuth";
-import { fetchSalesLedgerAction, submitSt2Action } from "@/app/actions/sales";
+import { fetchSalesLedgerAction, submitSt2Action, enrichSalesRowsForMobile } from "@/app/actions/sales";
 
 const PERMISSION_KEY = "sales.st2";
 
@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return auth.response;
 
   const result = await fetchSalesLedgerAction("ST2", { accessToken: auth.caller.accessToken, surface: "mobile" });
+  if (result.success) result.data = await enrichSalesRowsForMobile(result.data);
   // fetchSalesLedgerAction doesn't return canWrite (web's ST2 page doesn't
   // need it - reaching the page at all already implies write access there).
   // Mobile has no such implication, so the route's own already-resolved
