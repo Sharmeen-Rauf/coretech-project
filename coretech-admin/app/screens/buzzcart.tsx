@@ -114,7 +114,7 @@ export default function BuzzcartScreen() {
         <FlatList
           data={rows}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: theme.spacing.md + insets.bottom }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={theme.colors.primary} />}
           ListEmptyComponent={<EmptyState icon={ShoppingBag} title="No orders yet" subtitle="Orders you create will show up here." />}
           renderItem={({ item }) => (
