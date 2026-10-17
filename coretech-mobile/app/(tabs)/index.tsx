@@ -141,11 +141,10 @@ export default function InstallerDashboard() {
             <View style={styles.primaryCtaIcon}>
               <Plus size={20} color="#FFFFFF" />
             </View>
-            <View style={{ flex: 1 }}>
+            <View style={styles.primaryCtaText}>
               <Text style={styles.primaryCtaTitle}>Submit New Installation</Text>
               <Text style={styles.primaryCtaSubtitle}>Report a job you've already completed</Text>
             </View>
-            <ChevronRight size={18} color="#FFFFFF" />
           </AnimatedPressable>
         </FadeInView>
 
@@ -269,6 +268,7 @@ const styles = StyleSheet.create({
   primaryCta: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#00B4D8",
     borderRadius: 12,
     padding: 16,
@@ -288,16 +288,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
   },
+  primaryCtaText: {
+    alignItems: "center",
+  },
   primaryCtaTitle: {
     fontSize: 14,
     fontWeight: "bold",
     color: "#FFFFFF",
+    textAlign: "center",
   },
   primaryCtaSubtitle: {
     fontSize: 10,
     color: "rgba(255,255,255,0.85)",
     fontWeight: "600",
     marginTop: 2,
+    textAlign: "center",
   },
   sectionHeader: {
     fontSize: 12,
