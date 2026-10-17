@@ -56,7 +56,7 @@ export default function TabsLayout() {
         <Tabs.Screen
           name="index"
           options={{
-            title: "Dashboard",
+            title: "CoreTECH Installer",
             tabBarLabel: "Dashboard",
             tabBarIcon: ({ color }) => <LayoutDashboard size={20} color={color} />,
           }}

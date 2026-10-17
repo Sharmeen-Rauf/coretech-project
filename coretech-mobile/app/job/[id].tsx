@@ -28,7 +28,6 @@ import {
   Video,
   Trash2,
   CheckCircle,
-  ChevronLeft,
   Plus,
   ScanLine,
   Type as TypeIcon,
@@ -525,11 +524,6 @@ export default function JobDetailScreen() {
       style={styles.keyboardContainer}
     >
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <ChevronLeft size={16} color="#64748B" />
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-
         {isNew ? (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>New Installation Record</Text>
@@ -968,17 +962,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#F8FAFC",
-  },
-  backButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  backText: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#64748B",
-    marginLeft: 4,
   },
   card: {
     backgroundColor: "#FFFFFF",

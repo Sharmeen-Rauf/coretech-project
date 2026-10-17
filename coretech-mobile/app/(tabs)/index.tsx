@@ -32,23 +32,32 @@ export default function InstallerDashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      // getSession() reads the already-validated local session instead of
+      // getUser()'s network round trip to re-verify it - index.tsx/pending.tsx
+      // already did that network verification (via resolveInstallerAccess)
+      // before this screen was ever reachable, so re-checking here was pure
+      // duplicate latency on every load.
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) return;
 
-      const { data: profData, error: profErr } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single();
+      // Both queries are independent of each other - run them together
+      // instead of one after another, so the slower of the two determines
+      // load time rather than their sum.
+      const [
+        { data: profData, error: profErr },
+        { data: jobs, error: jobsErr },
+      ] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", user.id).single(),
+        supabase
+          .from("installer_jobs")
+          .select("*")
+          .eq("installer_id", user.id)
+          .order("created_at", { ascending: false }),
+      ]);
 
       if (profErr) throw profErr;
       setProfile(profData);
-
-      const { data: jobs, error: jobsErr } = await supabase
-        .from("installer_jobs")
-        .select("*")
-        .eq("installer_id", user.id)
-        .order("created_at", { ascending: false });
 
       if (jobsErr) throw jobsErr;
 
