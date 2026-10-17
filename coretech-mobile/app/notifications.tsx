@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, FlatList, RefreshControl, SafeAreaView } from "react-native";
+import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Bell } from "lucide-react-native";
 import { supabase } from "../lib/supabase";
 import SkeletonBlock from "../components/SkeletonBlock";
@@ -83,7 +84,7 @@ export default function NotificationsScreen() {
 
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
         <View style={styles.content}>
           <SkeletonBlock style={{ height: 80, marginBottom: 12 }} />
           <SkeletonBlock style={{ height: 80, marginBottom: 12 }} />
@@ -94,7 +95,7 @@ export default function NotificationsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
       <FlatList
         data={rows}
         keyExtractor={(item) => item.id}
