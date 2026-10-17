@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Tabs, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Wrench, User, LayoutDashboard, Plus, Bell } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
 
@@ -10,12 +11,19 @@ import { supabase } from "../../lib/supabase";
 // screen's own layout. Previously this was a fake 4th Tabs.Screen raised
 // above the bar with a negative margin - visually cramped, and only ever
 // showed on top of the bar itself, not as a true floating button.
+//
+// `bottom: 80` was tuned assuming the tab bar below it stops at a fixed
+// height - on edge-to-edge Android (15+) the bar itself now grows by the
+// system gesture-nav inset (see tabBarStyle below), so this needs to grow
+// by the same amount to keep the same visual gap above it, confirmed live
+// on a real Android 16 device.
 function NewInstallationFab() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   return (
     <TouchableOpacity
       onPress={() => router.push("/job/new")}
-      style={styles.fab}
+      style={[styles.fab, { bottom: 80 + insets.bottom }]}
       activeOpacity={0.85}
     >
       <Plus size={26} color="#FFFFFF" />
@@ -83,6 +91,15 @@ function NotificationBell() {
 }
 
 export default function TabsLayout() {
+  // This fixed-height tabBarStyle override replaces Expo Router's own
+  // default tab bar, which otherwise accounts for the bottom safe-area
+  // inset automatically (confirmed by comparison: the admin app's Tabs,
+  // which has no such override, renders correctly on the same Android 16
+  // device). Without insets.bottom added back in here, the bar's own
+  // background stopped short of the real bottom edge and the system
+  // gesture-nav icons rendered overlapping the tab labels - reproduced and
+  // confirmed live before this fix.
+  const insets = useSafeAreaInsets();
   return (
     <View style={{ flex: 1 }}>
       <Tabs
@@ -93,8 +110,8 @@ export default function TabsLayout() {
             backgroundColor: "#FFFFFF",
             borderTopWidth: 1,
             borderTopColor: "#E2E8F0",
-            height: 60,
-            paddingBottom: 8,
+            height: 60 + insets.bottom,
+            paddingBottom: 8 + insets.bottom,
             paddingTop: 8,
           },
           tabBarLabelStyle: {
