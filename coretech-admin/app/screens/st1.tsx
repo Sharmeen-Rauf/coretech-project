@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { Stack } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { TrendingUp } from "lucide-react-native";
@@ -28,6 +29,12 @@ interface SaleRow {
 // sees ST1 movements where they're the destination. Title is plain "ST1" -
 // "(View Only)" was the same internal-wording leak Target had.
 export default function St1Screen() {
+  // Fixed `padding: theme.spacing.md` on the list meant the bottom-most row
+  // sat partially behind the system gesture-nav bar on edge-to-edge Android
+  // (15+), no matter how far you scrolled - confirmed live on a real
+  // Android 16 device. Extending the bottom padding by the safe-area inset
+  // keeps the last row fully clear of it.
+  const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<SaleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -62,7 +69,7 @@ export default function St1Screen() {
         <FlatList
           data={rows}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: theme.spacing.md + insets.bottom }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={theme.colors.primary} />}
           ListEmptyComponent={<EmptyState icon={TrendingUp} title="No ST1 records yet" />}
           renderItem={({ item }) => (

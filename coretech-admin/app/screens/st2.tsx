@@ -140,7 +140,7 @@ export default function St2Screen() {
         <FlatList
           data={rows}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: theme.spacing.md + insets.bottom }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={theme.colors.primary} />}
           ListEmptyComponent={<EmptyState icon={TrendingUp} title="No ST2 records yet" />}
           renderItem={({ item }) => (

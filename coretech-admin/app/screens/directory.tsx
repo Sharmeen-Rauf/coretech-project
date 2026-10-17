@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { View, Text, TextInput, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { Stack, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Users, Search } from "lucide-react-native";
 import ScreenHeader from "../../components/ScreenHeader";
 import { mobileApiFetch, ApiError } from "../../lib/api";
@@ -23,6 +24,11 @@ interface DirectoryProfile {
 // app/api/mobile/directory's own ?type= split). No edit/create UI on
 // either, ever.
 export default function DirectoryScreen() {
+  // See st1.tsx - same bottom-inset fix for the list's last row. This is
+  // the exact screen (Sub-Dealer View / Distributor View) where the issue
+  // was first spotted live: the last row stayed partially behind the
+  // gesture-nav bar no matter how far the list was scrolled.
+  const insets = useSafeAreaInsets();
   const { type } = useLocalSearchParams<{ type: "distributor" | "sub_dealer" }>();
   const [rows, setRows] = useState<DirectoryProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -81,7 +87,7 @@ export default function DirectoryScreen() {
         <FlatList
           data={filtered}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: theme.spacing.md + insets.bottom }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={theme.colors.primary} />}
           ListEmptyComponent={<EmptyState icon={Users} title="Nothing to show" subtitle={search ? "Try a different search." : undefined} />}
           renderItem={({ item }) => (

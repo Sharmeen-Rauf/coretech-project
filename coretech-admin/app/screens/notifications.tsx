@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
 import { Stack } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { BellOff } from "lucide-react-native";
@@ -22,6 +23,8 @@ interface NotificationRow {
 // Home bell. Opening this screen automatically marks everything in it as
 // read - no explicit "mark all as read" button, unlike web's bell.
 export default function NotificationsScreen() {
+  // See st1.tsx - same bottom-inset fix for the list's last row.
+  const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<NotificationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,7 +63,7 @@ export default function NotificationsScreen() {
         <FlatList
           data={rows}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: theme.spacing.md + insets.bottom }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={theme.colors.primary} />}
           ListEmptyComponent={<EmptyState icon={BellOff} title="All caught up!" subtitle="No notifications." />}
           renderItem={({ item }) => (
