@@ -9,6 +9,7 @@ import {
   RefreshControl,
 } from "react-native";
 import { Stack } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ScreenHeader from "../../components/ScreenHeader";
 import { useRefreshOnFocus } from "../../lib/useRefreshOnFocus";
 import { Plus, TrendingUp } from "lucide-react-native";
@@ -46,6 +47,11 @@ interface SubDealer {
 // accepts the whole scanned batch as one atomic transfer (§15 Phase 3
 // finding) - so this is one submit, one result, not a per-serial breakdown.
 export default function St2Screen() {
+  // Fixed `bottom: theme.spacing.lg` put this FAB behind the system gesture
+  // nav bar on edge-to-edge Android (15+) - confirmed live on a real Android
+  // 16 device, the button's bottom edge was cut off under the nav bar.
+  // Adding the bottom inset on top of the existing spacing pushes it clear.
+  const insets = useSafeAreaInsets();
   const [rows, setRows] = useState<SaleRow[]>([]);
   const [canWrite, setCanWrite] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -150,7 +156,7 @@ export default function St2Screen() {
 
       {canWrite && (
         <AnimatedPressable
-          style={styles.fab}
+          style={[styles.fab, { bottom: theme.spacing.lg + insets.bottom }]}
           onPress={() => {
             haptics.light();
             openCreate();
