@@ -1,9 +1,58 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Tabs, useRouter } from "expo-router";
+import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Wrench, User, LayoutDashboard, Plus, Bell } from "lucide-react-native";
 import { supabase } from "../../lib/supabase";
+
+// Fully custom tab bar, replacing React Navigation's own default one.
+// Three rounds of tuning tabBarStyle's height/padding all failed live in
+// different ways: a manual `insets.bottom`-derived height never actually
+// applied (screenOptions.tabBarStyle doesn't reliably re-render when
+// insets arrive asynchronously); dropping height/padding entirely let the
+// gesture-nav bar overlap the labels again on some devices; and pushing
+// paddingBottom higher to compensate eventually made the default tab
+// bar's own internal layout clip or fully hide the label text (confirmed
+// live: labels disappeared entirely on an Android 13 device with no
+// bottom inset, and were visibly cut off on an Android 16 device with a
+// large one) - the default tab bar has its own hidden height
+// assumptions that fighting with tabBarStyle alone can't reliably
+// override. Rendering every pixel here instead removes that whole class
+// of surprise: insets.bottom is added as plain, un-clipped padding below
+// genuinely auto-sized content, nothing hidden or capped internally.
+function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[styles.tabBar, { paddingBottom: insets.bottom + 12 }]}>
+      {state.routes.map((route, index) => {
+        const { options } = descriptors[route.key];
+        const label = (options.tabBarLabel ?? options.title ?? route.name) as string;
+        const isFocused = state.index === index;
+        const color = isFocused ? "#00B4D8" : "#64748B";
+
+        const onPress = () => {
+          const event = navigation.emit({ type: "tabPress", target: route.key, canPreventDefault: true });
+          if (!isFocused && !event.defaultPrevented) {
+            navigation.navigate(route.name);
+          }
+        };
+
+        return (
+          <TouchableOpacity
+            key={route.key}
+            onPress={onPress}
+            style={styles.tabItem}
+            activeOpacity={0.7}
+          >
+            {options.tabBarIcon?.({ focused: isFocused, color, size: 20 })}
+            <Text style={[styles.tabLabel, { color }]}>{label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
 
 // Floating action button, rendered once here (outside the Tabs navigator, as
 // an absolutely-positioned sibling) rather than per-screen, so it overlays
@@ -91,38 +140,11 @@ function NotificationBell() {
 }
 
 export default function TabsLayout() {
-  // This fixed-height tabBarStyle override replaces Expo Router's own
-  // default tab bar, which otherwise accounts for the bottom safe-area
-  // inset automatically (confirmed by comparison: the admin app's Tabs,
-  // which has no such override, renders correctly on the same Android 16
-  // device).
-  //
-  // A manual `height: 60 + insets.bottom` was tried first and failed live:
-  // debug output confirmed insets.bottom really was 48 (SafeAreaProvider
-  // working correctly), yet the bar still rendered with the old broken
-  // layout - screenOptions.tabBarStyle doesn't reliably re-apply when
-  // insets arrive asynchronously after the first render. Dropping
-  // height/padding from the override entirely instead, so React
-  // Navigation's own default tab bar sizing (which already handles this
-  // internally and correctly, same as admin's) takes over - no manual
-  // insets math left to go stale.
   return (
     <View style={{ flex: 1 }}>
       <Tabs
+        tabBar={(props) => <CustomTabBar {...props} />}
         screenOptions={{
-          tabBarActiveTintColor: "#00B4D8",
-          tabBarInactiveTintColor: "#64748B",
-          tabBarStyle: {
-            backgroundColor: "#FFFFFF",
-            borderTopWidth: 1,
-            borderTopColor: "#E2E8F0",
-            paddingTop: 8,
-            paddingBottom: 36,
-          },
-          tabBarLabelStyle: {
-            fontSize: 10,
-            fontWeight: "bold",
-          },
           headerStyle: {
             backgroundColor: "#FFFFFF",
             borderBottomWidth: 1,
@@ -168,6 +190,24 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
+  tabBar: {
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderTopColor: "#E2E8F0",
+    paddingTop: 8,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 4,
+  },
+  tabLabel: {
+    fontSize: 10,
+    fontWeight: "bold",
+    marginTop: 4,
+  },
   fab: {
     position: "absolute",
     right: 20,
