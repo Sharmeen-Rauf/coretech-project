@@ -614,32 +614,23 @@ export default function JobDetailScreen() {
               </View>
 
               <View style={styles.metaRow}>
-                <Text style={styles.metaLabel}>Assigned Incentive:</Text>
-                <Text style={[styles.metaValue, { color: "#059669", fontWeight: "bold" }]}>
-                  PKR {job.incentive || 5000}
-                </Text>
-              </View>
-
-              {status === "approved" && (
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Payment Status:</Text>
-                  <View
+                <Text style={styles.metaLabel}>Payment Status:</Text>
+                <View
+                  style={[
+                    styles.badge,
+                    { backgroundColor: job.payment_status === "paid" ? "#ECFDF5" : "#FFF7ED" },
+                  ]}
+                >
+                  <Text
                     style={[
-                      styles.badge,
-                      { backgroundColor: job.payment_status === "paid" ? "#ECFDF5" : "#FFF7ED" },
+                      styles.badgeText,
+                      { color: job.payment_status === "paid" ? "#059669" : "#EA580C" },
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.badgeText,
-                        { color: job.payment_status === "paid" ? "#059669" : "#EA580C" },
-                      ]}
-                    >
-                      {job.payment_status === "paid" ? "Paid" : "Unpaid"}
-                    </Text>
-                  </View>
+                    {job.payment_status === "paid" ? "Paid" : "Unpaid"}
+                  </Text>
                 </View>
-              )}
+              </View>
             </View>
 
             {job.notes && (
