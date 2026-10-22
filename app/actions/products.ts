@@ -265,13 +265,16 @@ export async function deleteStockAction(ids: string[]) {
 }
 
 export async function verifySerialNumberAction(sNo: string, currentJobId?: string) {
-  // Pure live-inventory existence check: green (success) if the serial number
-  // exists in the `stock` table, red (failure) if it doesn't. Deliberately does
-  // NOT check for other installers/jobs already using this serial — the item
-  // stays "live" in inventory until an admin approves a job against it (Stage 2),
-  // so multiple installers are allowed to submit against the same serial while
-  // pending; duplicates are surfaced to the admin for review instead of being
-  // blocked here.
+  // Live-inventory existence + sold status check: green (success) if the
+  // serial number exists in the `stock` table AND isn't already sold_out,
+  // red (failure) otherwise. Deliberately does NOT check for other
+  // installers/jobs already using this serial while it's still active — the
+  // item stays "live" in inventory until an admin approves a job against it
+  // (Stage 2), so multiple installers are allowed to submit against the same
+  // serial while pending; duplicates are surfaced to the admin for review
+  // instead of being blocked here. Once a serial is sold_out (an admin has
+  // already approved an installation against it), it's no longer available
+  // for a new installation and must fail verification.
   const supabase = getAdminClient();
   try {
     const cleanSNo = sNo.trim();
@@ -296,6 +299,10 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
 
     if (!stockData) {
       return { success: false, error: "Serial number not found in inventory." };
+    }
+
+    if (stockData.status === "sold_out") {
+      return { success: false, error: "This serial number has already been installed and approved." };
     }
 
     return {
