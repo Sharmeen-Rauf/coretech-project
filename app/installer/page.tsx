@@ -521,7 +521,7 @@ export default function WebInstallerPage() {
         const isResubmit = siteFormJobId && siteFormJobId !== "new";
         const localPayload = { ...payload, is_resubmitted: isResubmit };
         saveLocalItem("coretech_local_installer_jobs", localPayload, true);
-        toast.success("Site installation saved locally (DB fallback)!");
+        toast.error("Could not reach the server — this was NOT submitted. It's saved on this device and will retry automatically next time you load this page with a connection.");
       }
 
       // Safe activity logging
