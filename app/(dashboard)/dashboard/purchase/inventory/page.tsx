@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import toast from "react-hot-toast";
-import { createRecordAction, fetchRecordsAction, fetchProfilesAction } from "@/app/actions/users";
-import { fetchStockAction, fetchProductsAction, deleteStockAction } from "@/app/actions/products";
+import { createRecordAction, fetchProfilesAction } from "@/app/actions/users";
+import { fetchInventoryPageAction, fetchAllInventoryForExportAction, fetchProductsAction, deleteStockAction } from "@/app/actions/products";
 import { getLocalItems } from "@/lib/supabaseLocalFallback";
 import { Loader2, RefreshCw, Boxes, Clock, Wallet } from "lucide-react";
 
@@ -46,128 +46,169 @@ export default function InventoryPage() {
   const [scope, setScope] = useState<"self" | "region" | "everything">("self");
   const [distributors, setDistributors] = useState<ProfileOption[]>([]);
   const [subDealers, setSubDealers] = useState<ProfileOption[]>([]);
-  const perPage = 10;
+  const perPage = 30;
 
-  const fetchInventory = async () => {
-    let dbData: any[] = [];
+  // Server-reported total matching the current filter/search (what the
+  // pagination controls below paginate over), plus the 3 summary widgets
+  // and 3 filter-dropdown option lists, all computed server-side and always
+  // reflecting the whole (scoped) inventory regardless of the current
+  // filter/search - same rule the page always documented, now actually
+  // enforced via fetchInventoryWidgetsAndFilterOptions instead of scanning
+  // whatever happened to already be loaded in the browser.
+  const [pageTotalCount, setPageTotalCount] = useState(0);
+  const [totalInventoryCount, setTotalInventoryCount] = useState(0);
+  const [oldestAgeDays, setOldestAgeDays] = useState(0);
+  const [totalEvaluation, setTotalEvaluation] = useState(0);
+  const [uniqueProducts, setUniqueProducts] = useState<string[]>([]);
+  const [uniqueWarehouses, setUniqueWarehouses] = useState<string[]>([]);
+  const [uniqueDates, setUniqueDates] = useState<string[]>([]);
+
+  // Filter states
+  const [filterDate, setFilterDate] = useState("");
+  const [filterProduct, setFilterProduct] = useState("");
+  const [filterWarehouse, setFilterWarehouse] = useState("");
+  // Advanced filters - only shown/usable at "everything" scope.
+  const [filterDistributorId, setFilterDistributorId] = useState("");
+  const [filterSubDealerId, setFilterSubDealerId] = useState("");
+
+  const showAdvancedFilters = scope === "everything";
+
+  // Sub-Dealer options cascade from the selected Distributor - a sub-dealer
+  // belongs to exactly one distributor (profiles.distributor_id).
+  const filteredSubDealers = filterDistributorId
+    ? subDealers.filter((s) => s.distributor_id === filterDistributorId)
+    : subDealers;
+
+  const formatStockRow = (row: any): Omit<StockItem, "sno"> => ({
+    id: row.id,
+    product_name: row.products?.name || "Unknown Product",
+    brand: row.products?.brand || "-",
+    model: row.model_no || row.products?.model || "-",
+    serial_no: row.serial_no || "-",
+    // Resolving a warehouse code to a friendlier display label (e.g. "275"
+    // -> "Main Warehouse (275)") was previously done client-side against the
+    // regions table, scanned per row. That's dropped here for now - this
+    // page's filter dropdown shows the same raw warehouse_name used for
+    // filtering/display, documented as a known simplification rather than
+    // silently re-adding a full-table regions scan per request.
+    warehouse_name: row.warehouse_name || "-",
+    quantity: row.quantity ?? 0,
+    sale_price: row.products?.price ?? 0,
+    import_date: row.import_date || "-",
+    created_at: row.created_at || row.import_date || "",
+    distributor_id: row.distributor_id || null,
+    sub_dealer_id: row.sub_dealer_id || null,
+  });
+
+  // Guards against a slower, older request's response landing after a
+  // newer one and clobbering it - same pattern as Job Assignment's fetchData.
+  const fetchRequestIdRef = useRef(0);
+
+  // includeWidgets defaults to false - the 3 summary tiles and 3 filter
+  // dropdown option lists are a full (chunked) scope-wide table scan,
+  // deliberately unfiltered by search/page/filters ("always reflect the
+  // whole inventory"), so recomputing them on every page turn or keystroke
+  // would re-scan the entire table for no reason. Only requested on initial
+  // load and after a mutation (delete/sync) that could actually change them.
+  const fetchInventory = async (includeWidgets = false) => {
+    const requestId = ++fetchRequestIdRef.current;
     setIsLoading(true);
     try {
-      const [stockRes, prodRes, regRes] = await Promise.all([
-        fetchStockAction().catch(() => ({ success: false, data: [], scope: "self" as const })),
-        fetchProductsAction().catch(() => ({ success: false, data: [] })),
-        fetchRecordsAction("regions").catch(() => ({ success: false, data: [] })),
-      ]);
+      const res = await fetchInventoryPageAction({
+        page: currentPage,
+        pageSize: perPage,
+        search: searchQuery,
+        filterDate,
+        filterProduct,
+        filterWarehouse,
+        filterDistributorId,
+        filterSubDealerId,
+        includeWidgets,
+      });
 
-      if (stockRes.success && stockRes.data) {
-        dbData = stockRes.data.filter((item: any) => item.status !== "sold_out");
-      }
-      setIsAdmin(!!(stockRes as any).isAdmin);
-      const currentScope = ((stockRes as any).scope || "self") as "self" | "region" | "everything";
-      setScope(currentScope);
+      if (requestId !== fetchRequestIdRef.current) return;
 
-      // Distributor/Sub-Dealer/Region filters are only meaningful (and only
-      // shown) to a caller whose Inventory scope is "everything" - a scoped
-      // user only ever sees their own slice anyway.
-      if (currentScope === "everything") {
+      if (!res.success) throw new Error(res.error || "Failed to load inventory");
+
+      setIsAdmin(!!res.isAdmin);
+      setScope(res.scope as "self" | "region" | "everything");
+
+      if (res.scope === "everything") {
         const [distRes, subRes] = await Promise.all([
           fetchProfilesAction("distributor").catch(() => ({ success: false, data: [] })),
           fetchProfilesAction("sub_dealer").catch(() => ({ success: false, data: [] })),
         ]);
+        if (requestId !== fetchRequestIdRef.current) return;
         if (distRes.success) setDistributors(distRes.data || []);
         if (subRes.success) setSubDealers(subRes.data || []);
       }
 
-      let productsList: any[] = [];
-      if (prodRes.success && prodRes.data) {
-        productsList = prodRes.data;
-      }
-      const localProducts = getLocalItems("coretech_local_products") || [];
-      const allProducts = [...productsList, ...localProducts];
-
-      let regionsList: any[] = [];
-      if (regRes.success && regRes.data) {
-        regionsList = regRes.data;
-      }
-      const localRegions = getLocalItems("coretech_local_regions") || [];
-      const allRegions = [...regionsList, ...localRegions];
-
-      const formattedDb = dbData.map((row: any) => {
-        const rawWh = row.warehouse_name || "-";
-        const matched = allRegions.find((r: any) => 
-          r.region_code?.toLowerCase() === rawWh.toLowerCase() ||
-          r.name?.toLowerCase() === rawWh.toLowerCase() ||
-          r.id === rawWh
-        );
-        let resolvedWh = matched ? matched.warehouse : rawWh;
-        if (resolvedWh === "275") {
-          resolvedWh = "Main Warehouse (275)";
-        }
-
-        return {
-          id: row.id,
-          product_name: row.products?.name || "Unknown Product",
-          brand: row.products?.brand || "-",
-          model: row.model_no || row.products?.model || "-",
-          serial_no: row.serial_no || "-",
-          warehouse_name: resolvedWh,
-          quantity: row.quantity ?? 0,
-          sale_price: row.products?.price ?? 0,
-          import_date: row.import_date || "-",
-          created_at: row.created_at || row.import_date || "",
-          distributor_id: row.distributor_id || null,
-          sub_dealer_id: row.sub_dealer_id || null,
-        };
-      });
-
-      const localStock = getLocalItems("coretech_local_stock") || [];
-      setLocalStockCount(localStock.length);
-      const formattedLocal = localStock.map((row: any, idx: number) => {
-        const prod = allProducts.find((p: any) => p.id === row.product_id);
-        const rawWh = row.warehouse_name || "-";
-        const matched = allRegions.find((r: any) => 
-          r.region_code?.toLowerCase() === rawWh.toLowerCase() ||
-          r.name?.toLowerCase() === rawWh.toLowerCase() ||
-          r.id === rawWh
-        );
-        let resolvedWh = matched ? matched.warehouse : rawWh;
-        if (resolvedWh === "275") {
-          resolvedWh = "Main Warehouse (275)";
-        }
-
-        return {
-          id: row.id || `local-${idx}`,
-          product_name: prod?.name || "Unknown Product",
-          brand: prod?.brand || "-",
-          model: row.model_no || prod?.model || "-",
-          serial_no: row.serial_no || "-",
-          warehouse_name: resolvedWh,
-          quantity: row.quantity ?? 0,
-          sale_price: prod?.price ?? 0,
-          import_date: row.import_date || "-",
-          created_at: row.import_date || "",
-        };
-      });
-
-      // Combine both lists and avoid duplicates by serial number
-      const combined = [...formattedDb];
-      formattedLocal.forEach((localItem: any) => {
-        if (!combined.some((dbItem: any) => dbItem.serial_no === localItem.serial_no)) {
-          combined.push(localItem);
-        }
-      });
-
-      // Add visual sequence numbers (S.No)
-      const finalStock = combined.map((item, idx) => ({
+      const formatted: StockItem[] = res.data.map(formatStockRow).map((item: Omit<StockItem, "sno">, idx: number) => ({
         ...item,
-        sno: String(idx + 1).padStart(2, "0"),
+        sno: String((currentPage - 1) * perPage + idx + 1).padStart(2, "0"),
       }));
 
-      setStock(finalStock);
+      // A delete (single or bulk) can empty out the page currently being
+      // viewed without it being the last page overall - step back one page
+      // instead of leaving an empty table in view (same pattern as Job
+      // Assignment's fetchData).
+      if (formatted.length === 0 && currentPage > 1 && res.totalCount > 0) {
+        setStock([]);
+        setCurrentPage((p) => Math.max(1, p - 1));
+        return;
+      }
+
+      setStock(formatted);
+      setPageTotalCount(res.totalCount);
+      if (res.widgets) {
+        setTotalInventoryCount(res.widgets.totalInventoryCount);
+        setOldestAgeDays(res.widgets.oldestAgeDays);
+        setTotalEvaluation(res.widgets.totalEvaluation);
+        setUniqueProducts(res.widgets.uniqueProducts);
+        setUniqueWarehouses(res.widgets.uniqueWarehouses);
+        setUniqueDates(res.widgets.uniqueDates);
+      }
+
+      // Disclosed simplification: previously-queued local-fallback items
+      // (Supabase write failures saved to the browser's own localStorage,
+      // see lib/supabaseLocalFallback.ts) no longer get merged directly into
+      // the displayed table rows the way they did before this page moved to
+      // server-side pagination - merging a client-only array into a
+      // server-paginated page doesn't have a well-defined "page" to live on.
+      // They're still surfaced via the "Sync Local Stock to Cloud Database
+      // (N pending)" banner/button below and this count, and syncing moves
+      // them into the real table immediately - but until synced, they will
+      // NOT appear as rows here. Per this project's own CLAUDE.md, this
+      // local-fallback mechanism exists to mask backend write failures, not
+      // as an intentional offline-first design - worth revisiting if pending
+      // items are ever expected to sit unsynced for a meaningful stretch.
+      const localStock = getLocalItems("coretech_local_stock") || [];
+      setLocalStockCount(localStock.length);
     } catch (err: any) {
+      if (requestId !== fetchRequestIdRef.current) return;
       toast.error(err.message || "Failed to load inventory");
     } finally {
-      setIsLoading(false);
+      if (requestId === fetchRequestIdRef.current) setIsLoading(false);
     }
+  };
+
+  // Fetches EVERY row matching the current filter/search (not just the
+  // current page) - passed to DataTable as onFetchAll, called only when
+  // Export or "Select all matching" is actually clicked.
+  const fetchAllMatchingInventory = async (): Promise<StockItem[]> => {
+    const res = await fetchAllInventoryForExportAction({
+      search: searchQuery,
+      filterDate,
+      filterProduct,
+      filterWarehouse,
+      filterDistributorId,
+      filterSubDealerId,
+    });
+    if (!res.success) throw new Error(res.error || "Failed to load records");
+    return res.data.map(formatStockRow).map((item: Omit<StockItem, "sno">, idx: number) => ({
+      ...item,
+      sno: String(idx + 1).padStart(2, "0"),
+    }));
   };
 
   // Admin-only, permanent - not tied to purchase.inventory's own read/write
@@ -181,7 +222,7 @@ export default function InventoryPage() {
     const res = await deleteStockAction([row.id]);
     if (res.success) {
       toast.success("Item permanently deleted from inventory.");
-      fetchInventory();
+      fetchInventory(true); // a delete changes the summary widgets too
     } else {
       toast.error(res.error || "Failed to delete item.");
     }
@@ -194,7 +235,7 @@ export default function InventoryPage() {
     const res = await deleteStockAction(selectedIds);
     if (res.success) {
       toast.success(`Permanently deleted ${(res as any).deletedCount ?? selectedIds.length} item(s) from inventory.`);
-      fetchInventory();
+      fetchInventory(true);
     } else {
       toast.error(res.error || "Failed to delete items.");
     }
@@ -202,13 +243,29 @@ export default function InventoryPage() {
 
   useEffect(() => {
     setIsMounted(true);
-    fetchInventory().then(() => {
-      const localStock = getLocalItems("coretech_local_stock") || [];
-      if (localStock.length > 0) {
-        syncLocalStock();
-      }
-    });
+    const localStock = getLocalItems("coretech_local_stock") || [];
+    if (localStock.length > 0) {
+      syncLocalStock(); // calls fetchInventory() itself once syncing finishes
+    }
   }, []);
+
+  // Re-fetches whenever the page, search term, or any filter changes -
+  // debounced only when this run was triggered by the search term itself
+  // changing (same pattern as Job Assignment's fetchData). This also covers
+  // the initial load (requesting widgets only that first time), so no
+  // separate mount-only fetchInventory() call is needed above.
+  const prevSearchQueryRef = useRef(searchQuery);
+  const isFirstFetchRef = useRef(true);
+  useEffect(() => {
+    const searchChanged = prevSearchQueryRef.current !== searchQuery;
+    prevSearchQueryRef.current = searchQuery;
+    const isFirst = isFirstFetchRef.current;
+    isFirstFetchRef.current = false;
+    const handle = setTimeout(() => {
+      fetchInventory(isFirst);
+    }, searchChanged ? 350 : 0);
+    return () => clearTimeout(handle);
+  }, [currentPage, searchQuery, filterDate, filterProduct, filterWarehouse, filterDistributorId, filterSubDealerId]);
 
   const syncLocalStock = async () => {
     const localStock = getLocalItems("coretech_local_stock") || [];
@@ -281,72 +338,13 @@ export default function InventoryPage() {
       if (failedReasons.length > 0) {
         toast.error(`${failedReasons.length} item(s) could not be synced — still queued locally.`);
       }
-      await fetchInventory();
+      await fetchInventory(true); // newly-synced stock changes the summary widgets too
     } catch (err: any) {
       toast.error(err.message || "Failed to sync local stock");
     } finally {
       setIsSyncing(false);
     }
   };
-
-  // Filter states
-  const [filterDate, setFilterDate] = useState("");
-  const [filterProduct, setFilterProduct] = useState("");
-  const [filterWarehouse, setFilterWarehouse] = useState("");
-  // Advanced filters - only shown/usable at "everything" scope.
-  const [filterDistributorId, setFilterDistributorId] = useState("");
-  const [filterSubDealerId, setFilterSubDealerId] = useState("");
-
-  const showAdvancedFilters = scope === "everything";
-
-  // Derive unique products & warehouses for filter dropdowns
-  const uniqueProducts = Array.from(new Set(stock.map((item) => item.product_name).filter((n) => n && n !== "Unknown Product")));
-  const uniqueWarehouses = Array.from(new Set(stock.map((item) => item.warehouse_name).filter((w) => w && w !== "-")));
-  const uniqueDates = Array.from(new Set(stock.map((item) => item.import_date).filter((d) => d && d !== "-"))).sort().reverse();
-
-  // Sub-Dealer options cascade from the selected Distributor - a sub-dealer
-  // belongs to exactly one distributor (profiles.distributor_id).
-  const filteredSubDealers = filterDistributorId
-    ? subDealers.filter((s) => s.distributor_id === filterDistributorId)
-    : subDealers;
-
-  const filtered = stock.filter((item) => {
-    // Search query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const matchesSearch = (
-        item.product_name.toLowerCase().includes(q) ||
-        item.serial_no.toLowerCase().includes(q) ||
-        item.brand.toLowerCase().includes(q) ||
-        item.warehouse_name.toLowerCase().includes(q)
-      );
-      if (!matchesSearch) return false;
-    }
-
-    // Date filter
-    if (filterDate && item.import_date !== filterDate) return false;
-
-    // Product filter
-    if (filterProduct && item.product_name.toLowerCase() !== filterProduct.toLowerCase()) return false;
-
-    // Warehouse filter
-    if (filterWarehouse && item.warehouse_name.toLowerCase() !== filterWarehouse.toLowerCase()) return false;
-
-    // Advanced filters (everything-scope only) - Distributor matches both the
-    // distributor's own unclaimed stock and anything since passed on to one of
-    // their sub-dealers (a stock row keeps distributor_id set either way).
-    if (showAdvancedFilters) {
-      if (filterDistributorId && item.distributor_id !== filterDistributorId) return false;
-      if (filterSubDealerId && item.sub_dealer_id !== filterSubDealerId) return false;
-    }
-
-    return true;
-  });
-
-  const paginated = filtered.slice(
-    (currentPage - 1) * perPage,
-    currentPage * perPage
-  );
 
   const columns = [
     { key: "sno", label: "S.No" },
@@ -361,18 +359,6 @@ export default function InventoryPage() {
     },
     { key: "import_date", label: "Import Date" },
   ];
-
-  // Top summary widgets — always reflect the whole inventory, not just the current filter/search
-  const totalInventoryCount = stock.length;
-
-  const oldestAgeDays = stock.reduce((maxDays, item) => {
-    const ts = item.created_at ? new Date(item.created_at).getTime() : NaN;
-    if (isNaN(ts)) return maxDays;
-    const days = Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
-    return Math.max(maxDays, days);
-  }, 0);
-
-  const totalEvaluation = stock.reduce((sum, item) => sum + (item.sale_price || 0) * (item.quantity || 1), 0);
 
   return (
     <div className="space-y-6 select-none">
@@ -552,19 +538,20 @@ export default function InventoryPage() {
         </div>
       </div>
 
-      <DataTable allData={filtered}
+      <DataTable
         title="Warehouse Inventory"
         columns={columns}
-        data={paginated}
+        data={stock}
         isLoading={isLoading}
         searchPlaceholder="Search product name or serial number..."
         onSearch={(q) => {
           setSearchQuery(q);
           setCurrentPage(1);
         }}
+        onFetchAll={fetchAllMatchingInventory}
         pagination={{
           current: currentPage,
-          total: filtered.length,
+          total: pageTotalCount,
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}

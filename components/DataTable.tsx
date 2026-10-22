@@ -62,6 +62,20 @@ interface DataTableProps {
   onImportCSV?: (file: File) => void;
   showExport?: boolean;
   allData?: any[];
+  // Lazily fetches every row matching the current server-side search/filter
+  // (not just the currently-loaded page) - used by Export and "Select all
+  // matching" instead of relying on allData being pre-loaded in full. Pages
+  // that still pass allData (not yet migrated to server-side pagination)
+  // keep working exactly as before; this is additive, not a replacement.
+  //
+  // Caveat for "Select all matching": it can select row ids that aren't in
+  // the currently-loaded `data` (rows from other pages). The onDeleteClick
+  // fallback inside handleBulkDelete below looks ids up via `data.find(...)`,
+  // so it will silently skip any such id. A caller that supplies onFetchAll
+  // for "select all matching" to be meaningful on a bulk action should also
+  // supply onBulkDelete (which receives the full id list directly, bypassing
+  // that lookup) rather than relying on onDeleteClick alone.
+  onFetchAll?: () => Promise<any[]>;
 }
 
 export default function DataTable({
@@ -83,9 +97,12 @@ export default function DataTable({
   onImportCSV,
   showExport = true,
   allData,
+  onFetchAll,
 }: DataTableProps) {
   const [selectedRows, setSelectedRows] = useState<Record<string, boolean>>({});
   const [searchValue, setSearchValue] = useState("");
+  const [isExporting, setIsExporting] = useState(false);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
 
   // Below 640px the table is swapped for a stacked card list. This is a real
   // render switch rather than two copies hidden from each other with utility
@@ -165,6 +182,12 @@ export default function DataTable({
     return String(a).localeCompare(String(b), undefined, { sensitivity: "base" });
   };
 
+  // For a caller with no allData (server-paginated, data IS the current
+  // page), this only sorts the ≤30-ish rows already on screen, not every
+  // row matching the filter - sorting across the whole server-side result
+  // would need a server-side sort parameter, which doesn't exist yet. A
+  // real, visible behavior change from "sort the whole table" for callers
+  // migrated off allData, disclosed here rather than silently accepted.
   const sortedData = !sortKey
     ? displayData
     : displayData
@@ -183,6 +206,44 @@ export default function DataTable({
           return sortDir === "asc" ? cmp : -cmp;
         })
         .map((w) => w.row);
+
+  // A caller with no allData has already paginated server-side - `data` IS
+  // just the current page's rows, not the full matching set. Slicing it
+  // again by the same global page/perPage window breaks past page 1 (e.g.
+  // page 2 would slice [30,60) out of an array that only ever has ≤30
+  // items, i.e. always []). Only slice when allData is present (the caller
+  // handed over its whole filtered dataset and expects this component to
+  // do the paging). Card view (mobile) deliberately keeps its own separate
+  // cardLimit batching below instead of this slice either way - that's an
+  // infinite-scroll-style reveal over the same sortedData, not a second
+  // paging mechanism, and changing that is out of scope here.
+  const pagedTableData = allData
+    ? sortedData.slice(
+        (pagination.current - 1) * pagination.perPage,
+        pagination.current * pagination.perPage
+      )
+    : sortedData;
+
+  // A caller that passes allData but no onSearch relies on this component's
+  // own internal search box (the `else` branch of `displayData` above) -
+  // its own `pagination.total` was computed from the unfiltered list before
+  // that search was ever typed, so it can't be trusted for page bounds once
+  // the internal search narrows sortedData. Derive the effective total from
+  // sortedData itself in that case; every other caller's pagination.total
+  // already reflects its own filter/search server- or caller-side, so it's
+  // used as-is.
+  const isInternalSearchMode = !!allData && !onSearch;
+  const effectiveTotal = isInternalSearchMode ? sortedData.length : pagination.total;
+  const totalPages = Math.max(1, Math.ceil(effectiveTotal / pagination.perPage));
+
+  // Internal search narrowing the matching set out from under wherever the
+  // caller's own `pagination.current` happened to be would otherwise leave
+  // the table paginated to a now-nonexistent page - snap back to page 1,
+  // same as every onSearch-driven caller already does on its own.
+  useEffect(() => {
+    if (isInternalSearchMode) pagination.onChange(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchValue]);
 
   // Back to the first batch whenever the visible set changes underneath us -
   // searching, sorting or a data refresh should not leave the list expanded
@@ -228,8 +289,19 @@ export default function DataTable({
     return selectedRows[rowId];
   });
 
-  const handleExportCSV = () => {
-    const dataToExport = allData || data;
+  const handleExportCSV = async () => {
+    let dataToExport = allData || data;
+    if (onFetchAll) {
+      setIsExporting(true);
+      try {
+        dataToExport = await onFetchAll();
+      } catch (err: any) {
+        toast.error(err?.message || "Failed to load records for export");
+        setIsExporting(false);
+        return;
+      }
+      setIsExporting(false);
+    }
     if (dataToExport.length === 0) {
       toast.error("No data available to export");
       return;
@@ -469,7 +541,29 @@ export default function DataTable({
 
   // Calculate entry range
   const startEntry = (pagination.current - 1) * pagination.perPage + 1;
-  const endEntry = Math.min(pagination.current * pagination.perPage, pagination.total);
+  const endEntry = Math.min(pagination.current * pagination.perPage, effectiveTotal);
+
+  const selectedCount = Object.values(selectedRows).filter(Boolean).length;
+  // Only worth offering once every row on the current page is already
+  // selected and there's genuinely more data beyond this one page to select.
+  const canSelectAllMatching = !!onFetchAll && isAllSelected && effectiveTotal > displayData.length;
+
+  const handleSelectAllMatching = async () => {
+    setIsSelectingAll(true);
+    try {
+      const allRows = await onFetchAll!();
+      const next: Record<string, boolean> = {};
+      allRows.forEach((row, idx) => {
+        next[row.id || `row-${idx}`] = true;
+      });
+      setSelectedRows(next);
+      toast.success(`${allRows.length} matching records selected`);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to select all matching records");
+    } finally {
+      setIsSelectingAll(false);
+    }
+  };
 
   return (
     <div className="bg-white border border-slate-200 rounded-[8px] overflow-hidden shadow-sm flex flex-col">
@@ -479,7 +573,17 @@ export default function DataTable({
           <h3 className="text-sm font-bold text-slate-800 tracking-tight">{title}</h3>
           {isAnySelected && (
             <p className="text-[10px] text-slate-500 font-semibold mt-0.5 animate-pulse">
-              {Object.values(selectedRows).filter(Boolean).length} items selected
+              {selectedCount} items selected
+              {canSelectAllMatching && (
+                <button
+                  type="button"
+                  onClick={handleSelectAllMatching}
+                  disabled={isSelectingAll}
+                  className="ml-2 text-[#00B4D8] hover:underline font-bold disabled:opacity-50"
+                >
+                  {isSelectingAll ? "Selecting..." : `Select all ${effectiveTotal} matching records`}
+                </button>
+              )}
             </p>
           )}
         </div>
@@ -524,12 +628,13 @@ export default function DataTable({
           {showExport !== false && (
             <button
               onClick={handleExportCSV}
-              className="h-9 px-3 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-[6px] shadow transition-colors flex items-center justify-center gap-1.5"
+              disabled={isExporting}
+              className="h-9 px-3 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-[6px] shadow transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
               <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              <span className="max-sm:hidden">Export</span>
+              <span className="max-sm:hidden">{isExporting ? "Preparing..." : "Export"}</span>
             </button>
           )}
 
@@ -677,7 +782,7 @@ export default function DataTable({
               </tr>
             ) : (
               // Active Data Rows
-              sortedData.map((row, rowIdx) => {
+              pagedTableData.map((row, rowIdx) => {
                 const rowId = row.id || `row-${rowIdx}`;
                 const isSelected = selectedRows[rowId] || false;
                 return (
@@ -895,12 +1000,47 @@ export default function DataTable({
         </div>
       )}
 
-      {/* Footer / Entry count Info */}
+      {/* Footer / Entry count + page navigation. Previously this only ever
+          showed a static "Showing all N entries" label - the pagination
+          prop had a `current`/`onChange` contract but nothing in this
+          component ever called onChange or sliced by it, so clicking
+          anything here had zero effect; every caller either rendered its
+          entire dataset via allData (masking the gap - everything was
+          always on screen regardless of "page") or, for a caller passing
+          only one server-paginated page with no allData, had no way to
+          reach a second page at all. This is the fix for both: a real
+          Prev/Next control wired to pagination.onChange, and a count label
+          that reflects the true total instead of what happened to render. */}
       {!isLoading && displayData.length > 0 && (
-        <div className="px-5 py-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 max-sm:px-3">
+        <div className="px-5 py-4 border-t border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 max-sm:px-3">
           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-            Showing all {displayData.length} entries
+            Showing {effectiveTotal === 0 ? 0 : startEntry}-{endEntry} of {effectiveTotal} entries
           </span>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => pagination.onChange(pagination.current - 1)}
+                disabled={pagination.current <= 1}
+                className="h-8 w-8 flex items-center justify-center border border-slate-200 rounded-[6px] text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                aria-label="Previous page"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-1">
+                Page {pagination.current} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => pagination.onChange(pagination.current + 1)}
+                disabled={pagination.current >= totalPages}
+                className="h-8 w-8 flex items-center justify-center border border-slate-200 rounded-[6px] text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                aria-label="Next page"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

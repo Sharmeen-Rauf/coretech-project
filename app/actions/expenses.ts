@@ -31,7 +31,33 @@ export async function fetchExpensesAction() {
     const supabase = getAdminClient();
     const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("expenses");
 
-    let query = supabase.from("expenses").select(`
+    let regionalUserIds: string[] | null = null;
+    if (scope === "region" && callerRegion) {
+      // Chunked past 1000 for the same reason the expenses read below is -
+      // a single region could in principle hold more profiles than that.
+      const ids: string[] = [];
+      const PAGE_SIZE = 1000;
+      let from = 0;
+      while (true) {
+        const { data: regionalProfiles, error } = await supabase
+          .from("profiles")
+          .select("id")
+          .ilike("region", callerRegion)
+          .order("id", { ascending: true })
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        const page = regionalProfiles || [];
+        ids.push(...page.map((p: any) => p.id));
+        if (page.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      regionalUserIds = ids;
+    }
+
+    // A Postgrest query builder is single-use once awaited, so a fresh one
+    // has to be built for every chunk fetched below.
+    const buildQuery = () => {
+      let q = supabase.from("expenses").select(`
         id,
         title,
         amount,
@@ -44,18 +70,32 @@ export async function fetchExpensesAction() {
         profile:profiles!user_id(first_name, last_name)
       `);
 
-    if (scope === "self" && callerId) {
-      query = query.eq("user_id", callerId);
-    } else if (scope === "region" && callerRegion) {
-      const { data: regionalProfiles } = await supabase.from("profiles").select("id").ilike("region", callerRegion);
-      const ids = (regionalProfiles || []).map((p) => p.id);
-      query = query.in("user_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
-    }
-    // scope === "everything": no filter.
+      if (scope === "self" && callerId) {
+        q = q.eq("user_id", callerId);
+      } else if (scope === "region" && callerRegion) {
+        const ids = regionalUserIds || [];
+        q = q.in("user_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+      }
+      // scope === "everything": no filter.
+      return q.order("date", { ascending: false });
+    };
 
-    const { data, error } = await query.order("date", { ascending: false });
-    if (error) throw error;
-    return { success: true, data: data || [], role: caller.role, canWrite };
+    // Supabase/PostgREST silently caps any unlimited query at 1000 rows (no
+    // error - just drops the oldest rows past that point), confirmed live on
+    // other tables in this project. Expenses is an append-only claim ledger
+    // that never shrinks, so it pages through in chunks the same way.
+    const PAGE_SIZE = 1000;
+    let rows: any[] = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const page = data || [];
+      rows = rows.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return { success: true, data: rows, role: caller.role, canWrite };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch expenses", data: [], role: null, canWrite: false };
   }

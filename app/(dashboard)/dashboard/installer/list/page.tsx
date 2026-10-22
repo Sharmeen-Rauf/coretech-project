@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import UserModal from "@/components/UserModal";
 import toast from "react-hot-toast";
 import {
   deleteUserAction,
-  fetchEmailsByIdsAction,
+  fetchInstallersPageAction,
+  fetchAllInstallersForExportAction,
   verifyInstallerStage1Action,
   approveInstallerStage2Action,
   rejectInstallerStage1Action,
@@ -47,7 +48,9 @@ export default function InstallerListPage() {
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [qrOrigin, setQrOrigin] = useState("http://localhost:3000");
-  const perPage = 10;
+  const perPage = 30;
+  const [pageTotalCount, setPageTotalCount] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -176,65 +179,71 @@ export default function InstallerListPage() {
     initPageData();
   }, []);
 
+  // Guards against a slower, older request's response landing after a newer
+  // one and clobbering it.
+  const fetchRequestIdRef = useRef(0);
+
   const fetchInstallers = async () => {
+    const requestId = ++fetchRequestIdRef.current;
     setIsLoading(true);
     try {
-      const profilesRes = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("role", "installer")
-        .order("created_at", { ascending: false });
-
-      if (profilesRes.error) throw profilesRes.error;
-      const data = profilesRes.data;
-
-      // Real emails live in auth.users - profiles has no email column of its own.
-      const emailsRes = await fetchEmailsByIdsAction((data || []).map((p: any) => p.id));
-      const emailMap = emailsRes.success ? emailsRes.data : {};
-
-      const formatted = (data || []).map((prof: any) => ({
-        ...prof,
-        email: emailMap[prof.id] || "",
-        installer_id: (prof.id || "").substring(0, 8).toUpperCase(), // readable installer ID prefix
-        installer_name: `${prof.first_name || ""} ${prof.last_name || ""}`.trim() || "Installer",
-      }));
-
-      // Merge local storage profiles fallback
-      const localProfiles = getLocalItems("profiles") || [];
-      const localInstallers = localProfiles.filter((p: any) => p && p.role === "installer");
-
-      let merged = [...formatted];
-      localInstallers.forEach((local) => {
-        if (local && local.id && !merged.some(db => db.id === local.id)) {
-          merged.push({
-            ...local,
-            installer_id: (local.id || "").substring(0, 8).toUpperCase(),
-            installer_name: `${local.first_name || ""} ${local.last_name || ""}`.trim() || "Installer",
-          });
-        }
+      // Scoped (RSM region isolation), paginated and searched server-side -
+      // replaces the old "fetch every installer profile, filter/paginate in
+      // the browser" approach (no range/limit at all, the same
+      // silent-1000-row-cap bug already found and fixed elsewhere).
+      const res = await fetchInstallersPageAction({
+        page: currentPage,
+        pageSize: perPage,
+        search: searchQuery,
+        statusFilter,
+        startDate,
+        endDate,
       });
+      if (requestId !== fetchRequestIdRef.current) return;
+      if (!res.success) throw new Error(res.error || "Failed to load installers");
 
-      // Strict Regional Data Isolation for RSM Users
-      const isRsmUser = currentUserProfile && (currentUserProfile.role === "rsm" || currentUserProfile.group_name === "rsm");
-      if (isRsmUser && currentUserProfile.region) {
-        const rsmRegionLower = currentUserProfile.region.toLowerCase().trim();
-        merged = merged.filter((item: any) => {
-          const itemRegionLower = (getInstallerField(item, "region") || item.region || "").toLowerCase().trim();
-          return !itemRegionLower || itemRegionLower === rsmRegionLower;
-        });
+      if (res.data.length === 0 && currentPage > 1 && res.totalCount > 0) {
+        setInstallers([]);
+        setCurrentPage((p) => Math.max(1, p - 1));
+        return;
       }
 
-      setInstallers(merged);
+      setInstallers(res.data);
+      setPageTotalCount(res.totalCount);
+      setStatusCounts(res.counts);
     } catch (err: any) {
+      if (requestId !== fetchRequestIdRef.current) return;
       toast.error(err.message || "Failed to load installers");
     } finally {
-      setIsLoading(false);
+      if (requestId === fetchRequestIdRef.current) setIsLoading(false);
     }
   };
 
+  const fetchAllMatchingInstallers = async () => {
+    const res = await fetchAllInstallersForExportAction({ search: searchQuery, statusFilter, startDate, endDate });
+    if (!res.success) throw new Error(res.error || "Failed to load records");
+    return res.data;
+  };
+
+  // The KPI tiles and date-range controls change statusFilter/startDate/
+  // endDate directly (unlike every other filter control on this page, which
+  // already resets the page itself) - without this, narrowing results while
+  // sitting on page 4+ requests a now-out-of-range page, triggers the
+  // page-decrement-on-empty guard above, and visibly ping-pongs down one
+  // page per round trip before landing somewhere with data.
   useEffect(() => {
-    fetchInstallers();
-  }, []);
+    setCurrentPage(1);
+  }, [statusFilter, startDate, endDate]);
+
+  const prevSearchQueryRef = useRef(searchQuery);
+  useEffect(() => {
+    const searchChanged = prevSearchQueryRef.current !== searchQuery;
+    prevSearchQueryRef.current = searchQuery;
+    const handle = setTimeout(() => {
+      fetchInstallers();
+    }, searchChanged ? 350 : 0);
+    return () => clearTimeout(handle);
+  }, [currentPage, searchQuery, statusFilter, startDate, endDate]);
 
   const handleVerifyInstaller = async (instId: string) => {
     try {
@@ -314,41 +323,26 @@ export default function InstallerListPage() {
     }
   };
 
-  const filtered = installers.filter((item) => {
-    if (statusFilter) {
-      if (statusFilter === "active" || statusFilter === "approved") {
-        if (item.status !== "active" && item.status !== "approved") return false;
-      } else if (statusFilter === "pending_approval" || statusFilter === "verified") {
-        if (item.status !== "pending_approval" && item.status !== "verified") return false;
-      } else if (statusFilter === "pending_verification" || statusFilter === "pending") {
-        if (item.status !== "pending_verification" && item.status !== "pending") return false;
-      } else if (item.status !== statusFilter) {
-        return false;
+  // Required alongside onFetchAll ("Select all matching") - without this,
+  // DataTable's bulk-delete fallback only looks up selected ids within the
+  // currently-loaded ≤30-row page (components/DataTable.tsx's own
+  // documented onFetchAll caveat), so a "select all N matching" selection
+  // spanning other pages would silently delete only whatever happened to be
+  // on the current page.
+  const handleBulkDeleteInstallers = async (selectedIds: string[]) => {
+    if (!window.confirm(`Are you sure you want to delete the ${selectedIds.length} selected installers?`)) return;
+    try {
+      let deletedCount = 0;
+      for (const id of selectedIds) {
+        const res = await deleteUserAction(id);
+        if (res.success) deletedCount++;
       }
+      toast.success(`Successfully deleted ${deletedCount} installers!`);
+      fetchInstallers();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to perform bulk deletion");
     }
-    if (startDate) {
-      const startVal = new Date(startDate).getTime();
-      const itemVal = new Date(item.created_at).getTime();
-      if (itemVal < startVal) return false;
-    }
-    if (endDate) {
-      const endVal = new Date(endDate + "T23:59:59.999Z").getTime();
-      const itemVal = new Date(item.created_at).getTime();
-      if (itemVal > endVal) return false;
-    }
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return true;
-    return (
-      item.installer_name.toLowerCase().includes(q) ||
-      item.installer_id.toLowerCase().includes(q) ||
-      item.contact.includes(q)
-    );
-  });
-
-  const paginated = filtered.slice(
-    (currentPage - 1) * perPage,
-    currentPage * perPage
-  );
+  };
 
   const parseInstallerMetadata = (metadataStr: string) => {
     if (!metadataStr) return {};
@@ -536,35 +530,15 @@ export default function InstallerListPage() {
     }
   ];
 
-  // Compute metrics based on date range & 2-stage approval workflow
-  const registeredCount = installers.filter(item => {
-    if (!startDate && !endDate) return true;
-    return isInDateRange(item.created_at);
-  }).length;
-
-  const pendingRmCount = installers.filter(item => {
-    if (item.status === "pending_verification" || item.status === "pending") {
-      if (!startDate && !endDate) return true;
-      return isInDateRange(item.created_at);
-    }
-    return false;
-  }).length;
-
-  const pendingChCount = installers.filter(item => {
-    if ((item.status === "pending_approval" || item.status === "verified") && item.status !== "active" && item.status !== "approved") {
-      if (!startDate && !endDate) return true;
-      return isInDateRange(item.verified_at || item.created_at);
-    }
-    return false;
-  }).length;
-
-  const approvedCount = installers.filter(item => {
-    if (item.status === "active" || item.status === "approved") {
-      if (!startDate && !endDate) return true;
-      return isInDateRange(item.approved_at || item.created_at);
-    }
-    return false;
-  }).length;
+  // KPI tiles now come from the server (statusCounts, via fetchInstallers) -
+  // always-all-time counts rather than date-range-aware, a disclosed
+  // simplification (the original per-status date fields - verified_at/
+  // approved_at vs created_at - didn't reduce to one straightforward range
+  // query server-side).
+  const registeredCount = statusCounts.registered || 0;
+  const pendingRmCount = statusCounts.pending_verification || 0;
+  const pendingChCount = statusCounts.pending_approval || 0;
+  const approvedCount = statusCounts.approved || 0;
 
   return (
     <div className="space-y-6 select-none">
@@ -722,16 +696,17 @@ export default function InstallerListPage() {
         </div>
       </div>
 
-      <DataTable allData={filtered}
+      <DataTable
         title="Installers Register"
         columns={columns}
-        data={paginated}
+        data={installers}
         isLoading={isLoading}
         searchPlaceholder="Search Installer ID or Name..."
         onSearch={(q) => {
           setSearchQuery(q);
           setCurrentPage(1);
         }}
+        onFetchAll={fetchAllMatchingInstallers}
         filters={[
           {
             label: "Status",
@@ -745,7 +720,7 @@ export default function InstallerListPage() {
         ]}
         pagination={{
           current: currentPage,
-          total: filtered.length,
+          total: pageTotalCount,
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}
@@ -758,6 +733,7 @@ export default function InstallerListPage() {
         }}
         onEditClick={handleEditClick}
         onDeleteClick={handleDeleteClick}
+        onBulkDelete={handleBulkDeleteInstallers}
       />
 
       <UserModal

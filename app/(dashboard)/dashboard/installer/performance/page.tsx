@@ -22,25 +22,42 @@ export default function PerformancePage() {
   const [data, setData] = useState<PerformanceRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
  
+  // Supabase/PostgREST silently caps any unlimited query at 1000 rows (no
+  // error - it just drops the oldest rows past that point), confirmed live
+  // on this exact installer_jobs table elsewhere in this project. Pages
+  // through in chunks of 1000 until a page comes back short, so every row
+  // is read regardless of how large either table grows. A fresh query is
+  // built per chunk since a Postgrest builder is single-use once awaited.
+  const fetchAllRows = async (build: () => any) => {
+    const PAGE_SIZE = 1000;
+    let rows: any[] = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await build().range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const page = data || [];
+      rows = rows.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return rows;
+  };
+
   const fetchPerformance = async () => {
     setIsLoading(true);
     try {
-      // 1. Fetch all installers
-      const { data: installers, error: instErr } = await supabase
-        .from("profiles")
-        .select("id, first_name, last_name, contact")
-        .eq("role", "installer")
-        .eq("status", "active");
- 
-      if (instErr) throw instErr;
- 
-      // 2. Fetch all jobs
-      const { data: jobs, error: jobsErr } = await supabase
-        .from("installer_jobs")
-        .select("installer_id, status, payment_status");
- 
-      if (jobsErr) throw jobsErr;
- 
+      // 1 & 2. Fetch all installers and all jobs in parallel. Both ordered by
+      // id - .range() has no ordering guarantee without an explicit .order(),
+      // which could otherwise skip or duplicate rows across a chunk boundary.
+      const [installers, jobs] = await Promise.all([
+        fetchAllRows(() =>
+          supabase.from("profiles").select("id, first_name, last_name, contact").eq("role", "installer").eq("status", "active").order("id", { ascending: true })
+        ),
+        fetchAllRows(() =>
+          supabase.from("installer_jobs").select("installer_id, status, payment_status").order("id", { ascending: true })
+        ),
+      ]);
+
       // 3. Aggregate performance statistics
       const formatted: PerformanceRow[] = (installers || []).map((inst: any) => {
         const instJobs = (jobs || []).filter((j: any) => j.installer_id === inst.id);
