@@ -1034,9 +1034,6 @@ export default function AdminJobsPage() {
                 <p className="text-slate-600 font-semibold">
                   <strong>Address Location:</strong> {selectedJob.address}
                 </p>
-                <p className="text-slate-600 font-bold">
-                  <strong>Incentive Payout:</strong> Rs. {selectedJob.incentive.toLocaleString()}
-                </p>
                 {selectedJob.remarks && (
                   <p className="text-slate-700 bg-white border border-slate-200 p-2 rounded italic text-[11px]">
                     "{selectedJob.remarks}"
