@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
@@ -9,7 +9,7 @@ import AdminPasswordReset from "@/components/AdminPasswordReset";
 import DealerAssignment from "@/components/DealerAssignment";
 import RoleManagement from "@/components/RoleManagement";
 import toast from "react-hot-toast";
-import { deleteUserAction, fetchUsersAction } from "@/app/actions/users";
+import { deleteUserAction, fetchUsersPageAction, fetchAllUsersForExportAction } from "@/app/actions/users";
 import { getMyPermissionKeysAction } from "@/app/actions/roles";
 
 interface UserProfile {
@@ -39,7 +39,8 @@ export default function UsersPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserProfile | undefined>(undefined);
 
-  const perPage = 10;
+  const perPage = 30;
+  const [pageTotalCount, setPageTotalCount] = useState(0);
 
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
   const [grantedKeys, setGrantedKeys] = useState<Set<string>>(new Set());
@@ -70,29 +71,64 @@ export default function UsersPage() {
     checkCurrentUserRole();
   }, [supabase]);
 
+  // Guards against a slower, older request's response landing after a newer
+  // one and clobbering it (e.g. switching tabs then typing a search char).
+  const fetchRequestIdRef = useRef(0);
+
   const fetchUsers = async () => {
+    const requestId = ++fetchRequestIdRef.current;
     setIsLoading(true);
     try {
-      // Scoped server-side (role_permissions.scope_level for the matching
-      // users.add_* key) via getCallerIdentity - replaces the old client-side
-      // query that only ever had one hardcoded rule (RSM regional isolation).
-      const res = await fetchUsersAction(activeRole);
+      // Scoped + paginated + searched server-side (role_permissions.scope_level
+      // for the matching users.add_* key) - replaces the old "fetch every
+      // profile matching this role tab, filter/paginate in the browser"
+      // approach (no range/limit at all, the same silent-1000-row-cap bug
+      // already found and fixed elsewhere, never applied here).
+      const res = await fetchUsersPageAction({ activeRole, page: currentPage, pageSize: perPage, search: searchQuery });
+      if (requestId !== fetchRequestIdRef.current) return;
       if (!res.success) throw new Error(res.error);
+
+      if (res.data.length === 0 && currentPage > 1 && res.totalCount > 0) {
+        setUsers([]);
+        setCurrentPage((p) => Math.max(1, p - 1));
+        return;
+      }
+
       setUsers(res.data);
+      setPageTotalCount(res.totalCount);
       setCanWrite(!!res.canWrite);
     } catch (err: any) {
+      if (requestId !== fetchRequestIdRef.current) return;
       toast.error(err.message || "Failed to fetch users");
     } finally {
-      setIsLoading(false);
+      if (requestId === fetchRequestIdRef.current) setIsLoading(false);
     }
   };
 
+  const fetchAllMatchingUsers = async (): Promise<UserProfile[]> => {
+    const res = await fetchAllUsersForExportAction({ activeRole, search: searchQuery });
+    if (!res.success) throw new Error(res.error || "Failed to load records");
+    return res.data;
+  };
+
+  // Switching tabs resets back to page 1 with no search, independent of the
+  // fetch effect below (which would otherwise fire with the previous tab's
+  // stale page/search for one request before the reset took effect).
   useEffect(() => {
-    if (activeRole === "reset_password" || activeRole === "dealer_assignment" || activeRole === "role_management") return;
-    fetchUsers();
     setCurrentPage(1);
     setSearchQuery("");
   }, [activeRole]);
+
+  const prevSearchQueryRef = useRef(searchQuery);
+  useEffect(() => {
+    if (activeRole === "reset_password" || activeRole === "dealer_assignment" || activeRole === "role_management") return;
+    const searchChanged = prevSearchQueryRef.current !== searchQuery;
+    prevSearchQueryRef.current = searchQuery;
+    const handle = setTimeout(() => {
+      fetchUsers();
+    }, searchChanged ? 350 : 0);
+    return () => clearTimeout(handle);
+  }, [activeRole, currentPage, searchQuery]);
 
   // Handle Edit Action
   const handleEditClick = (user: UserProfile) => {
@@ -141,25 +177,6 @@ export default function UsersPage() {
     setIsModalOpen(true);
   };
 
-  // Filter users based on search
-  const filteredUsers = users.filter((user) => {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return true;
-    return (
-      user.first_name.toLowerCase().includes(q) ||
-      user.last_name.toLowerCase().includes(q) ||
-      (user.email && user.email.toLowerCase().includes(q)) ||
-      user.designation.toLowerCase().includes(q) ||
-      user.contact.includes(q) ||
-      user.group_name.toLowerCase().includes(q)
-    );
-  });
-
-  // Paginated chunk
-  const paginatedUsers = filteredUsers.slice(
-    (currentPage - 1) * perPage,
-    currentPage * perPage
-  );
 
   const columns = [
     { key: "first_name", label: activeRole === "distributor" ? "Distributor Name" : activeRole === "sub_dealer" ? "Sub Dealer Name" : "First Name" },
@@ -306,23 +323,24 @@ export default function UsersPage() {
       </div>
 
       {/* Reusable Data Table Component */}
-      <DataTable allData={filteredUsers}
+      <DataTable
         title={`${roleTitle} Register`}
         columns={columns}
-        data={paginatedUsers}
+        data={users}
         isLoading={isLoading}
         searchPlaceholder={`Search ${roleTitle}s...`}
         onSearch={(q) => {
           setSearchQuery(q);
           setCurrentPage(1);
         }}
+        onFetchAll={fetchAllMatchingUsers}
         actionButton={canWrite ? {
           label: `Add ${roleTitle}`,
           onClick: handleAddClick,
         } : undefined}
         pagination={{
           current: currentPage,
-          total: filteredUsers.length,
+          total: pageTotalCount,
           perPage: perPage,
           onChange: (page) => setCurrentPage(page),
         }}

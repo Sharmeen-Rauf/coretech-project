@@ -216,6 +216,309 @@ export async function fetchStockAction(opts?: CallerOpts) {
 // anyone configures Role Management, the same way Reset Password and Dealer
 // Assignment are hardcoded to admin elsewhere in this codebase rather than left
 // as a grantable permission.
+const STOCK_SELECT_CLAUSE = `
+  id, serial_no, model_no, status, warehouse_name, quantity, import_date,
+  created_at, product_id, distributor_id, sub_dealer_id,
+  products (name, brand, model, price)
+`;
+
+// Shared by fetchInventoryPageAction and fetchAllInventoryForExportAction -
+// resolves the caller's purchase.inventory scope once (same rule
+// fetchStockAction above already uses) and returns a factory that builds a
+// fresh, scope-filtered query each call (Postgrest builders are single-use
+// once awaited - see the chunked loop in fetchStockAction above for why a
+// factory, not a single built query, is required for anything read in more
+// than one page).
+async function buildScopedStockQueryFactory(
+  supabase: any,
+  opts?: CallerOpts
+): Promise<{
+  factory: (selectClause: string, selectOpts?: { count: "exact" }) => any;
+  scope: "self" | "region" | "everything";
+  isAdmin: boolean;
+  granted: boolean;
+}> {
+  const caller = await getCallerIdentity(opts?.accessToken);
+  const { scope, callerId, callerRegion, granted } = await getMyScopeAction("purchase.inventory", opts);
+
+  let regionalDistributorIds: string[] | null = null;
+  if (scope === "region" && callerRegion) {
+    const { data: regionalDistributors } = await supabase
+      .from("profiles").select("id").eq("role", "distributor").ilike("region", callerRegion);
+    regionalDistributorIds = (regionalDistributors || []).map((d: any) => d.id);
+  }
+
+  const factory = (selectClause: string, selectOpts?: { count: "exact" }) => {
+    let q = selectOpts
+      ? supabase.from("stock").select(selectClause, selectOpts)
+      : supabase.from("stock").select(selectClause);
+    if (scope === "self" && callerId) {
+      if (caller?.role === "distributor") {
+        q = q.eq("distributor_id", callerId).is("sub_dealer_id", null);
+      } else if (caller?.role === "sub_dealer") {
+        q = q.eq("sub_dealer_id", callerId);
+      } else {
+        q = q.eq("id", "00000000-0000-0000-0000-000000000000");
+      }
+    } else if (scope === "region" && callerRegion) {
+      const ids = regionalDistributorIds || [];
+      q = q.in("distributor_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
+    }
+    return q;
+  };
+
+  return { factory, scope, isAdmin: caller?.role === "admin", granted };
+}
+
+// Chunked, scope-filtered read used for the three "always reflect the whole
+// inventory" summary widgets (Total Inventory, Inventory Aging, Total
+// Evaluation) and the filter dropdowns' option lists - deliberately
+// unfiltered by the caller's own search/date/product/warehouse filters
+// (matching the page's existing rule), but still scoped and excluding
+// sold_out, matching what the page actually displays.
+async function fetchInventoryWidgetsAndFilterOptions(
+  factory: (selectClause: string) => any
+): Promise<{
+  totalInventoryCount: number;
+  oldestAgeDays: number;
+  totalEvaluation: number;
+  uniqueProducts: string[];
+  uniqueWarehouses: string[];
+  uniqueDates: string[];
+}> {
+  const PAGE_SIZE = 1000;
+  let allRows: any[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await factory("quantity, created_at, import_date, warehouse_name, products(name, price)")
+      .neq("status", "sold_out")
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = data || [];
+    allRows = allRows.concat(page);
+    if (page.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  let oldestAgeDays = 0;
+  let totalEvaluation = 0;
+  const products = new Set<string>();
+  const warehouses = new Set<string>();
+  const dates = new Set<string>();
+
+  allRows.forEach((r: any) => {
+    const qty = r.quantity || 1;
+    const price = r.products?.price ? parseFloat(r.products.price) : 0;
+    totalEvaluation += price * qty;
+    if (r.created_at) {
+      const ts = new Date(r.created_at).getTime();
+      if (!isNaN(ts)) {
+        const days = Math.floor((Date.now() - ts) / (1000 * 60 * 60 * 24));
+        oldestAgeDays = Math.max(oldestAgeDays, days);
+      }
+    }
+    if (r.products?.name && r.products.name !== "Unknown Product") products.add(r.products.name);
+    if (r.warehouse_name && r.warehouse_name !== "-") warehouses.add(r.warehouse_name);
+    if (r.import_date && r.import_date !== "-") dates.add(r.import_date);
+  });
+
+  return {
+    totalInventoryCount: allRows.length,
+    oldestAgeDays,
+    totalEvaluation,
+    uniqueProducts: Array.from(products),
+    uniqueWarehouses: Array.from(warehouses),
+    uniqueDates: Array.from(dates).sort().reverse(),
+  };
+}
+
+// Resolves Inventory's search box (product name / serial / brand /
+// warehouse) and its 5 dropdown filters (date, product, warehouse,
+// distributor, sub-dealer) into a SYNC applier function, so the result can
+// be used to build a fresh query more than once (required for the export
+// path's chunked read loop - a Postgrest builder is single-use once
+// awaited, so re-applying filters to a brand-new base query each chunk is
+// the only safe way to re-range past the first page; see the identical
+// factory pattern in buildFilteredJobsQueryFactory above). Returns null when
+// a non-blank search term sanitized down to nothing (same rule as the
+// installer_jobs actions above - the caller must treat that as zero
+// matches, not "no filter").
+async function resolveInventoryFilterApplier(
+  supabase: any,
+  opts: {
+    search?: string;
+    filterDate?: string;
+    filterProduct?: string;
+    filterWarehouse?: string;
+    filterDistributorId?: string;
+    filterSubDealerId?: string;
+  }
+): Promise<((query: any) => any) | null> {
+  let filterProductIds: string[] | null = null;
+  if (opts.filterProduct) {
+    const { data: matchedProducts, error } = await supabase
+      .from("products")
+      .select("id")
+      .ilike("name", escapeLikePattern(opts.filterProduct));
+    if (error) throw error;
+    filterProductIds = (matchedProducts || []).map((p: any) => p.id);
+  }
+
+  const hadRawSearch = (opts.search || "").trim().length > 0;
+  const search = (opts.search || "").replace(/[,()]/g, " ").trim();
+  if (hadRawSearch && !search) return null;
+
+  let searchMatchingProductIds: string[] = [];
+  if (search) {
+    const pattern = escapeLikePattern(search);
+    const { data: matchedProducts, error } = await supabase
+      .from("products")
+      .select("id")
+      .or(`name.ilike.%${pattern}%,brand.ilike.%${pattern}%`);
+    if (error) throw error;
+    searchMatchingProductIds = (matchedProducts || []).map((p: any) => p.id);
+  }
+
+  return (query: any) => {
+    if (opts.filterDate) query = query.eq("import_date", opts.filterDate);
+    if (opts.filterWarehouse) query = query.ilike("warehouse_name", escapeLikePattern(opts.filterWarehouse));
+    if (opts.filterDistributorId) query = query.eq("distributor_id", opts.filterDistributorId);
+    if (opts.filterSubDealerId) query = query.eq("sub_dealer_id", opts.filterSubDealerId);
+    if (filterProductIds) {
+      query = query.in("product_id", filterProductIds.length ? filterProductIds : ["00000000-0000-0000-0000-000000000000"]);
+    }
+    if (search) {
+      const pattern = escapeLikePattern(search);
+      const orParts = [`serial_no.ilike.%${pattern}%`, `warehouse_name.ilike.%${pattern}%`];
+      if (searchMatchingProductIds.length > 0) {
+        orParts.push(`product_id.in.(${searchMatchingProductIds.join(",")})`);
+      }
+      query = query.or(orParts.join(","));
+    }
+    return query;
+  };
+}
+
+export type InventoryFilterOpts = {
+  search?: string;
+  filterDate?: string;
+  filterProduct?: string;
+  filterWarehouse?: string;
+  filterDistributorId?: string;
+  filterSubDealerId?: string;
+};
+
+// Paginated, server-filtered replacement for Inventory's old "fetch the
+// entire stock table on every load, then filter/sort/paginate in the
+// browser" approach (fetchStockAction above, unchanged, still does the
+// fetch-everything version for the mobile admin app's own Inventory screen,
+// which has no pagination UI of its own to drive this with).
+export async function fetchInventoryPageAction(
+  opts: InventoryFilterOpts & { page: number; pageSize: number; includeWidgets?: boolean }
+) {
+  const supabase = getAdminClient();
+  try {
+    const { factory, scope, isAdmin, granted } = await buildScopedStockQueryFactory(supabase);
+    if (!granted) {
+      return {
+        success: false, error: "Not authorized", data: [], totalCount: 0, isAdmin: false, scope: "self" as const,
+        widgets: null,
+      };
+    }
+
+    const page = Math.max(1, Math.floor(Number(opts.page)) || 1);
+    const pageSize = Math.min(100, Math.max(1, Math.floor(Number(opts.pageSize)) || 30));
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    const applier = await resolveInventoryFilterApplier(supabase, opts);
+
+    // Widgets/filter-options are a full (chunked, scope-wide) table scan -
+    // "always reflect the whole inventory" regardless of the current
+    // page/search/filter, so they don't need to be recomputed on every page
+    // turn or keystroke, only on initial load (and whenever the page
+    // explicitly asks, e.g. after a delete/sync that could change them).
+    const [pageResult, widgets] = await Promise.all([
+      applier === null
+        ? Promise.resolve({ data: [] as any[], count: 0, error: null as any })
+        : applier(factory(STOCK_SELECT_CLAUSE, { count: "exact" }).neq("status", "sold_out"))
+            .order("created_at", { ascending: false })
+            .range(from, to),
+      opts.includeWidgets
+        ? fetchInventoryWidgetsAndFilterOptions((selectClause: string) => factory(selectClause))
+        : Promise.resolve(null),
+    ]);
+
+    if (pageResult.error) throw pageResult.error;
+
+    return {
+      success: true,
+      data: pageResult.data || [],
+      totalCount: pageResult.count || 0,
+      isAdmin,
+      scope,
+      // null when includeWidgets wasn't requested - caller keeps whatever
+      // widget values it already has rather than this overwriting them with
+      // zeros, since this response simply never computed them this time.
+      widgets: widgets as {
+        totalInventoryCount: number;
+        oldestAgeDays: number;
+        totalEvaluation: number;
+        uniqueProducts: string[];
+        uniqueWarehouses: string[];
+        uniqueDates: string[];
+      } | null,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || "Failed to fetch stock",
+      data: [],
+      totalCount: 0,
+      isAdmin: false,
+      scope: "self" as const,
+      widgets: null,
+    };
+  }
+}
+
+// Unpaginated companion to fetchInventoryPageAction, for Export/"Select all
+// matching" - same filters, every matching row instead of one page.
+export async function fetchAllInventoryForExportAction(opts: InventoryFilterOpts) {
+  const supabase = getAdminClient();
+  try {
+    const { factory, granted } = await buildScopedStockQueryFactory(supabase);
+    if (!granted) {
+      return { success: false, error: "Not authorized", data: [] };
+    }
+
+    const applier = await resolveInventoryFilterApplier(supabase, opts);
+    if (applier === null) return { success: true, data: [] };
+
+    const PAGE_SIZE = 1000;
+    let allRows: any[] = [];
+    let from = 0;
+    while (true) {
+      // A fresh base query is built every iteration (factory(...), not a
+      // reused builder) since a Postgrest builder is single-use once
+      // awaited - re-ranging the same already-awaited query past its first
+      // page silently returns nothing instead of the next chunk.
+      const { data, error } = await applier(factory(STOCK_SELECT_CLAUSE).neq("status", "sold_out"))
+        .order("created_at", { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const page = data || [];
+      allRows = allRows.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+
+    return { success: true, data: allRows };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch inventory for export", data: [] };
+  }
+}
+
 export async function deleteStockAction(ids: string[]) {
   try {
     const caller = await getCallerIdentity();
@@ -497,6 +800,292 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
   }
 }
 
+// Strips characters that are syntactically significant inside a PostgREST
+// .or() filter string (comma separates conditions, parens group them) -
+// escapeLikePattern alone only protects ILIKE wildcards, not this. A search
+// term containing any of these just has them dropped rather than breaking
+// the query. If sanitizing empties an otherwise non-blank search term (e.g.
+// the user typed only "(" or ","), the caller must treat that as "zero rows
+// match" - NOT "no filter" - see buildFilteredJobsQueryFactory below.
+function sanitizeForOrFilter(value: string): string {
+  return value.replace(/[,()]/g, " ").trim();
+}
+
+const JOB_STATUS_GROUPS: Record<string, string[]> = {
+  pending_rm: ["pending_verification", "assigned", "in_progress"],
+  pending_ch: ["pending_approval", "pending_installation_approval"],
+  approved: ["approved"],
+  rejected: ["rejected"],
+};
+
+// Chunked past 1000 rows - the installer-name search below is realistically
+// small (matches within role=installer profiles), but every other full read
+// in this file pages through the same way rather than assuming a table
+// stays under PostgREST's default cap forever.
+async function resolveMatchingInstallerIds(supabase: any, search: string): Promise<string[]> {
+  const pattern = escapeLikePattern(search);
+  const PAGE_SIZE = 1000;
+  let ids: string[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("role", "installer")
+      .or(`first_name.ilike.%${pattern}%,last_name.ilike.%${pattern}%`)
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = data || [];
+    ids = ids.concat(page.map((p: any) => p.id));
+    if (page.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return ids;
+}
+
+// Shared by fetchInstallerJobsPageAction and fetchAllInstallerJobsForExportAction,
+// so the status/search filtering logic (and its edge cases) only exists once.
+// Returns:
+//  - null: the raw search term was non-blank but sanitized down to nothing -
+//    the caller must return zero rows, not fall through to an unfiltered query.
+//  - a factory function otherwise: Postgrest query builders are single-use
+//    once awaited, so a fresh one has to be built for every page/chunk a
+//    caller reads (same pattern fetchStockAction already uses below) -
+//    returning an already-built query here would break the export path's
+//    chunked read loop after its first iteration.
+async function buildFilteredJobsQueryFactory(
+  supabase: any,
+  selectClause: string,
+  selectOpts: { count: "exact" } | undefined,
+  statusFilter: string,
+  rawSearch: string
+): Promise<(() => any) | null> {
+  const hadRawSearch = (rawSearch || "").trim().length > 0;
+  const search = sanitizeForOrFilter(rawSearch || "");
+  if (hadRawSearch && !search) return null;
+
+  const matchingInstallerIds = search ? await resolveMatchingInstallerIds(supabase, search) : [];
+
+  return () => {
+    let q = selectOpts
+      ? supabase.from("installer_jobs").select(selectClause, selectOpts)
+      : supabase.from("installer_jobs").select(selectClause);
+    if (statusFilter !== "all") {
+      q = q.in("status", JOB_STATUS_GROUPS[statusFilter]);
+    }
+    if (search) {
+      const pattern = escapeLikePattern(search);
+      const orParts = [`address.ilike.%${pattern}%`, `serial_number.ilike.%${pattern}%`];
+      if (matchingInstallerIds.length > 0) {
+        orParts.push(`installer_id.in.(${matchingInstallerIds.join(",")})`);
+      }
+      q = q.or(orParts.join(","));
+    }
+    return q.order("created_at", { ascending: false });
+  };
+}
+
+// Table-wide count of how many non-rejected jobs share each serial number -
+// feeds the "⚠ Duplicate" badge on both the paginated view and the Export/
+// "Select all matching" path, deliberately unfiltered by the caller's own
+// status/search so a duplicate sitting in a different tab is still caught
+// (matches the original client-side logic, which scanned every loaded job
+// regardless of the active filter). Chunked past 1000 rows for the same
+// reason as everything else in this file - non-rejected installer_jobs rows
+// can already be in that range.
+async function fetchActiveSerialCounts(supabase: any): Promise<Record<string, number>> {
+  const PAGE_SIZE = 1000;
+  let allRows: any[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("installer_jobs")
+      .select("serial_number")
+      .neq("status", "rejected")
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = data || [];
+    allRows = allRows.concat(page);
+    if (page.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+
+  const counts: Record<string, number> = {};
+  allRows.forEach((r: any) => {
+    const sn = (r.serial_number || "").trim().toLowerCase();
+    if (sn) counts[sn] = (counts[sn] || 0) + 1;
+  });
+  return counts;
+}
+
+const JOB_SELECT_CLAUSE = `
+  id, job_title, address, status, payment_status, created_at, photos, notes,
+  serial_number, remarks, incentive,
+  installer:profiles!installer_id(first_name, last_name, contact, payment_provider, payment_account_no)
+`;
+
+// Paginated, server-filtered replacement for fetching every installer_jobs
+// row into the browser on every page load (the old approach, no range/limit
+// at all, silently capped at PostgREST's 1000-row default - the exact bug
+// already found and fixed for `stock` in August, never applied here). Also
+// computes the per-status tab counts and the active-serial duplicate map
+// from narrow, count-only/two-column queries instead of requiring the full
+// row set to be in memory - this is what the Job Assignment page's "N
+// Installation(s)" tiles and "⚠ Duplicate" badge now read from.
+export async function fetchInstallerJobsPageAction(opts: {
+  page: number;
+  pageSize: number;
+  statusFilter: "all" | "pending_rm" | "pending_ch" | "approved" | "rejected";
+  search?: string;
+}) {
+  // Server actions are directly callable (not just reachable through the
+  // page's own middleware-gated route), unlike the old inline client-side
+  // query this replaces, which only ever ran inside a session already past
+  // middleware. Re-checks the same installer.verify_installation grant the
+  // page itself requires to be reachable at all, same pattern as
+  // verifyJobStage1Action/approveJobStage2Action elsewhere in this file -
+  // deny-by-default, not just "assume the caller got this far legitimately".
+  const { granted } = await getMyScopeAction("installer.verify_installation");
+  if (!granted) {
+    return { success: false, error: "Not authorized", data: [], totalCount: 0, statusCounts: {}, activeSerialCounts: {} };
+  }
+
+  // This action is directly callable, not just reachable through the page's
+  // own UI, which only ever sends sane values - an authorized-but-arbitrary
+  // caller could otherwise request e.g. pageSize: 100000 (re-opening a
+  // milder version of the "whole table in one response" problem this
+  // action exists to fix) or a statusFilter string outside the literal
+  // union (unenforceable at runtime, since this repo's own next.config.mjs
+  // ignores TS errors at build - see CLAUDE.md).
+  const page = Math.max(1, Math.floor(Number(opts.page)) || 1);
+  const pageSize = Math.min(100, Math.max(1, Math.floor(Number(opts.pageSize)) || 30));
+  const statusFilter = (["all", ...Object.keys(JOB_STATUS_GROUPS)].includes(opts.statusFilter)
+    ? opts.statusFilter
+    : "all") as typeof opts.statusFilter;
+
+  const supabase = getAdminClient();
+  try {
+    const factory = await buildFilteredJobsQueryFactory(
+      supabase,
+      JOB_SELECT_CLAUSE,
+      { count: "exact" },
+      statusFilter,
+      opts.search || ""
+    );
+
+    const STATUS_KEYS = Object.keys(JOB_STATUS_GROUPS) as (keyof typeof JOB_STATUS_GROUPS)[];
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    const [pageResult, countsArr, allTotalRes, activeSerialCounts] = await Promise.all([
+      factory === null
+        ? Promise.resolve({ data: [] as any[], count: 0, error: null as any })
+        : factory().range(from, to),
+      Promise.all(
+        STATUS_KEYS.map(async (key) => {
+          const { count, error } = await supabase
+            .from("installer_jobs")
+            .select("id", { count: "exact", head: true })
+            .in("status", JOB_STATUS_GROUPS[key]);
+          if (error) throw error;
+          return [key, count || 0] as const;
+        })
+      ),
+      supabase.from("installer_jobs").select("id", { count: "exact", head: true }),
+      fetchActiveSerialCounts(supabase),
+    ]);
+
+    if (pageResult.error) throw pageResult.error;
+    if (allTotalRes.error) throw allTotalRes.error;
+
+    const statusCounts: Record<string, number> = Object.fromEntries(countsArr);
+    statusCounts.all = allTotalRes.count || 0;
+
+    return {
+      success: true,
+      data: pageResult.data || [],
+      totalCount: pageResult.count || 0,
+      statusCounts,
+      activeSerialCounts,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || "Failed to fetch jobs",
+      data: [],
+      totalCount: 0,
+      statusCounts: {},
+      activeSerialCounts: {},
+    };
+  }
+}
+
+// Unpaginated companion to fetchInstallerJobsPageAction, for Export/"Select
+// all matching" - same status+search filter, every matching row instead of
+// one page, plus the same table-wide duplicate-serial map (not scoped to
+// just the exported rows - a duplicate sitting outside the current filter
+// must still be flagged on the exported rows that share its serial). Only
+// called on demand (button click), never loaded into page state
+// automatically, so the per-page view above never pays this cost.
+export async function fetchAllInstallerJobsForExportAction(opts: {
+  statusFilter: "all" | "pending_rm" | "pending_ch" | "approved" | "rejected";
+  search?: string;
+}) {
+  // Same re-check as fetchInstallerJobsPageAction above - this one hands
+  // back the full matching set (Export/"Select all matching"), so skipping
+  // it here would be the bigger hole of the two.
+  const { granted } = await getMyScopeAction("installer.verify_installation");
+  if (!granted) {
+    return { success: false, error: "Not authorized", data: [], activeSerialCounts: {} };
+  }
+
+  // Same defense as fetchInstallerJobsPageAction - a directly-callable
+  // action can't trust the literal union is actually enforced at runtime.
+  const statusFilter = (["all", ...Object.keys(JOB_STATUS_GROUPS)].includes(opts.statusFilter)
+    ? opts.statusFilter
+    : "all") as typeof opts.statusFilter;
+
+  const supabase = getAdminClient();
+  try {
+    const factory = await buildFilteredJobsQueryFactory(
+      supabase,
+      JOB_SELECT_CLAUSE,
+      undefined,
+      statusFilter,
+      opts.search || ""
+    );
+
+    const [allRows, activeSerialCounts] = await Promise.all([
+      factory === null
+        ? Promise.resolve([] as any[])
+        : (async () => {
+            // Same 1000-row-per-response ceiling as stock - page through
+            // until a page comes back short, so export always returns every
+            // matching row no matter how large the table grows. A fresh
+            // query is built each iteration (factory(), not a reused
+            // builder) since a Postgrest builder is single-use once awaited.
+            const PAGE_SIZE = 1000;
+            let rows: any[] = [];
+            let from = 0;
+            while (true) {
+              const { data, error } = await factory().range(from, from + PAGE_SIZE - 1);
+              if (error) throw error;
+              const page = data || [];
+              rows = rows.concat(page);
+              if (page.length < PAGE_SIZE) break;
+              from += PAGE_SIZE;
+            }
+            return rows;
+          })(),
+      fetchActiveSerialCounts(supabase),
+    ]);
+
+    return { success: true, data: allRows, activeSerialCounts };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch jobs for export", data: [], activeSerialCounts: {} };
+  }
+}
+
 // === Job submission two-stage review ===
 // Stage 1 (verify/reject): Regional Manager, Country Head, or Admin.
 // Stage 2 (final approve/reject): Country Head or Admin only.
@@ -671,33 +1260,50 @@ export async function fetchSellOutAction(opts?: CallerOpts) {
   try {
     const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("sales.sellout", opts);
 
-    let query = supabase
-      .from("stock")
-      .select(`
-        *,
-        products (
-          name,
-          brand,
-          model
-        ),
-        installer:profiles!sold_out_by_installer_id (
-          first_name,
-          last_name
-        )
-      `)
-      .eq("status", "sold_out");
+    // A Postgrest query builder is single-use once awaited, so a fresh one
+    // has to be built for every chunk fetched below (same pattern
+    // fetchStockAction above uses).
+    const buildQuery = () => {
+      let q = supabase
+        .from("stock")
+        .select(`
+          *,
+          products (
+            name,
+            brand,
+            model
+          ),
+          installer:profiles!sold_out_by_installer_id (
+            first_name,
+            last_name
+          )
+        `)
+        .eq("status", "sold_out");
 
-    // Self scope mirrors the ownership check submitManualSelloutAction already
-    // enforces on write - a sub-dealer (or distributor) only ever sees sellouts
-    // that were actually theirs, not the whole table.
-    if (scope === "self" && callerId) {
-      query = query.or(`distributor_id.eq.${callerId},sub_dealer_id.eq.${callerId}`);
+      // Self scope mirrors the ownership check submitManualSelloutAction already
+      // enforces on write - a sub-dealer (or distributor) only ever sees sellouts
+      // that were actually theirs, not the whole table.
+      if (scope === "self" && callerId) {
+        q = q.or(`distributor_id.eq.${callerId},sub_dealer_id.eq.${callerId}`);
+      }
+      return q.order("sold_out_at", { ascending: false });
+    };
+
+    // Chunked past 1000 rows - same silent PostgREST cap already found and
+    // fixed for `stock` elsewhere in this file (confirmed live: rows beyond
+    // the newest 1000 were silently never reaching the page). This query
+    // hits the same table, filtered to status=sold_out but still unbounded.
+    const PAGE_SIZE = 1000;
+    let rows: any[] = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const page = data || [];
+      rows = rows.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
     }
-
-    let { data, error } = await query.order("sold_out_at", { ascending: false });
-
-    if (error) throw error;
-    let rows = data || [];
 
     // Region scope: Sell Out has no "two sides" the way ST2/Return/Transfer do -
     // the unit was sold by whichever of sub_dealer/distributor/warehouse held it,

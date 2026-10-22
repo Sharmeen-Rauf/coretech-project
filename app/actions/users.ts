@@ -709,10 +709,242 @@ async function getUsersScopeAndWrite(
   };
 }
 
+// Escapes SQL LIKE/ILIKE wildcard characters in user-supplied input before it
+// reaches an .ilike() call - same helper as app/actions/products.ts, not
+// imported from there to avoid a cross-module import (this file already has
+// its own getAdminClient/Client pattern, matching every other action file).
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+// Strips characters that are syntactically significant inside a PostgREST
+// .or() filter string (comma separates conditions, parens group them).
+function sanitizeForOrFilter(value: string): string {
+  return value.replace(/[,()]/g, " ").trim();
+}
+
+// Paginated, server-filtered replacement for fetchUsersAction's old "fetch
+// every profile matching this role tab, filter/paginate in the browser"
+// approach - same unbounded-select-with-no-range problem already found and
+// fixed for `stock` (August) and `installer_jobs` above, never applied here.
+// Keeps fetchUsersAction itself unchanged (still used wherever something
+// needs the full unpaginated list, e.g. UserModal's dropdowns elsewhere in
+// this file that reuse it).
+export async function fetchUsersPageAction(opts: {
+  activeRole: string;
+  page: number;
+  pageSize: number;
+  search?: string;
+}) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated", data: [], totalCount: 0, canWrite: false };
+
+    // This is a directly-callable Server Action, not just reachable through
+    // the page's own role=employee|distributor|sub_dealer|installer tabs.
+    // USERS_SCOPE_KEY_BY_ACTIVE_ROLE only maps those 4 - any other
+    // activeRole string (e.g. "admin") has no scopeKey, and
+    // getUsersScopeAndWrite's own fallback for "no scopeKey" is
+    // scope:"everything", canWrite:true - i.e. unrestricted. Rejecting
+    // anything outside the known 4 closes that off; a caller legitimately
+    // permitted for one of the 4 still goes through the real scope check
+    // right after.
+    const activeRole = opts.activeRole;
+    if (!(activeRole in USERS_SCOPE_KEY_BY_ACTIVE_ROLE)) {
+      return { success: false, error: "Not authorized", data: [], totalCount: 0, canWrite: false };
+    }
+    const scopeKey = USERS_SCOPE_KEY_BY_ACTIVE_ROLE[activeRole];
+    const { scope, callerRegion, canWrite, granted } = await getUsersScopeAndWrite(caller, scopeKey);
+    if (!granted) {
+      return { success: false, error: "Not authorized", data: [], totalCount: 0, canWrite: false };
+    }
+
+    const page = Math.max(1, Math.floor(Number(opts.page)) || 1);
+    const pageSize = Math.min(100, Math.max(1, Math.floor(Number(opts.pageSize)) || 30));
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    const supabase = getAdminClient();
+
+    // Search needs to match on email too, which lives in auth.users, not
+    // profiles - resolve matching ids there first (same pattern as
+    // resolving matching installer names in app/actions/products.ts).
+    const hadRawSearch = (opts.search || "").trim().length > 0;
+    const search = sanitizeForOrFilter(opts.search || "");
+    if (hadRawSearch && !search) {
+      // Every character was filter-syntax punctuation - genuinely zero
+      // matches, not "no filter" (would otherwise silently return everyone).
+      return { success: true, data: [], totalCount: 0, role: caller.role, canWrite };
+    }
+
+    let emailMatchIds: string[] = [];
+    if (search) {
+      try {
+        const rows = await queryAuthUsers("email ILIKE $1", [`%${search}%`]);
+        emailMatchIds = rows.map((r) => r.id);
+      } catch {
+        // Non-fatal - search still works against the profile columns below.
+      }
+    }
+
+    let query = supabase.from("profiles").select("*", { count: "exact" });
+    if (activeRole === "employee") {
+      query = query.not("role", "in", "(distributor,sub_dealer,installer)");
+    } else {
+      query = query.eq("role", activeRole);
+    }
+
+    if (scope === "self") {
+      if (activeRole === "sub_dealer" && caller.role === "distributor") {
+        query = query.eq("distributor_id", caller.id);
+      } else {
+        query = query.eq("id", caller.id);
+      }
+    } else if (scope === "region" && callerRegion) {
+      // sanitizeForOrFilter first - a region value containing a comma or
+      // paren would otherwise break/misparse this .or() filter string the
+      // same way an unsanitized search term would.
+      query = query.or(`id.eq.${caller.id},region.ilike.${escapeLikePattern(sanitizeForOrFilter(callerRegion))}`);
+    }
+    // scope === "everything": no filter.
+
+    if (search) {
+      const pattern = escapeLikePattern(search);
+      const orParts = [
+        `first_name.ilike.%${pattern}%`,
+        `last_name.ilike.%${pattern}%`,
+        `designation.ilike.%${pattern}%`,
+        `contact.ilike.%${pattern}%`,
+        `group_name.ilike.%${pattern}%`,
+      ];
+      if (emailMatchIds.length > 0) {
+        orParts.push(`id.in.(${emailMatchIds.join(",")})`);
+      }
+      query = query.or(orParts.join(","));
+    }
+
+    const { data: profiles, count, error } = await query.order("created_at", { ascending: false }).range(from, to);
+    if (error) throw error;
+
+    const rows = profiles || [];
+    const emailsRes = await fetchEmailsByIdsAction(rows.map((p: any) => p.id));
+    const emailMap = emailsRes.success ? emailsRes.data : {};
+    const withEmails = rows.map((p: any) => ({ ...p, email: emailMap[p.id] || "" }));
+
+    return { success: true, data: withEmails, totalCount: count || 0, role: caller.role, canWrite };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch users", data: [], totalCount: 0, canWrite: false };
+  }
+}
+
+// Unpaginated companion to fetchUsersPageAction, for Export/"Select all
+// matching" - same filters, every matching row instead of one page.
+export async function fetchAllUsersForExportAction(opts: { activeRole: string; search?: string }) {
+  try {
+    const caller = await getCallerIdentity();
+    if (!caller) return { success: false, error: "Not authenticated", data: [] };
+
+    // Same allowlist + granted check as fetchUsersPageAction - this one
+    // hands back the full matching set, so skipping it here would be the
+    // bigger hole of the two.
+    const activeRole = opts.activeRole;
+    if (!(activeRole in USERS_SCOPE_KEY_BY_ACTIVE_ROLE)) {
+      return { success: false, error: "Not authorized", data: [] };
+    }
+    const scopeKey = USERS_SCOPE_KEY_BY_ACTIVE_ROLE[activeRole];
+    const { scope, callerRegion, granted } = await getUsersScopeAndWrite(caller, scopeKey);
+    if (!granted) {
+      return { success: false, error: "Not authorized", data: [] };
+    }
+
+    const supabase = getAdminClient();
+
+    const hadRawSearch = (opts.search || "").trim().length > 0;
+    const search = sanitizeForOrFilter(opts.search || "");
+    if (hadRawSearch && !search) return { success: true, data: [] };
+
+    let emailMatchIds: string[] = [];
+    if (search) {
+      try {
+        const rows = await queryAuthUsers("email ILIKE $1", [`%${search}%`]);
+        emailMatchIds = rows.map((r) => r.id);
+      } catch {
+        // Non-fatal
+      }
+    }
+
+    const buildQuery = () => {
+      let q = supabase.from("profiles").select("*");
+      if (activeRole === "employee") {
+        q = q.not("role", "in", "(distributor,sub_dealer,installer)");
+      } else {
+        q = q.eq("role", activeRole);
+      }
+      if (scope === "self") {
+        if (activeRole === "sub_dealer" && caller.role === "distributor") {
+          q = q.eq("distributor_id", caller.id);
+        } else {
+          q = q.eq("id", caller.id);
+        }
+      } else if (scope === "region" && callerRegion) {
+        q = q.or(`id.eq.${caller.id},region.ilike.${escapeLikePattern(sanitizeForOrFilter(callerRegion))}`);
+      }
+      if (search) {
+        const pattern = escapeLikePattern(search);
+        const orParts = [
+          `first_name.ilike.%${pattern}%`,
+          `last_name.ilike.%${pattern}%`,
+          `designation.ilike.%${pattern}%`,
+          `contact.ilike.%${pattern}%`,
+          `group_name.ilike.%${pattern}%`,
+        ];
+        if (emailMatchIds.length > 0) {
+          orParts.push(`id.in.(${emailMatchIds.join(",")})`);
+        }
+        q = q.or(orParts.join(","));
+      }
+      return q.order("created_at", { ascending: false });
+    };
+
+    const PAGE_SIZE = 1000;
+    let allRows: any[] = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const page = data || [];
+      allRows = allRows.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+
+    const emailsRes = await fetchEmailsByIdsAction(allRows.map((p: any) => p.id));
+    const emailMap = emailsRes.success ? emailsRes.data : {};
+    const withEmails = allRows.map((p: any) => ({ ...p, email: emailMap[p.id] || "" }));
+
+    return { success: true, data: withEmails };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch users for export", data: [] };
+  }
+}
+
 export async function fetchUsersAction(activeRole: string, opts?: CallerOpts) {
   try {
     const caller = await getCallerIdentity(opts?.accessToken);
     if (!caller) return { success: false, error: "Not authenticated", data: [] };
+
+    // Directly-callable Server Action - activeRole is only ever
+    // "employee"/"distributor"/"sub_dealer"/"installer" from the page's own
+    // tabs, but an arbitrary caller could otherwise pass anything. Any value
+    // outside USERS_SCOPE_KEY_BY_ACTIVE_ROLE has no scopeKey, and
+    // getUsersScopeAndWrite's own "no scopeKey" fallback is
+    // scope:"everything" - unrestricted. "employee" is the intended
+    // catch-all for admin/office roles (its own query below is already a
+    // deny-list, not keyed to this map), so this isn't a new restriction on
+    // legitimate access, only on activeRole values no real tab ever sends.
+    if (!["employee", "distributor", "sub_dealer", "installer"].includes(activeRole)) {
+      return { success: false, error: "Not authorized", data: [] };
+    }
 
     const supabase = getAdminClient();
     let query = supabase.from("profiles").select("*");
@@ -731,7 +963,10 @@ export async function fetchUsersAction(activeRole: string, opts?: CallerOpts) {
     if (error) throw error;
 
     const scopeKey = USERS_SCOPE_KEY_BY_ACTIVE_ROLE[activeRole];
-    const { scope, callerRegion, canWrite } = await getUsersScopeAndWrite(caller, scopeKey);
+    const { scope, callerRegion, canWrite, granted } = await getUsersScopeAndWrite(caller, scopeKey);
+    if (!granted) {
+      return { success: false, error: "Not authorized", data: [] };
+    }
 
     let scoped = profiles || [];
     if (scope === "self") {
@@ -831,6 +1066,201 @@ export async function getCallerIdentity(accessToken?: string): Promise<{ id: str
 // === Installer registration two-stage review ===
 // Stage 1 (verify/reject): Regional Manager, Country Head, or Admin.
 // Stage 2 (final approve/reject): Country Head or Admin only.
+
+const INSTALLER_STATUS_GROUPS: Record<string, string[]> = {
+  active: ["active", "approved"],
+  approved: ["active", "approved"],
+  pending_approval: ["pending_approval", "verified"],
+  verified: ["pending_approval", "verified"],
+  pending_verification: ["pending_verification", "pending"],
+  pending: ["pending_verification", "pending"],
+};
+
+// Resolves (a) whether the caller is allowed to see the installer list at
+// all, and (b) their RSM region-isolation filter, if any. The route itself
+// is gated on "installer.verify_installer" (lib/permissionCatalog.ts) via
+// middleware, but these are directly-callable Server Actions - not just
+// reachable through that middleware-gated page - so the same permission is
+// re-checked here, same posture as every other scoped action in this file.
+// "RSM" region isolation is the caller's own role/group_name, not itself a
+// Role Management scope_level (this page predates that system for the
+// region-filter specifically, though the base grant now goes through it).
+async function resolveInstallerListAuth(supabase: any) {
+  const caller = await getCallerIdentity();
+  if (!caller) return { caller: null, rsmRegion: null as string | null };
+
+  const { granted } = await getUsersScopeAndWrite(caller, "installer.verify_installer");
+  if (!granted) return { caller: null, rsmRegion: null as string | null };
+
+  const { data: prof } = await supabase.from("profiles").select("region, group_name").eq("id", caller.id).maybeSingle();
+  const isRsmUser = caller.role === "rsm" || prof?.group_name === "rsm";
+  if (isRsmUser && prof?.region) {
+    return { caller, rsmRegion: prof.region as string };
+  }
+  return { caller, rsmRegion: null as string | null };
+}
+
+function applyInstallerListFilters(
+  query: any,
+  opts: { statusFilter?: string; startDate?: string; endDate?: string; rsmRegion?: string | null }
+) {
+  if (opts.statusFilter && INSTALLER_STATUS_GROUPS[opts.statusFilter]) {
+    query = query.in("status", INSTALLER_STATUS_GROUPS[opts.statusFilter]);
+  } else if (opts.statusFilter) {
+    query = query.eq("status", opts.statusFilter);
+  }
+  if (opts.startDate) query = query.gte("created_at", opts.startDate);
+  if (opts.endDate) query = query.lte("created_at", `${opts.endDate}T23:59:59.999Z`);
+  if (opts.rsmRegion) {
+    // Matches the original client-side rule: a row with no region at all
+    // still shows (not excluded as "wrong region"), only a *different*
+    // non-empty region is excluded. sanitizeForOrFilter first - a region
+    // value containing a comma or paren would otherwise break/misparse this
+    // .or() filter string.
+    query = query.or(`region.is.null,region.eq.,region.ilike.${escapeLikePattern(sanitizeForOrFilter(opts.rsmRegion))}`);
+  }
+  return query;
+}
+
+// Paginated, server-filtered replacement for Installer List's old
+// "fetch every installer profile, filter/paginate in the browser" approach -
+// same unbounded-select problem already found and fixed elsewhere. Search
+// covers first_name/last_name/contact (not the installer_id prefix shown in
+// the UI, which is just a slice of the uuid - a narrower, disclosed gap
+// versus the old client-side search, which could match that prefix too).
+export async function fetchInstallersPageAction(opts: {
+  page: number;
+  pageSize: number;
+  search?: string;
+  statusFilter?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
+  const supabase = getAdminClient();
+  try {
+    const { caller, rsmRegion } = await resolveInstallerListAuth(supabase);
+    if (!caller) return { success: false, error: "Not authenticated", data: [], totalCount: 0, counts: {} };
+
+    const page = Math.max(1, Math.floor(Number(opts.page)) || 1);
+    const pageSize = Math.min(100, Math.max(1, Math.floor(Number(opts.pageSize)) || 30));
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    const hadRawSearch = (opts.search || "").trim().length > 0;
+    const search = sanitizeForOrFilter(opts.search || "");
+    const searchIsEmptyMatch = hadRawSearch && !search;
+
+    let query = applyInstallerListFilters(
+      supabase.from("profiles").select("*", { count: "exact" }).eq("role", "installer"),
+      { statusFilter: opts.statusFilter, startDate: opts.startDate, endDate: opts.endDate, rsmRegion }
+    );
+    if (search) {
+      const pattern = escapeLikePattern(search);
+      query = query.or(`first_name.ilike.%${pattern}%,last_name.ilike.%${pattern}%,contact.ilike.%${pattern}%`);
+    }
+
+    const { data: rows, count, error } = searchIsEmptyMatch
+      ? { data: [] as any[], count: 0, error: null as any }
+      : await query.order("created_at", { ascending: false }).range(from, to);
+    if (error) throw error;
+
+    const emailsRes = await fetchEmailsByIdsAction((rows || []).map((p: any) => p.id));
+    const emailMap = emailsRes.success ? emailsRes.data : {};
+    const data = (rows || []).map((prof: any) => ({
+      ...prof,
+      email: emailMap[prof.id] || "",
+      installer_id: (prof.id || "").substring(0, 8).toUpperCase(),
+      installer_name: `${prof.first_name || ""} ${prof.last_name || ""}`.trim() || "Installer",
+    }));
+
+    // KPI tiles: counts per status group, scoped by RSM region but
+    // deliberately NOT by the current date-range filter (the original
+    // per-status date fields - verified_at/approved_at vs created_at - don't
+    // reduce to one straightforward range query across all four at once;
+    // simplified here to always-all-time tile counts rather than silently
+    // getting the date-aware figure wrong).
+    const STATUS_KEYS = ["pending_verification", "pending_approval", "approved"] as const;
+    const countsArr = await Promise.all(
+      STATUS_KEYS.map(async (key) => {
+        let q = applyInstallerListFilters(
+          supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "installer"),
+          { statusFilter: key, rsmRegion }
+        );
+        const { count: c, error: cErr } = await q;
+        if (cErr) throw cErr;
+        return [key, c || 0] as const;
+      })
+    );
+    const counts: Record<string, number> = Object.fromEntries(countsArr);
+    let registeredQuery = applyInstallerListFilters(
+      supabase.from("profiles").select("id", { count: "exact", head: true }).eq("role", "installer"),
+      { rsmRegion }
+    );
+    const { count: registeredCount, error: regErr } = await registeredQuery;
+    if (regErr) throw regErr;
+    counts.registered = registeredCount || 0;
+
+    return { success: true, data, totalCount: count || 0, counts };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch installers", data: [], totalCount: 0, counts: {} };
+  }
+}
+
+// Unpaginated companion to fetchInstallersPageAction, for Export/"Select all
+// matching" - same filters, every matching row instead of one page.
+export async function fetchAllInstallersForExportAction(opts: {
+  search?: string;
+  statusFilter?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
+  const supabase = getAdminClient();
+  try {
+    const { caller, rsmRegion } = await resolveInstallerListAuth(supabase);
+    if (!caller) return { success: false, error: "Not authenticated", data: [] };
+
+    const hadRawSearch = (opts.search || "").trim().length > 0;
+    const search = sanitizeForOrFilter(opts.search || "");
+    if (hadRawSearch && !search) return { success: true, data: [] };
+
+    const buildQuery = () => {
+      let q = applyInstallerListFilters(
+        supabase.from("profiles").select("*").eq("role", "installer"),
+        { statusFilter: opts.statusFilter, startDate: opts.startDate, endDate: opts.endDate, rsmRegion }
+      );
+      if (search) {
+        const pattern = escapeLikePattern(search);
+        q = q.or(`first_name.ilike.%${pattern}%,last_name.ilike.%${pattern}%,contact.ilike.%${pattern}%`);
+      }
+      return q.order("created_at", { ascending: false });
+    };
+
+    const PAGE_SIZE = 1000;
+    let allRows: any[] = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const page = data || [];
+      allRows = allRows.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+
+    const emailsRes = await fetchEmailsByIdsAction(allRows.map((p: any) => p.id));
+    const emailMap = emailsRes.success ? emailsRes.data : {};
+    const data = allRows.map((prof: any) => ({
+      ...prof,
+      email: emailMap[prof.id] || "",
+      installer_id: (prof.id || "").substring(0, 8).toUpperCase(),
+      installer_name: `${prof.first_name || ""} ${prof.last_name || ""}`.trim() || "Installer",
+    }));
+
+    return { success: true, data };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to fetch installers for export", data: [] };
+  }
+}
 
 export async function verifyInstallerStage1Action(instId: string) {
   try {

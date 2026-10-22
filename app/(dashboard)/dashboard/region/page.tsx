@@ -63,11 +63,35 @@ export default function RegionPage() {
       console.warn("Regions fetch failed.", err);
     }
 
-    // Fetch user profiles to compute live counts per region
+    // Fetch user profiles to compute live counts per region. Chunked past
+    // 1000 rows - Supabase/PostgREST silently caps any unlimited query at
+    // 1000 (no error, just drops the oldest rows), confirmed live on this
+    // same `profiles` table elsewhere in this project - a fresh query is
+    // built per chunk since a Postgrest builder is single-use once awaited.
+    // Ordered by id - .range() has no ordering guarantee without an
+    // explicit .order(), which could otherwise skip/duplicate rows across a
+    // chunk boundary. If any chunk after the first fails, the partial list
+    // gathered so far is discarded rather than silently used as-is - before
+    // chunking existed, any failure meant an all-or-nothing empty list, and
+    // a partial list here would look complete while quietly undercounting.
     let profilesList: any[] = [];
     try {
-      const { data: profs } = await supabase.from("profiles").select("role, group_name, region");
-      if (profs) profilesList = profs;
+      const collected: any[] = [];
+      const PAGE_SIZE = 1000;
+      let from = 0;
+      while (true) {
+        const { data: profs, error } = await supabase
+          .from("profiles")
+          .select("role, group_name, region")
+          .order("id", { ascending: true })
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        const page = profs || [];
+        collected.push(...page);
+        if (page.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      profilesList = collected;
     } catch (e) {
       console.warn("Failed to fetch profiles for region count", e);
     }

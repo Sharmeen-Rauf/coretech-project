@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createClientComponentClient } from "@/lib/supabase";
 import DataTable from "@/components/DataTable";
 import CameraCaptureButton from "@/components/CameraCaptureButton";
@@ -31,6 +31,8 @@ import {
   rejectJobStage1Action,
   rejectJobStage2Action,
   setJobPaymentPaidAction,
+  fetchInstallerJobsPageAction,
+  fetchAllInstallerJobsForExportAction,
 } from "@/app/actions/products";
 import { getMyScopeAction } from "@/app/actions/roles";
 
@@ -66,6 +68,26 @@ export default function AdminJobsPage() {
   const [installers, setInstallers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Pagination/search/filter state - fetchData below asks the server for
+  // just one page matching these instead of loading every job ever created
+  // (the old behavior had no range/limit at all, silently capped at
+  // PostgREST's 1000-row default once this table passed that size).
+  const perPage = 30;
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  // Total rows matching the current status filter + search - what the page
+  // controls below paginate over. Distinct from statusCounts.all, which is
+  // always the grand total regardless of filter (for the "All" KPI tile).
+  const [pageTotalCount, setPageTotalCount] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({
+    all: 0,
+    pending_rm: 0,
+    pending_ch: 0,
+    approved: 0,
+    rejected: 0,
+  });
+
   // Form states
   const [jobTitle, setJobTitle] = useState("");
   const [selectedInstallerId, setSelectedInstallerId] = useState("");
@@ -88,30 +110,92 @@ export default function AdminJobsPage() {
   // than being hardcoded to the admin role.
   const [canMarkPaid, setCanMarkPaid] = useState(false);
 
+  // Shared between the paginated fetch below and the Export/"Select all
+  // matching" path, so both produce identically-shaped rows from raw DB
+  // rows + the active-serial duplicate map, whatever its source.
+  const formatJobRow = (row: any, activeSerialCounts: Record<string, number>): JobRow => {
+    let sn = row.serial_number || "";
+    let rem = row.remarks || "";
+    let inc = row.incentive ? parseFloat(row.incentive) : 0;
+    let notesText = row.notes || "";
+
+    if (notesText.startsWith("[METADATA]")) {
+      try {
+        const firstLine = notesText.split("\n")[0];
+        // Keep notesText intact (including the VIDEO: tag) — the detail panel
+        // below re-parses it to find the installation video URL. Only use
+        // firstLine locally to read out SN/INC/REM.
+        const metaStr = firstLine.replace("[METADATA] ", "");
+        const parts = metaStr.split(" | ");
+        parts.forEach((part: string) => {
+          const [key, ...rest] = part.split(":");
+          const val = rest.join(":");
+          if (key === "SN") sn = val;
+          else if (key === "INC") inc = parseFloat(val) || 0;
+          else if (key === "REM") rem = val;
+        });
+      } catch (e) {}
+    }
+
+    const instName = row.installer
+      ? `${row.installer.first_name} ${row.installer.last_name || ""}`.trim()
+      : "Unassigned";
+
+    const snKey = sn.trim().toLowerCase();
+    const isActive = (row.status || "").trim().toLowerCase() !== "rejected";
+    const count = snKey && isActive ? (activeSerialCounts[snKey] || 0) : 0;
+
+    return {
+      id: row.id,
+      job_title: row.job_title || "Site Installation",
+      address: row.address || "-",
+      installer_name: instName,
+      installer_contact: row.installer?.contact || "-",
+      installer_bank_type: row.installer?.payment_provider || "-",
+      installer_bank_account: row.installer?.payment_account_no || "-",
+      status: row.status || "pending_verification",
+      payment_status: row.payment_status || "unpaid",
+      created_at: row.created_at
+        ? new Date(row.created_at).toLocaleString("en-GB", {
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: true
+          })
+        : "-",
+      photos: row.photos || [],
+      notes: notesText,
+      serial_number: sn,
+      remarks: rem,
+      incentive: inc,
+      isDuplicateSerial: count > 1,
+      duplicateSerialCount: count,
+    };
+  };
+
+  // Guards against a slower, older request's response landing after a
+  // newer one and clobbering it - e.g. switching the status filter (fires
+  // immediately) then typing a search character (fires ~350ms later) could
+  // otherwise let the filter request's response win the race and overwrite
+  // the UI with data for a filter the user already navigated away from.
+  const fetchRequestIdRef = useRef(0);
+
   const fetchData = async () => {
+    const requestId = ++fetchRequestIdRef.current;
     setIsLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const currentUserId = session?.user?.id;
 
-      const [jobsRes, installersRes, profileRes] = await Promise.all([
-        supabase
-          .from("installer_jobs")
-          .select(`
-            id,
-            job_title,
-            address,
-            status,
-            payment_status,
-            created_at,
-            photos,
-            notes,
-            serial_number,
-            remarks,
-            incentive,
-            installer:profiles!installer_id(first_name, last_name, contact, payment_provider, payment_account_no)
-          `)
-          .order("created_at", { ascending: false }),
+      const [jobsPageRes, installersRes, profileRes] = await Promise.all([
+        fetchInstallerJobsPageAction({
+          page: currentPage,
+          pageSize: perPage,
+          statusFilter: selectedStatusFilter as any,
+          search: searchQuery,
+        }),
         supabase
           .from("profiles")
           .select("id, first_name, last_name, contact")
@@ -121,7 +205,10 @@ export default function AdminJobsPage() {
           : Promise.resolve({ data: null })
       ]);
 
-      const jobsData = jobsRes.data || [];
+      if (requestId !== fetchRequestIdRef.current) return; // a newer request has already started/landed
+
+      if (!jobsPageRes.success) throw new Error(jobsPageRes.error || "Failed to load installer data");
+
       const dbInstallers = installersRes.data || [];
       if (profileRes.data?.role) {
         setUserRole(profileRes.data.role);
@@ -131,96 +218,62 @@ export default function AdminJobsPage() {
         .then(({ canWrite }) => setCanMarkPaid(canWrite))
         .catch(() => setCanMarkPaid(false));
 
-      const formatted: JobRow[] = jobsData.map((row: any) => {
-        let sn = row.serial_number || "";
-        let rem = row.remarks || "";
-        let inc = row.incentive ? parseFloat(row.incentive) : 0;
-        let notesText = row.notes || "";
+      const formatted = jobsPageRes.data.map((row: any) => formatJobRow(row, jobsPageRes.activeSerialCounts));
 
-        if (notesText.startsWith("[METADATA]")) {
-          try {
-            const firstLine = notesText.split("\n")[0];
-            // Keep notesText intact (including the VIDEO: tag) — the detail panel
-            // below re-parses it to find the installation video URL. Only use
-            // firstLine locally to read out SN/INC/REM.
-            const metaStr = firstLine.replace("[METADATA] ", "");
-            const parts = metaStr.split(" | ");
-            parts.forEach((part: string) => {
-              const [key, ...rest] = part.split(":");
-              const val = rest.join(":");
-              if (key === "SN") sn = val;
-              else if (key === "INC") inc = parseFloat(val) || 0;
-              else if (key === "REM") rem = val;
-            });
-          } catch (e) {}
-        }
-
-        const instName = row.installer
-          ? `${row.installer.first_name} ${row.installer.last_name || ""}`.trim()
-          : "Unassigned";
-
-        return {
-          id: row.id,
-          job_title: row.job_title || "Site Installation",
-          address: row.address || "-",
-          installer_name: instName,
-          installer_contact: row.installer?.contact || "-",
-          installer_bank_type: row.installer?.payment_provider || "-",
-          installer_bank_account: row.installer?.payment_account_no || "-",
-          status: row.status || "pending_verification",
-          payment_status: row.payment_status || "unpaid",
-          created_at: row.created_at
-            ? new Date(row.created_at).toLocaleString("en-GB", {
-                day: "2-digit",
-                month: "2-digit",
-                year: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-                hour12: true
-              })
-            : "-",
-          photos: row.photos || [],
-          notes: notesText,
-          serial_number: sn,
-          remarks: rem,
-          incentive: inc,
-          isDuplicateSerial: false,
-          duplicateSerialCount: 0,
-        };
-      });
-
-      // Flag serial numbers shared by more than one still-relevant (non-rejected) job —
-      // the item stays live in inventory until final approval, so multiple installers
-      // can legitimately submit against the same serial while pending. Surface that as
-      // a badge instead of silently blocking it.
-      const activeSerialCounts = new Map<string, number>();
-      formatted.forEach((j) => {
-        const sn = j.serial_number.trim().toLowerCase();
-        const isActive = j.status.trim().toLowerCase() !== "rejected";
-        if (sn && isActive) {
-          activeSerialCounts.set(sn, (activeSerialCounts.get(sn) || 0) + 1);
-        }
-      });
-      formatted.forEach((j) => {
-        const sn = j.serial_number.trim().toLowerCase();
-        const isActive = j.status.trim().toLowerCase() !== "rejected";
-        const count = sn && isActive ? (activeSerialCounts.get(sn) || 0) : 0;
-        j.isDuplicateSerial = count > 1;
-        j.duplicateSerialCount = count;
-      });
+      // A delete (single or bulk) can empty out the page the admin is
+      // currently viewing without it being the last page overall - step
+      // back one page and let the effect below re-fetch, instead of
+      // leaving an empty table in view.
+      if (formatted.length === 0 && currentPage > 1 && jobsPageRes.totalCount > 0) {
+        setJobs([]); // avoid a flash of the just-deleted rows while the decremented page re-fetches
+        setCurrentPage((p) => Math.max(1, p - 1));
+        return;
+      }
 
       setJobs(formatted);
       setInstallers(dbInstallers);
+      setPageTotalCount(jobsPageRes.totalCount);
+      setStatusCounts(jobsPageRes.statusCounts);
     } catch (err: any) {
+      if (requestId !== fetchRequestIdRef.current) return;
       toast.error(err.message || "Failed to load installer data");
     } finally {
-      setIsLoading(false);
+      if (requestId === fetchRequestIdRef.current) setIsLoading(false);
     }
   };
 
+  // Fetches EVERY row matching the current status/search filter (not just
+  // the current page) - passed to DataTable as onFetchAll, called only when
+  // Export or "Select all matching" is actually clicked.
+  const fetchAllMatchingJobs = async (): Promise<JobRow[]> => {
+    const res = await fetchAllInstallerJobsForExportAction({
+      statusFilter: selectedStatusFilter as any,
+      search: searchQuery,
+    });
+    if (!res.success) throw new Error(res.error || "Failed to load records");
+
+    // activeSerialCounts comes from the server, computed table-wide (not
+    // scoped to this export's own status/search filter) - a duplicate
+    // sitting in a different status tab must still be flagged here, same as
+    // it is on the main paginated view.
+    return res.data.map((row: any) => formatJobRow(row, res.activeSerialCounts));
+  };
+
+  // Re-fetches whenever the page, status filter, or search term changes -
+  // debounced ONLY when this run was triggered by the search term itself
+  // changing (keyed off the ref, not off searchQuery's current truthiness -
+  // otherwise switching the status filter while a search term is already
+  // typed would wait the full debounce for no reason, since searchQuery
+  // itself didn't change). Page/filter changes always fire immediately.
+  const prevSearchQueryRef = useRef(searchQuery);
   useEffect(() => {
-    fetchData();
-  }, []);
+    const searchChanged = prevSearchQueryRef.current !== searchQuery;
+    prevSearchQueryRef.current = searchQuery;
+    const handle = setTimeout(() => {
+      fetchData();
+    }, searchChanged ? 350 : 0);
+    return () => clearTimeout(handle);
+  }, [currentPage, selectedStatusFilter, searchQuery]);
 
   // Shared by the file picker and the mobile camera button, so both paths
   // stay in sync on appending and preview generation.
@@ -496,10 +549,13 @@ export default function AdminJobsPage() {
     }
   };
 
-  const totalCount = jobs.length;
-  const pendingRmCount = jobs.filter(j => j.status === "pending_verification" || j.status === "assigned" || j.status === "in_progress").length;
-  const pendingChCount = jobs.filter(j => j.status === "pending_approval" || j.status === "pending_installation_approval").length;
-  const approvedCount = jobs.filter(j => j.status === "approved").length;
+  // KPI tiles and the filter dropdown's counts come from statusCounts (a
+  // true count across the whole table, via fetchData) rather than jobs.length
+  // - jobs now only ever holds the current page's 30 rows.
+  const totalCount = statusCounts.all || 0;
+  const pendingRmCount = statusCounts.pending_rm || 0;
+  const pendingChCount = statusCounts.pending_ch || 0;
+  const approvedCount = statusCounts.approved || 0;
 
   const columns = [
     {
@@ -636,29 +692,6 @@ export default function AdminJobsPage() {
     }
   ];
 
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState("all");
-
-  const filteredJobs = jobs.filter((item) => {
-    if (selectedStatusFilter === "all") return true;
-    if (selectedStatusFilter === "pending_rm") {
-      return item.status === "pending_verification" || item.status === "assigned" || item.status === "in_progress";
-    }
-    if (selectedStatusFilter === "pending_ch") {
-      return item.status === "pending_approval" || item.status === "pending_installation_approval";
-    }
-    if (selectedStatusFilter === "approved") {
-      return item.status === "approved";
-    }
-    if (selectedStatusFilter === "rejected") {
-      return item.status === "rejected";
-    }
-    return true;
-  });
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const perPage = 10;
-  const paginated = filteredJobs.slice((currentPage - 1) * perPage, currentPage * perPage);
-
   return (
     <div className="space-y-6 select-none relative min-h-[80vh]">
       {/* View Header */}
@@ -762,26 +795,31 @@ export default function AdminJobsPage() {
               }}
               className="h-9 px-3 text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-[6px] focus:outline-none focus:border-[#00B4D8]"
             >
-              <option value="all">All Installations ({jobs.length})</option>
+              <option value="all">All Installations ({totalCount})</option>
               <option value="pending_rm">Stage 1: Pending RM ({pendingRmCount})</option>
               <option value="pending_ch">Stage 2: Pending CH ({pendingChCount})</option>
               <option value="approved">Active Approved ({approvedCount})</option>
-              <option value="rejected">Rejected ({jobs.filter(j => j.status === 'rejected').length})</option>
+              <option value="rejected">Rejected ({statusCounts.rejected || 0})</option>
             </select>
           </div>
 
-          <DataTable allData={filteredJobs}
+          <DataTable
             title="Installations Register"
             columns={columns}
-            data={paginated}
-            isLoading={false}
+            data={jobs}
+            isLoading={isLoading}
             searchPlaceholder="Search Serial Number, Installer, or Address..."
+            onSearch={(q) => {
+              setSearchQuery(q);
+              setCurrentPage(1);
+            }}
+            onFetchAll={fetchAllMatchingJobs}
             onRowClick={(row) => setSelectedJob(row)}
             onDeleteClick={handleDeleteJob}
             onBulkDelete={handleBulkDeleteJobs}
             pagination={{
               current: currentPage,
-              total: filteredJobs.length,
+              total: pageTotalCount,
               perPage: perPage,
               onChange: (page) => setCurrentPage(page),
             }}

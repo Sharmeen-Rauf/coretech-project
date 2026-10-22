@@ -53,7 +53,10 @@ export async function fetchOrdersAction(opts?: CallerOpts) {
     const supabase = getAdminClient();
     const { scope, callerId, callerRegion, canWrite } = await getMyScopeAction("buzzcart", opts);
 
-    let query = supabase.from("orders").select(`
+    // A Postgrest query builder is single-use once awaited, so a fresh one
+    // has to be built for every chunk fetched below.
+    const buildQuery = () => {
+      let q = supabase.from("orders").select(`
         id,
         order_code,
         created_at,
@@ -67,31 +70,46 @@ export async function fetchOrdersAction(opts?: CallerOpts) {
         coordinator:profiles!sales_coordinator_id(first_name, last_name)
       `);
 
-    if (scope === "self" && callerId) {
-      if (caller.role === "distributor") {
-        query = query.eq("distributor_id", callerId);
-      } else if (caller.role === "sub_dealer") {
-        query = query.eq("user_id", callerId);
-      } else if (caller.role === "employee") {
-        query = query.eq("sales_coordinator_id", callerId);
-      } else {
-        query = query.eq("id", "00000000-0000-0000-0000-000000000000");
+      if (scope === "self" && callerId) {
+        if (caller.role === "distributor") {
+          q = q.eq("distributor_id", callerId);
+        } else if (caller.role === "sub_dealer") {
+          q = q.eq("user_id", callerId);
+        } else if (caller.role === "employee") {
+          q = q.eq("sales_coordinator_id", callerId);
+        } else {
+          q = q.eq("id", "00000000-0000-0000-0000-000000000000");
+        }
       }
-    }
-    // scope === "region" is resolved below, post-fetch - PostgREST's .or()
-    // filter DSL doesn't accept a dotted path into a non-inner embedded
-    // resource (`distributor.region...`) the way this used to be written; that
-    // threw a real PGRST100 parse error on every single region-scoped request,
-    // which fetchOrdersAction's catch turned into {success:false, canWrite:
-    // false}, and the page's own catch silently swallowed that into "read-only"
-    // with no visible error - confirmed live 2026-08-22. Same shared
-    // region-match resolver already used by fetchSalesLedgerAction, so this
-    // can't newly disagree with how Sales already resolves "region" for RSM.
-    // scope === "everything": no filter.
+      // scope === "region" is resolved below, post-fetch - PostgREST's .or()
+      // filter DSL doesn't accept a dotted path into a non-inner embedded
+      // resource (`distributor.region...`) the way this used to be written; that
+      // threw a real PGRST100 parse error on every single region-scoped request,
+      // which fetchOrdersAction's catch turned into {success:false, canWrite:
+      // false}, and the page's own catch silently swallowed that into "read-only"
+      // with no visible error - confirmed live 2026-08-22. Same shared
+      // region-match resolver already used by fetchSalesLedgerAction, so this
+      // can't newly disagree with how Sales already resolves "region" for RSM.
+      // scope === "everything": no filter.
+      return q.order("created_at", { ascending: false });
+    };
 
-    let { data, error } = await query.order("created_at", { ascending: false });
-    if (error) throw error;
-    let rows = data || [];
+    // Supabase/PostgREST silently caps any unlimited query at 1000 rows (no
+    // error - just drops the oldest rows past that point), confirmed live on
+    // other tables in this project. Pages through in chunks until a page
+    // comes back short, so every order is read no matter how large this
+    // table grows - orders is a transactional ledger that only ever grows.
+    const PAGE_SIZE = 1000;
+    let rows: any[] = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await buildQuery().range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      const page = data || [];
+      rows = rows.concat(page);
+      if (page.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
 
     if (scope === "region" && callerId && callerRegion) {
       const parties: PartyRef[] = rows.map((r: any) => ({ type: "distributor", id: r.distributor_id }));
