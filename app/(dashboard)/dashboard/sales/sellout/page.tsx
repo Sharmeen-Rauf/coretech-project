@@ -120,7 +120,11 @@ export default function SellOutPage() {
     if (window.confirm(`Are you sure you want to delete sell out record for Serial #${row.serial_no}? This will restore the product back to active inventory!`)) {
       try {
         if (row.serial_no && row.serial_no !== "-") {
-          await revertStockBySerialAction(row.serial_no);
+          const res = await revertStockBySerialAction(row.serial_no);
+          if (!res.success) {
+            toast.error(res.error || "Failed to delete sell out record");
+            return;
+          }
         } else if (row.id) {
           await deleteRecordAction("stock", row.id);
         }
@@ -135,15 +139,33 @@ export default function SellOutPage() {
   const handleBulkDeleteSellOuts = async (selectedIds: string[]) => {
     if (window.confirm(`Are you sure you want to delete ${selectedIds.length} selected sell out records? This will restore all these products back to active inventory!`)) {
       try {
+        // Units with an approved installation (or any other refusal) are
+        // skipped, not deleted - reported back instead of a blanket success.
+        const blockedByInstallation: string[] = [];
+        const otherErrors: string[] = [];
         for (const id of selectedIds) {
           const item = sellOuts.find(s => s.id === id);
           if (item?.serial_no && item.serial_no !== "-") {
-            await revertStockBySerialAction(item.serial_no);
+            const res: { success: boolean; error?: string; blockedByInstallation?: boolean } = await revertStockBySerialAction(item.serial_no);
+            if (!res.success) {
+              if (res.blockedByInstallation) blockedByInstallation.push(item.serial_no);
+              else otherErrors.push(res.error || "Failed");
+            }
           } else {
             await deleteRecordAction("stock", id);
           }
         }
-        toast.success(`Successfully deleted ${selectedIds.length} sell out records and restored items to inventory!`);
+        const deletedCount = selectedIds.length - blockedByInstallation.length - otherErrors.length;
+        if (deletedCount > 0) {
+          toast.success(`Successfully deleted ${deletedCount} sell out records and restored items to inventory!`);
+        }
+        if (blockedByInstallation.length > 0) {
+          const shown = blockedByInstallation.slice(0, 5).join(", ");
+          toast.error(`${blockedByInstallation.length} not deleted — approved installation: ${shown}${blockedByInstallation.length > 5 ? "…" : ""}`);
+        }
+        if (otherErrors.length > 0) {
+          toast.error(`${otherErrors.length} not deleted: ${otherErrors[0]}`);
+        }
         fetchSellOuts();
       } catch (err: any) {
         toast.error(err.message || "Failed bulk deletion");

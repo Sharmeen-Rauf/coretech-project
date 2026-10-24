@@ -93,7 +93,7 @@ function catalogKeyForUserRole(role: string): string {
 async function checkUsersWriteAccess(
   targetRole: string,
   allowAnonymousInstallerCreate = false
-): Promise<{ allowed: boolean; error?: string }> {
+): Promise<{ allowed: boolean; anonymous?: boolean; error?: string }> {
   const caller = await getCallerIdentity();
   if (!caller) {
     // Installer self-registration (/installer/register, opened via QR code) is a
@@ -102,7 +102,7 @@ async function checkUsersWriteAccess(
     // createUserAction passes this flag; updateUserAction/deleteUserAction never
     // do, so editing or deleting an existing installer's account still requires a
     // real authenticated, authorized caller.
-    if (allowAnonymousInstallerCreate && targetRole === "installer") return { allowed: true };
+    if (allowAnonymousInstallerCreate && targetRole === "installer") return { allowed: true, anonymous: true };
     return { allowed: false, error: "Not authenticated" };
   }
   if (caller.role === "admin") return { allowed: true };
@@ -124,7 +124,7 @@ export async function createUserAction(formData: any): Promise<{ success: boolea
     contact,
     role,
     group,
-    status,
+    status: requestedStatus,
     state,
     region,
     warehouse,
@@ -145,6 +145,12 @@ export async function createUserAction(formData: any): Promise<{ success: boolea
 
     const access = await checkUsersWriteAccess(role, true);
     if (!access.allowed) return { success: false, error: access.error };
+
+    // Public self-registration always starts at the beginning of the two-stage
+    // review - the status is never taken from an anonymous request, otherwise
+    // a direct call could register itself as already "active". Installers
+    // added by staff through User Management keep the status they're given.
+    const status = access.anonymous ? "pending_verification" : requestedStatus;
 
     if (role === "sub_dealer") {
       const validation = await validateSubDealerDistributor(distributorId, region);
@@ -1269,8 +1275,10 @@ export async function verifyInstallerStage1Action(instId: string) {
       return { success: false, error: "You don't have permission to verify this registration" };
     }
 
+    // Only a registration still waiting for Stage 1 can be verified - the
+    // two stages must happen in order.
     const supabase = getAdminClient();
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from("profiles")
       .update({
         status: "pending_approval",
@@ -1278,9 +1286,14 @@ export async function verifyInstallerStage1Action(instId: string) {
         verified_at: new Date().toISOString(),
         verification_note: "Credentials and documents verified by Retail Manager.",
       })
-      .eq("id", instId);
+      .eq("id", instId)
+      .in("status", INSTALLER_STATUS_GROUPS.pending_verification)
+      .select("id");
 
     if (error) throw error;
+    if (!updated || updated.length === 0) {
+      return { success: false, error: "This registration is no longer waiting for verification — please refresh." };
+    }
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to verify installer" };
@@ -1294,8 +1307,10 @@ export async function approveInstallerStage2Action(instId: string) {
       return { success: false, error: "Only Country Head or Admin can give final approval" };
     }
 
+    // Final approval only after Stage 1 verification - never straight from
+    // a fresh registration.
     const supabase = getAdminClient();
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from("profiles")
       .update({
         status: "active",
@@ -1303,9 +1318,14 @@ export async function approveInstallerStage2Action(instId: string) {
         approved_at: new Date().toISOString(),
         approval_note: "Final approval granted by Country Head.",
       })
-      .eq("id", instId);
+      .eq("id", instId)
+      .in("status", INSTALLER_STATUS_GROUPS.pending_approval)
+      .select("id");
 
     if (error) throw error;
+    if (!updated || updated.length === 0) {
+      return { success: false, error: "This registration must be verified (Stage 1) before final approval — please refresh." };
+    }
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to approve installer" };
