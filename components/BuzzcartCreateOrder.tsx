@@ -14,7 +14,7 @@ import toast from "react-hot-toast";
 import { getLocalItems, saveLocalItem, mergeLocalItems } from "@/lib/supabaseLocalFallback";
 import OrderStatusModal from "@/components/OrderStatusModal";
 import { fetchRecordsAction } from "@/app/actions/users";
-import { createBuzzcartOrderAction } from "@/app/actions/orders";
+import { createBuzzcartOrderAction, fetchBuzzcartPickersAction } from "@/app/actions/orders";
 
 interface Product {
   id: string;
@@ -159,20 +159,13 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
         const emps = profiles.filter(p => p.role !== "installer");
         setEmployees(emps);
 
-        const isRsmUser = activeProfile && (activeProfile.role === "rsm" || (activeProfile as any).group_name === "rsm");
-        const rsmRegion = (activeProfile?.region || "").toLowerCase().trim();
-
-        let subDs = profiles.filter(p => p.role === "sub_dealer");
-        if (isRsmUser && rsmRegion) {
-          subDs = subDs.filter(p => !p.region || (p.region || "").toLowerCase().trim() === rsmRegion);
-        }
-        setSubDealers(subDs);
-
-        let dists = profiles.filter(p => p.role === "distributor");
-        if (isRsmUser && rsmRegion) {
-          dists = dists.filter(p => !p.region || (p.region || "").toLowerCase().trim() === rsmRegion);
-        }
-        setDistributors(dists);
+        // Who this caller may order for comes from the server, by their
+        // Role Management buzzcart scope (everything / own region / none) -
+        // the same list createBuzzcartOrderAction re-checks on submit.
+        const pickersRes = await fetchBuzzcartPickersAction();
+        if (!pickersRes.success) toast.error(pickersRes.error || "Failed to load distributors and sub dealers");
+        setSubDealers(pickersRes.subDealers as Profile[]);
+        setDistributors(pickersRes.distributors as Profile[]);
 
         const [prodRes, stockRes, regionRes] = await Promise.all([
           supabase.from("products").select("id, name, model, price").eq("is_active", true),
@@ -267,30 +260,9 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
     setOrderItems(prev => ({ ...prev, [productId]: { ...prev[productId], price: num } }));
   };
 
-  const getDisplayDistributors = () => {
-    if (!selectedEmployeeId) return distributors;
-    const selectedEmp = employees.find(e => e.id === selectedEmployeeId);
-    if (!selectedEmp) return distributors;
-
-    const empRegion = (selectedEmp.region || "").toLowerCase().trim();
-    const empWH = (selectedEmp.warehouse || "").toLowerCase().trim();
-
-    const filtered = distributors.filter(d => {
-      if (d.rsm_id === selectedEmployeeId) return true;
-      const dRegion = (d.region || "").toLowerCase().trim();
-      const dWH = (d.warehouse || "").toLowerCase().trim();
-      if (!dRegion && !dWH) return true;
-      if (empRegion && dRegion) {
-        if (dRegion === empRegion || dRegion.includes(empRegion) || empRegion.includes(dRegion)) return true;
-      }
-      if (empWH && dWH) {
-        if (dWH === empWH || dWH.includes(empWH) || empWH.includes(dWH)) return true;
-      }
-      return false;
-    });
-
-    return filtered.length > 0 ? filtered : distributors;
-  };
+  // Already scoped server-side by the caller's buzzcart scope - no extra
+  // client-side region guessing on top of it.
+  const getDisplayDistributors = () => distributors;
 
   const handleRemoveProduct = (prodId: string) => {
     setSelectedProductIds(prev => prev.filter(id => id !== prodId));
@@ -548,7 +520,7 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                     {isDistributorOpen && (
                       <div className="absolute left-0 mt-1.5 w-[420px] max-sm:max-w-[calc(100vw-2rem)] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
                         {displayDistributorsList.length === 0 ? (
-                          <p className="text-xs text-slate-400 p-2 text-center italic">No distributors assigned to this employee's region.</p>
+                          <p className="text-xs text-slate-400 p-2 text-center italic">No distributors available for your Buzzcart access.</p>
                         ) : (
                           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 max-sm:grid-cols-1">
                             {displayDistributorsList.map((d) => {
@@ -594,7 +566,7 @@ export default function BuzzcartCreateOrder({ onSuccess }: BuzzcartCreateOrderPr
                     {isSubDealerBuyerOpen && (
                       <div className="absolute left-0 mt-1.5 w-[420px] max-sm:max-w-[calc(100vw-2rem)] bg-white border border-slate-150 rounded-[12px] shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
                         {subDealers.length === 0 ? (
-                          <p className="text-xs text-slate-400 p-2 text-center italic">No sub dealers found.</p>
+                          <p className="text-xs text-slate-400 p-2 text-center italic">No sub dealers available for your Buzzcart access.</p>
                         ) : (
                           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 max-sm:grid-cols-1">
                             {subDealers.map((sd) => {

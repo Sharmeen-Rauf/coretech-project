@@ -4,6 +4,7 @@ import { createClient as createJSClient } from "@supabase/supabase-js";
 import { getCallerIdentity } from "@/app/actions/users";
 import { getMyScopeAction, type CallerOpts } from "@/app/actions/roles";
 import { buildPartyRegionMap, regionForParty, regionsMatch, type PartyRef } from "@/lib/regionScope";
+import { getBuzzcartRecipients } from "@/lib/buzzcartScope";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -13,20 +14,15 @@ function getAdminClient() {
   });
 }
 
-// Distributor/sub-dealer picker options for the Buzzcart create form -
-// company-wide, unguarded, same as fetchProductsAction: this data is
-// intrinsic to completing an order (who it's for), not a separate
-// directory-browsing feature, so it isn't scoped by users.add_distributor/
-// users.add_sub_dealer. Callers only ever reach this via the buzzcart
-// mobile route, which has already checked the buzzcart permission itself.
+// Distributor/sub-dealer picker options for the web Buzzcart create form,
+// scoped by the caller's web "buzzcart" scope (lib/buzzcartScope.ts). Used to
+// return every distributor and sub dealer to anyone, unscoped. Takes no
+// arguments on purpose, so a browser can't ask for the mobile scope - the
+// mobile routes call getBuzzcartRecipients directly with surface "mobile".
 export async function fetchBuzzcartPickersAction() {
   try {
-    const supabase = getAdminClient();
-    const [{ data: distributors }, { data: subDealers }] = await Promise.all([
-      supabase.from("profiles").select("id, first_name, last_name").eq("role", "distributor").order("first_name", { ascending: true }),
-      supabase.from("profiles").select("id, first_name, last_name").eq("role", "sub_dealer").order("first_name", { ascending: true }),
-    ]);
-    return { success: true, distributors: distributors || [], subDealers: subDealers || [] };
+    const { distributors, subDealers } = await getBuzzcartRecipients();
+    return { success: true, distributors, subDealers };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to fetch order recipients", distributors: [], subDealers: [] };
   }
@@ -173,6 +169,17 @@ export async function createBuzzcartOrderAction(params: {
       if (!params.selectedSubDealerId) return { success: false, error: "Please select a Sub Dealer" };
     } else {
       if (!params.selectedDistributorId) return { success: false, error: "Please select a Distributor" };
+    }
+
+    // The recipient must be one the caller's buzzcart scope actually allows
+    // (everything / own region / nobody) - same list the picker shows, so a
+    // direct call can't order for someone outside it.
+    const allowed = await getBuzzcartRecipients(opts);
+    const recipientAllowed = isDist || isGeneralSubDealer
+      ? allowed.subDealers.some((s) => s.id === params.selectedSubDealerId)
+      : allowed.distributors.some((d) => d.id === params.selectedDistributorId);
+    if (!recipientAllowed) {
+      return { success: false, error: "You can't create an order for this recipient — it's outside your Buzzcart access." };
     }
 
     let distributorId: string | null = null;
