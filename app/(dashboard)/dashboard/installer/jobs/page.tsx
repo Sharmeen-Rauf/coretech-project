@@ -464,7 +464,13 @@ export default function AdminJobsPage() {
     if (!window.confirm(`Are you sure you want to delete job "${row.job_title}"?`)) return;
 
     try {
-      await revertRejectedInstallationStockAction(row.id, row.serial_number);
+      // The job is only deleted once its stock has really been put back -
+      // otherwise the unit would stay sold out, linked to a job that's gone.
+      const revertRes = await revertRejectedInstallationStockAction(row.id, row.serial_number);
+      if (!revertRes.success) {
+        toast.error(revertRes.error || "Failed to return the product to inventory — job not deleted");
+        return;
+      }
       const res = await deleteRecordAction("installer_jobs", row.id);
       
       let localJobs = getLocalItems("coretech_local_installer_jobs") || [];
@@ -487,17 +493,25 @@ export default function AdminJobsPage() {
 
     try {
       let count = 0;
+      const notDeleted: string[] = [];
       for (const id of selectedIds) {
-        await revertRejectedInstallationStockAction(id);
+        const revertRes = await revertRejectedInstallationStockAction(id);
+        if (!revertRes.success) {
+          notDeleted.push(revertRes.error || "Failed to return the product to inventory");
+          continue;
+        }
         const res = await deleteRecordAction("installer_jobs", id);
         if (res.success) count++;
+      }
+      if (notDeleted.length > 0) {
+        toast.error(`${notDeleted.length} job(s) not deleted: ${notDeleted[0]}`);
       }
 
       let localJobs = getLocalItems("coretech_local_installer_jobs") || [];
       localJobs = localJobs.filter((j: any) => !selectedIds.includes(j.id));
       saveLocalItem("coretech_local_installer_jobs", localJobs, true);
 
-      toast.success(`Successfully deleted ${count || selectedIds.length} jobs!`);
+      if (count > 0) toast.success(`Successfully deleted ${count} jobs!`);
       fetchData();
     } catch (err: any) {
       toast.error(err.message || "Failed to delete selected jobs");

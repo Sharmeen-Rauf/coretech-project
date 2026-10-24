@@ -149,11 +149,15 @@ export async function fetchAssignedSubDealersAction(distributorId: string) {
   }
 }
 
-// Return moves stock back up the chain (sub dealer -> distributor, or distributor
-// -> warehouse). The source/destination pair is resolved client-side from where
-// each serial currently lives (there's no picker to trust), but it's fully
-// re-derived and re-verified here too, since a distributor or sub dealer caller
-// must only ever be able to return stock that's currently their own.
+// Return moves stock back up the chain to exactly where it came from (sub dealer
+// -> the distributor recorded on the unit, or distributor -> the warehouse
+// recorded on the unit) - never to the sub dealer's currently assigned
+// distributor or the distributor's region warehouse, so a later reassignment or
+// region change can't block or misroute a return. The source/destination pair is
+// resolved client-side from the stock row (there's no picker to trust), and the
+// stock update below only matches units that really belong to both sides, since
+// a distributor or sub dealer caller must only ever be able to return stock
+// that's currently their own.
 export async function submitReturnAction(params: {
   sourceType: "distributor" | "sub_dealer";
   sourceId: string;
@@ -186,14 +190,23 @@ export async function submitReturnAction(params: {
 
     const supabase = getAdminClient();
 
+    let destWarehouseName = "";
     if (params.sourceType === "sub_dealer") {
       const { data: subDealer } = await supabase
         .from("profiles")
-        .select("id, role, distributor_id")
+        .select("id, role")
         .eq("id", params.sourceId)
         .maybeSingle();
-      if (!subDealer || subDealer.role !== "sub_dealer" || subDealer.distributor_id !== params.destId) {
-        return { success: false, error: "Resolved sub dealer / distributor relationship is invalid" };
+      if (!subDealer || subDealer.role !== "sub_dealer") {
+        return { success: false, error: "Resolved sub dealer is invalid" };
+      }
+      const { data: distributor } = await supabase
+        .from("profiles")
+        .select("id, role")
+        .eq("id", params.destId)
+        .maybeSingle();
+      if (!distributor || distributor.role !== "distributor") {
+        return { success: false, error: "The distributor this unit came from no longer exists" };
       }
     } else {
       const { data: distributor } = await supabase
@@ -206,12 +219,13 @@ export async function submitReturnAction(params: {
       }
       const { data: warehouse } = await supabase
         .from("warehouses")
-        .select("id")
+        .select("id, name")
         .eq("id", params.destId)
         .maybeSingle();
       if (!warehouse) {
-        return { success: false, error: "Resolved warehouse is invalid" };
+        return { success: false, error: "The warehouse this unit came from is not registered — it can't be returned" };
       }
+      destWarehouseName = warehouse.name;
     }
 
     const serials = params.passedItems.map((i) => i.serial_no);
@@ -230,10 +244,29 @@ export async function submitReturnAction(params: {
       transferred = res.data;
       transferErr = res.error;
     } else {
+      // Only units that actually came from the destination warehouse (compared
+      // case-insensitively, same as the page resolves it).
+      const { data: candidates, error: candidatesErr } = await supabase
+        .from("stock")
+        .select("id, warehouse_name")
+        .in("serial_no", serials)
+        .eq("distributor_id", params.sourceId)
+        .is("sub_dealer_id", null)
+        .neq("status", "sold_out");
+      if (candidatesErr) throw candidatesErr;
+      const matchingIds = (candidates || [])
+        .filter((s: any) => String(s.warehouse_name || "").trim().toLowerCase() === destWarehouseName.trim().toLowerCase())
+        .map((s: any) => s.id);
+      if (matchingIds.length !== serials.length) {
+        return {
+          success: false,
+          error: `Only ${matchingIds.length} of ${serials.length} units came from ${destWarehouseName} and are still with this distributor. Please re-check serials and try again.`,
+        };
+      }
       const res = await supabase
         .from("stock")
         .update({ distributor_id: null })
-        .in("serial_no", serials)
+        .in("id", matchingIds)
         .eq("distributor_id", params.sourceId)
         .is("sub_dealer_id", null)
         .neq("status", "sold_out")

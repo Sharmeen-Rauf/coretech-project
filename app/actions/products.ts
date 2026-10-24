@@ -17,6 +17,12 @@ function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
+// A serial is "taken" once an installation against it has cleared Stage 2.
+// "completed" is the status the old Approvals page used for the same thing.
+const APPROVED_JOB_STATUSES = ["approved", "completed"];
+// Verified at Stage 1, waiting for the Country Head's final Stage 2 decision.
+const STAGE2_PENDING_JOB_STATUSES = ["pending_approval", "pending_installation_approval"];
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -568,16 +574,14 @@ export async function deleteStockAction(ids: string[]) {
 }
 
 export async function verifySerialNumberAction(sNo: string, currentJobId?: string) {
-  // Live-inventory existence + sold status check: green (success) if the
-  // serial number exists in the `stock` table AND isn't already sold_out,
-  // red (failure) otherwise. Deliberately does NOT check for other
-  // installers/jobs already using this serial while it's still active — the
-  // item stays "live" in inventory until an admin approves a job against it
-  // (Stage 2), so multiple installers are allowed to submit against the same
-  // serial while pending; duplicates are surfaced to the admin for review
-  // instead of being blocked here. Once a serial is sold_out (an admin has
-  // already approved an installation against it), it's no longer available
-  // for a new installation and must fail verification.
+  // Green (success) if the serial number exists in the `stock` table AND has
+  // no Stage 2 approved installation against it; red (failure) otherwise.
+  // Where the unit currently sits doesn't matter - warehouse, distributor,
+  // sub dealer, or already sold to a consumer via Sell Out (which also marks
+  // stock sold_out, so stock.status is deliberately NOT the check here).
+  // Pending installations against the same serial don't block either: several
+  // installers may submit while it's pending, and duplicates are surfaced to
+  // the admin for review instead.
   const supabase = getAdminClient();
   try {
     const cleanSNo = sNo.trim();
@@ -604,8 +608,15 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
       return { success: false, error: "Serial number not found in inventory." };
     }
 
-    if (stockData.status === "sold_out") {
-      return { success: false, error: "This serial number has already been installed and approved." };
+    const { data: approvedJobs, error: approvedError } = await supabase
+      .from("installer_jobs")
+      .select("id")
+      .ilike("serial_number", escapeLikePattern(cleanSNo))
+      .in("status", APPROVED_JOB_STATUSES)
+      .limit(1);
+    if (approvedError) throw approvedError;
+    if (approvedJobs && approvedJobs.length > 0) {
+      return { success: false, error: "This serial number already has a Stage 2 approved installation." };
     }
 
     return {
@@ -622,6 +633,18 @@ export async function verifySerialNumberAction(sNo: string, currentJobId?: strin
   }
 }
 
+// null when the installer may submit, otherwise the reason they can't.
+async function installerSubmitAccessError(installerId: string): Promise<string | null> {
+  const supabase = getAdminClient();
+  const { data: profile, error } = await supabase.from("profiles").select("status").eq("id", installerId).maybeSingle();
+  if (error) throw error;
+  const status = String(profile?.status || "").trim().toLowerCase();
+  if (status === "approved" || status === "active") return null;
+  if (status === "rejected" || status === "blocked") return "Your installer registration was rejected, so you can't submit installations.";
+  if (status === "inactive") return "Your installer account is inactive, so you can't submit installations.";
+  return "Your installer account isn't approved yet. You can submit installations once it has been verified and approved.";
+}
+
 export async function submitInstallationAction(payload: any, siteFormJobId: string, accessToken?: string) {
   // === SERVER-SIDE IDENTITY CHECK ===
   // This action previously trusted payload.installer_id outright on a new
@@ -631,11 +654,32 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
   // with no cookie session (the mobile app) prove identity the same way a
   // web caller's cookie does; either way, everything below is now scoped to
   // whoever this resolves to, never to whatever the client claims in payload.
+  // Failure results carry `retryable: true` when the same submission could
+  // still succeed later (session not resolved, database hiccup) - the web
+  // portal's device-saved sync keeps those, and drops only real refusals.
   const caller = await getCallerIdentity(accessToken);
-  if (!caller || caller.role !== "installer") {
+  if (!caller) {
+    return { success: false, error: "Your session could not be verified — please try again.", retryable: true };
+  }
+  if (caller.role !== "installer") {
     return { success: false, error: "Not authorized to submit an installation." };
   }
   payload.installer_id = caller.id;
+  payload.serial_number = String(payload.serial_number || "").trim();
+
+  // Only an installer who has cleared both registration stages (verify, then
+  // approve) may submit. Previously only the mobile app checked this, client-
+  // side - the web portal never did, and this action trusted the role alone.
+  // Same approved/active rule as coretech-mobile/lib/installerAccess.ts.
+  let accessError: string | null;
+  try {
+    accessError = await installerSubmitAccessError(caller.id);
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to check your installer account status", retryable: true };
+  }
+  if (accessError) {
+    return { success: false, error: accessError };
+  }
 
   const MIN_PHOTOS = 3;
 
@@ -706,11 +750,24 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
     await client.connect();
     await client.query("BEGIN");
 
-    // 1. Optional check for stock item in active inventory
+    // 1. Same rule as verifySerialNumberAction, re-checked here so it can't be
+    // skipped by calling this action directly: the serial must exist in stock
+    // and must not already have a Stage 2 approved installation.
+    const serialForCheck = String(payload.serial_number).trim();
     const stockCheck = await client.query(
-      "SELECT id, status, installation_id FROM public.stock WHERE LOWER(serial_no) = LOWER($1) LIMIT 1",
-      [payload.serial_number]
+      "SELECT id FROM public.stock WHERE LOWER(serial_no) = LOWER($1) LIMIT 1",
+      [serialForCheck]
     );
+    if (stockCheck.rows.length === 0) {
+      throw new Error("Serial number not found in inventory.");
+    }
+    const approvedCheck = await client.query(
+      "SELECT id FROM public.installer_jobs WHERE LOWER(TRIM(serial_number)) = LOWER($1) AND status = ANY($2) LIMIT 1",
+      [serialForCheck, APPROVED_JOB_STATUSES]
+    );
+    if (approvedCheck.rows.length > 0) {
+      throw new Error("This serial number already has a Stage 2 approved installation.");
+    }
 
     // Note: deliberately NOT blocking on other active jobs sharing this serial number.
     // The item stays live in inventory until an admin approves a job against it, so
@@ -724,7 +781,7 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       // Ownership check: an installer may only resubmit their own job, never
       // one belonging to someone else, no matter what siteFormJobId points to.
       const ownerCheck = await client.query(
-        "SELECT installer_id FROM public.installer_jobs WHERE id = $1 LIMIT 1",
+        "SELECT installer_id, status FROM public.installer_jobs WHERE id = $1 LIMIT 1",
         [siteFormJobId]
       );
       if (!ownerCheck.rows[0]) {
@@ -732,6 +789,11 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
       }
       if (ownerCheck.rows[0].installer_id !== caller.id) {
         throw new Error("Not authorized to modify this installation record.");
+      }
+      // An approved installation is final - resubmitting it would move it back
+      // to pending and could swap its serial while the old unit stays sold out.
+      if (APPROVED_JOB_STATUSES.includes(String(ownerCheck.rows[0].status || "").toLowerCase())) {
+        throw new Error("This installation is already approved and can't be changed.");
       }
 
       jobResult = await client.query(
@@ -794,9 +856,22 @@ export async function submitInstallationAction(payload: any, siteFormJobId: stri
     await client.end();
     return { success: true, message: "Installation submitted for verification!" };
   } catch (err: any) {
-    await client.query("ROLLBACK");
-    await client.end();
-    return { success: false, error: err.message || "Failed to process installation transaction" };
+    await client.query("ROLLBACK").catch(() => {});
+    await client.end().catch(() => {});
+    // 23505 on the primary key: a job with this id already exists - this exact
+    // submission already went through earlier, nothing to retry or redo.
+    // 23505 on installer_jobs_serial_number_unique (a DB-level unique index
+    // on serial_number, any status): another job already uses this exact
+    // serial - a real refusal, not "already submitted".
+    if (err?.code === "23505") {
+      if (err?.constraint === "installer_jobs_pkey") {
+        return { success: false, error: "This installation was already submitted.", alreadySubmitted: true };
+      }
+      return { success: false, error: "Another installation has already been submitted with this serial number." };
+    }
+    // The rule checks above throw plain Errors (no code) - those are real
+    // refusals. Anything carrying a code came from the database or network.
+    return { success: false, error: err.message || "Failed to process installation transaction", retryable: Boolean(err?.code) };
   }
 }
 
@@ -1097,8 +1172,10 @@ export async function verifyJobStage1Action(jobId: string, note: string) {
       return { success: false, error: "You don't have permission to verify this installation" };
     }
 
+    // Only from Stage 1 - verifying an already approved job would move it
+    // back to pending and free its serial for a duplicate approval.
     const supabase = getAdminClient();
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from("installer_jobs")
       .update({
         status: "pending_approval",
@@ -1106,9 +1183,14 @@ export async function verifyJobStage1Action(jobId: string, note: string) {
         verified_at: new Date().toISOString(),
         verification_note: (note || "").trim(),
       })
-      .eq("id", jobId);
+      .eq("id", jobId)
+      .in("status", JOB_STATUS_GROUPS.pending_rm)
+      .select("id");
 
     if (error) throw error;
+    if (!updated || updated.length === 0) {
+      return { success: false, error: "This installation is no longer waiting for Stage 1 verification — please refresh." };
+    }
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to verify job" };
@@ -1122,38 +1204,73 @@ export async function approveJobStage2Action(jobId: string, serialNumber: string
       return { success: false, error: "Only Country Head or Admin can give final approval" };
     }
 
-    const supabase = getAdminClient();
-    const { data: updatedJob, error } = await supabase
-      .from("installer_jobs")
-      .update({
-        status: "approved",
-        approved_by: caller.id,
-        approved_at: new Date().toISOString(),
-        approval_note: (note || "").trim(),
-      })
-      .eq("id", jobId)
-      .select("installer_id")
-      .single();
+    // One transaction, with the job and its stock row locked, so two duplicate
+    // jobs for the same serial can't both be approved at the same moment. The
+    // serial comes from the job record itself - the serialNumber argument from
+    // the browser is no longer trusted for this.
+    const { Client } = require("pg");
+    const client = new Client({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }
+    });
+    await client.connect();
+    try {
+      await client.query("BEGIN");
 
-    if (error) throw error;
+      const jobRes = await client.query(
+        "SELECT id, status, serial_number, installer_id FROM public.installer_jobs WHERE id = $1 FOR UPDATE",
+        [jobId]
+      );
+      const job = jobRes.rows[0];
+      if (!job) throw new Error("Installation record not found.");
+      if (!STAGE2_PENDING_JOB_STATUSES.includes(String(job.status || "").toLowerCase())) {
+        throw new Error("This installation isn't waiting for Stage 2 approval — please refresh.");
+      }
 
-    if (serialNumber) {
-      // sold_out_by_installer_id is FK-constrained to profiles.id - passing
-      // jobId here (as this used to) silently violated that constraint and
-      // failed on effectively every approval, since a job id never matches a
-      // real profile id. Checked now, so a future failure surfaces instead
-      // of vanishing the way this one did.
-      const { error: stockError } = await supabase
-        .from("stock")
-        .update({
-          status: "sold_out",
-          sold_out_at: new Date().toISOString(),
-          sold_out_by_installer_id: updatedJob?.installer_id || null,
-          installation_id: jobId,
-        })
-        .ilike("serial_no", escapeLikePattern(serialNumber.trim()));
+      const sn = String(job.serial_number || "").trim();
+      if (sn) {
+        await client.query("SELECT id FROM public.stock WHERE LOWER(serial_no) = LOWER($1) FOR UPDATE", [sn]);
+        const otherApproved = await client.query(
+          "SELECT id FROM public.installer_jobs WHERE LOWER(TRIM(serial_number)) = LOWER($1) AND status = ANY($2) AND id <> $3 LIMIT 1",
+          [sn, APPROVED_JOB_STATUSES, jobId]
+        );
+        if (otherApproved.rows.length > 0) {
+          throw new Error(`Serial ${sn} already has a Stage 2 approved installation — reject this duplicate instead.`);
+        }
+      }
 
-      if (stockError) throw stockError;
+      await client.query(
+        "UPDATE public.installer_jobs SET status = 'approved', approved_by = $2, approved_at = NOW(), approval_note = $3 WHERE id = $1",
+        [jobId, caller.id, (note || "").trim()]
+      );
+
+      if (sn) {
+        // sold_out_by_installer_id is FK-constrained to profiles.id - passing
+        // jobId here (as this used to) silently violated that constraint and
+        // failed on effectively every approval. It records that THIS
+        // installation sold the unit - so it's only set when the approval is
+        // what sells it. A unit already sold to a consumer via Sell Out keeps
+        // its sale (date, no installer seller) and just gets linked to this
+        // installation; undoing the installation then leaves it sold out
+        // (revertInstallationStockWithClient and the DB trigger
+        // fn_revert_rejected_installation_stock both use this marker).
+        await client.query(
+          `UPDATE public.stock
+           SET sold_out_at = CASE WHEN status = 'sold_out' THEN COALESCE(sold_out_at, NOW()) ELSE NOW() END,
+               sold_out_by_installer_id = CASE WHEN status = 'sold_out' THEN sold_out_by_installer_id ELSE $2 END,
+               status = 'sold_out',
+               installation_id = $3
+           WHERE LOWER(serial_no) = LOWER($1)`,
+          [sn, job.installer_id || null, jobId]
+        );
+      }
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw txErr;
+    } finally {
+      await client.end().catch(() => {});
     }
 
     return { success: true };
@@ -1216,23 +1333,38 @@ export async function setJobPaymentPaidAction(jobId: string) {
   }
 }
 
-async function rejectJobInternal(jobId: string, serialNumber: string, note: string, callerId: string) {
+// Stock revert and the job's own status change happen in one transaction, so
+// neither can land without the other. Only allowed from the stage the reject
+// button belongs to - an approved installation is never undone by a reject.
+async function rejectJobInternal(jobId: string, allowedStatuses: string[], note: string, callerId: string) {
+  const { Client } = require("pg");
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
   try {
-    const supabase = getAdminClient();
-    const { error } = await supabase
-      .from("installer_jobs")
-      .update({
-        status: "rejected",
-        approved_by: callerId,
-        approved_at: new Date().toISOString(),
-        approval_note: (note || "").trim() || "Rejected during site audit.",
-      })
-      .eq("id", jobId);
+    await client.connect();
+    try {
+      await client.query("BEGIN");
+      const jobRes = await client.query("SELECT status FROM public.installer_jobs WHERE id = $1 FOR UPDATE", [jobId]);
+      if (!jobRes.rows[0]) throw new Error("Installation record not found.");
+      if (!allowedStatuses.includes(String(jobRes.rows[0].status || "").toLowerCase())) {
+        throw new Error("This installation is no longer at this review stage — please refresh.");
+      }
 
-    if (error) throw error;
+      await revertInstallationStockWithClient(client, jobId);
 
-    await revertRejectedInstallationStockAction(jobId, serialNumber);
-
+      await client.query(
+        "UPDATE public.installer_jobs SET status = 'rejected', approved_by = $2, approved_at = NOW(), approval_note = $3 WHERE id = $1",
+        [jobId, callerId, (note || "").trim() || "Rejected during site audit."]
+      );
+      await client.query("COMMIT");
+    } catch (txErr) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw txErr;
+    } finally {
+      await client.end().catch(() => {});
+    }
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to reject job" };
@@ -1244,7 +1376,7 @@ export async function rejectJobStage1Action(jobId: string, serialNumber: string,
   if (!caller || !["retail_manager", "country_head", "admin"].includes(caller.role || "")) {
     return { success: false, error: "You don't have permission to reject this installation" };
   }
-  return rejectJobInternal(jobId, serialNumber, note, caller.id);
+  return rejectJobInternal(jobId, JOB_STATUS_GROUPS.pending_rm, note, caller.id);
 }
 
 export async function rejectJobStage2Action(jobId: string, serialNumber: string, note: string) {
@@ -1252,7 +1384,7 @@ export async function rejectJobStage2Action(jobId: string, serialNumber: string,
   if (!caller || !["country_head", "admin"].includes(caller.role || "")) {
     return { success: false, error: "Only Country Head or Admin can reject at this stage" };
   }
-  return rejectJobInternal(jobId, serialNumber, note, caller.id);
+  return rejectJobInternal(jobId, STAGE2_PENDING_JOB_STATUSES, note, caller.id);
 }
 
 export async function fetchSellOutAction(opts?: CallerOpts) {
@@ -1539,41 +1671,38 @@ export async function bulkImportStockAction(
   }
 }
 
-export async function revertRejectedInstallationStockAction(jobId: string, serialNumber?: string) {
-  const { Client } = require("pg");
-  const client = new Client({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
-  });
+// Undoes what a Stage 2 approval did to stock, for this job only - the unit
+// whose installation_id points at this job. It used to also reset ANY sold-out
+// unit carrying the same serial number, which meant rejecting or deleting a
+// duplicate job wiped out a different job's approval, or un-sold a unit a
+// consumer had bought via Sell Out. A unit that this approval didn't sell
+// (already sold via Sell Out - no installer recorded as its seller) stays sold
+// out and only loses its link to this job. The DB trigger
+// fn_revert_rejected_installation_stock applies the same rule.
+// Runs inside the caller's already-open transaction (rejectJobInternal), or
+// its own via revertInstallationStock below. Throws on failure.
+async function revertInstallationStockWithClient(client: any, jobId: string): Promise<number> {
+  const stockRes = await client.query(
+    "SELECT id, status, sold_out_by_installer_id FROM public.stock WHERE installation_id = $1 FOR UPDATE",
+    [jobId]
+  );
 
-  try {
-    await client.connect();
+  for (const row of stockRes.rows) {
+    // Sold out with no installer recorded as the seller = this installation
+    // didn't sell it (it was sold via Sell Out before the approval - see
+    // approveJobStage2Action), so the sale stands.
+    const soldOtherwise = row.status === "sold_out" && !row.sold_out_by_installer_id;
 
-    // 1. Revert stock item linked by installation_id
-    const res = await client.query(`
-      UPDATE public.stock
-      SET status = 'active',
-          sold_out_at = NULL,
-          sold_out_by_installer_id = NULL,
-          installation_id = NULL,
-          installation_project_title = NULL,
-          deployment_site_address = NULL
-      WHERE installation_id = $1;
-    `, [jobId]);
-
-    // 2. Revert stock item by serial_number if provided or found in job notes
-    let sn = serialNumber ? serialNumber.trim() : "";
-    if (!sn) {
-      const jobRes = await client.query(`SELECT serial_number, notes FROM public.installer_jobs WHERE id = $1;`, [jobId]);
-      if (jobRes.rows[0]?.serial_number) {
-        sn = jobRes.rows[0].serial_number.trim();
-      } else if (jobRes.rows[0]?.notes && jobRes.rows[0].notes.includes("SN:")) {
-        const match = jobRes.rows[0].notes.match(/SN:\s*([^\s|]+)/);
-        if (match && match[1]) sn = match[1].trim();
-      }
-    }
-
-    if (sn) {
+    if (soldOtherwise) {
+      await client.query(`
+        UPDATE public.stock
+        SET sold_out_by_installer_id = NULL,
+            installation_id = NULL,
+            installation_project_title = NULL,
+            deployment_site_address = NULL
+        WHERE id = $1;
+      `, [row.id]);
+    } else {
       await client.query(`
         UPDATE public.stock
         SET status = 'active',
@@ -1582,19 +1711,14 @@ export async function revertRejectedInstallationStockAction(jobId: string, seria
             installation_id = NULL,
             installation_project_title = NULL,
             deployment_site_address = NULL
-        WHERE LOWER(serial_no) = LOWER($1) AND status = 'sold_out';
-      `, [sn]);
+        WHERE id = $1;
+      `, [row.id]);
     }
-
-    await client.end();
-    return { success: true, count: res.rowCount };
-  } catch (err: any) {
-    try { await client.end(); } catch {}
-    return { success: false, error: err.message || "Failed to revert stock for rejected installation" };
   }
+  return stockRes.rows.length;
 }
 
-export async function revertStockBySerialAction(serialNumber: string) {
+async function revertInstallationStock(jobId: string): Promise<{ success: boolean; count?: number; error?: string }> {
   const { Client } = require("pg");
   const client = new Client({
     connectionString: process.env.DATABASE_URL,
@@ -1603,6 +1727,66 @@ export async function revertStockBySerialAction(serialNumber: string) {
 
   try {
     await client.connect();
+    await client.query("BEGIN");
+    const count = await revertInstallationStockWithClient(client, jobId);
+    await client.query("COMMIT");
+    await client.end();
+    return { success: true, count };
+  } catch (err: any) {
+    try { await client.query("ROLLBACK"); } catch {}
+    try { await client.end(); } catch {}
+    return { success: false, error: err.message || "Failed to revert stock for rejected installation" };
+  }
+}
+
+// Exported for the Job Assignment page's delete flow. Was callable by anyone
+// with no check at all - now needs write access to Verify Installation, same
+// as the page itself. serialNumber is no longer used (see above), kept so
+// existing callers don't break.
+export async function revertRejectedInstallationStockAction(jobId: string, serialNumber?: string) {
+  const { canWrite } = await getMyScopeAction("installer.verify_installation");
+  if (!canWrite) {
+    return { success: false, error: "You don't have permission to change installation stock" };
+  }
+  return revertInstallationStock(jobId);
+}
+
+// Deleting a Sell Out record (Sell Out page) puts the unit back into active
+// inventory. Was callable by anyone with no check - now needs write access to
+// Sell Out. Refused outright when the unit has a Stage 2 approved
+// installation: deleting the sale must never undo an approved installation.
+export async function revertStockBySerialAction(serialNumber: string) {
+  const { canWrite } = await getMyScopeAction("sales.sellout");
+  if (!canWrite) {
+    return { success: false, error: "You don't have permission to delete Sell Out records" };
+  }
+
+  const { Client } = require("pg");
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
+
+  try {
+    await client.connect();
+    // Locks the stock row first - the same lock approveJobStage2Action takes -
+    // so an approval can't land between the check and the revert.
+    await client.query("BEGIN");
+    await client.query("SELECT id FROM public.stock WHERE LOWER(serial_no) = LOWER($1) FOR UPDATE", [serialNumber.trim()]);
+
+    const approved = await client.query(
+      "SELECT id FROM public.installer_jobs WHERE LOWER(TRIM(serial_number)) = LOWER($1) AND status = ANY($2) LIMIT 1",
+      [serialNumber.trim(), APPROVED_JOB_STATUSES]
+    );
+    if (approved.rows.length > 0) {
+      await client.query("ROLLBACK");
+      await client.end();
+      return {
+        success: false,
+        blockedByInstallation: true,
+        error: `Serial ${serialNumber.trim()} has an approved installation — the Sell Out can't be deleted.`,
+      };
+    }
 
     const res = await client.query(`
       UPDATE public.stock
@@ -1615,9 +1799,11 @@ export async function revertStockBySerialAction(serialNumber: string) {
       WHERE LOWER(serial_no) = LOWER($1);
     `, [serialNumber.trim()]);
 
+    await client.query("COMMIT");
     await client.end();
     return { success: true, count: res.rowCount };
   } catch (err: any) {
+    try { await client.query("ROLLBACK"); } catch {}
     try { await client.end(); } catch {}
     return { success: false, error: err.message || "Failed to revert stock" };
   }

@@ -15,7 +15,6 @@ import {
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import { mergeLocalItems } from "@/lib/supabaseLocalFallback";
-import { fetchRecordsAction } from "@/app/actions/users";
 import { submitSt1Action, submitSt2Action, submitReturnAction, submitTransferAction, fetchSalesLedgerAction } from "@/app/actions/sales";
 import { getMyScopeAction } from "@/app/actions/roles";
 
@@ -74,10 +73,9 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
 
   // Data states
   const [sales, setSales] = useState<any[]>([]);
-  const [distributors, setDistributors] = useState<any[]>([]); // includes region, used by Return
+  const [distributors, setDistributors] = useState<any[]>([]);
   const [subDealers, setSubDealers] = useState<any[]>([]);
   const [warehousesList, setWarehousesList] = useState<{ id: string; name: string }[]>([]);
-  const [regionWarehouseMap, setRegionWarehouseMap] = useState<Map<string, string>>(new Map());
   const [callerProfile, setCallerProfile] = useState<{ id: string; role: string } | null>(null);
   // Defaults false (deny-until-resolved) rather than true, matching the same
   // fail-closed posture Sidebar.tsx already uses while its own permission fetch
@@ -135,20 +133,19 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
     return { type: "warehouse", id: wh?.id || null, name: dbRow.warehouse_name };
   };
 
-  const resolveReturnParent = (current: { type: PartyType; id: string | null }) => {
+  // A return goes back exactly where the unit came from, read off the stock row
+  // itself - not the sub dealer's currently assigned distributor, and not the
+  // distributor's region's primary warehouse, either of which can differ from
+  // where this particular unit actually came from.
+  const resolveReturnParent = (current: { type: PartyType; id: string | null }, dbRow: any): { type: "distributor" | "warehouse"; id: string; name: string } | { error: string } => {
     if (current.type === "sub_dealer") {
-      const sd = subDealers.find(s => s.id === current.id);
-      if (!sd || !sd.distributor_id) return null;
-      return { type: "distributor" as const, id: sd.distributor_id, name: partyName("distributor", sd.distributor_id) };
+      if (!dbRow.distributor_id) return { error: "No distributor recorded on this unit" };
+      return { type: "distributor", id: dbRow.distributor_id, name: partyName("distributor", dbRow.distributor_id) };
     }
-    if (current.type === "distributor") {
-      const dist = distributors.find(d => d.id === current.id);
-      const whName = dist?.region ? regionWarehouseMap.get(dist.region) : null;
-      const wh = whName ? warehousesList.find(w => w.name === whName) : null;
-      if (!wh) return null;
-      return { type: "warehouse" as const, id: wh.id, name: wh.name };
-    }
-    return null;
+    const whName = String(dbRow.warehouse_name || "").trim();
+    const wh = warehousesList.find(w => (w.name || "").trim().toLowerCase() === whName.toLowerCase());
+    if (!wh) return { error: `Warehouse "${whName || "-"}" is not registered — this unit can't be returned` };
+    return { type: "warehouse", id: wh.id, name: wh.name };
   };
 
   // Fetch initial sales records, distributors, sub dealers & warehouses
@@ -169,7 +166,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
         console.warn("Failed to resolve caller identity", callerErr);
       }
 
-      // 1. Distributors (includes region - needed by Return to resolve the warehouse a distributor's stock returns to)
+      // 1. Distributors
       let dbDists: any[] = [];
       try {
         const { data: distData, error: distErr } = await supabase
@@ -197,20 +194,7 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
       }
       setSubDealers(dbSubDealers);
 
-      // 3. Region -> warehouse map, needed by Return to resolve which warehouse a
-      // distributor's stock returns to.
-      const regionWhMap = new Map<string, string>();
-      try {
-        const res = await fetchRecordsAction("regions");
-        if (res.success && res.data) {
-          res.data.forEach((r: any) => { if (r.name && r.warehouse) regionWhMap.set(r.name, r.warehouse); });
-        }
-      } catch (regionErr) {
-        console.warn("Failed to fetch regions.", regionErr);
-      }
-      setRegionWarehouseMap(regionWhMap);
-
-      // 4. Real warehouses table (id + name) - needed by ST1/Return/Transfer for a real source/destination id
+      // 3. Real warehouses table (id + name) - needed by ST1/Return/Transfer for a real source/destination id
       let dbWarehousesList: { id: string; name: string }[] = [];
       try {
         const { data: whData, error: whErr } = await supabase.from("warehouses").select("id, name").order("name");
@@ -414,9 +398,9 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
         } else if (isReturn) {
           const current = resolveCurrentLocation(dbRow);
           if (current.type === "warehouse") { pushFail(imei, dbRow, "Already at the warehouse — nothing to return"); return; }
-          const parent = resolveReturnParent(current);
-          if (!parent) {
-            pushFail(imei, dbRow, current.type === "sub_dealer" ? "No distributor assigned to this sub dealer" : "No warehouse mapped to this distributor's region");
+          const parent = resolveReturnParent(current, dbRow);
+          if ("error" in parent) {
+            pushFail(imei, dbRow, parent.error);
             return;
           }
           if (!lockInProgress) {
@@ -430,6 +414,9 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
             };
           } else if (lockInProgress.sourceType !== current.type || lockInProgress.sourceId !== current.id) {
             pushFail(imei, dbRow, "Different origin — submit separately");
+            return;
+          } else if (lockInProgress.destType !== parent.type || lockInProgress.destId !== parent.id) {
+            pushFail(imei, dbRow, `Returns to ${parent.name}, not ${lockInProgress.destName} — submit separately`);
             return;
           }
           pushPass(dbRow);
@@ -489,6 +476,10 @@ export default function SalesPage({ type, title, buttonLabel, stIdPrefix }: Sale
   const removeScannedItem = (index: number) => {
     const itemToRemove = scannedItems[index];
     setScannedItems(prev => prev.filter((_, idx) => idx !== index));
+    // Once no passing unit is left, the return isn't tied to any origin anymore.
+    if (isReturn && !scannedItems.some((item, idx) => idx !== index && item.status === "pass")) {
+      setReturnLock(null);
+    }
     if (itemToRemove.status === "fail") return;
     setOrderDetails(prev => {
       const idx = prev.findIndex(item => item.productName === itemToRemove.productName);

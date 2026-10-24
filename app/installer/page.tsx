@@ -39,7 +39,9 @@ export default function WebInstallerPage() {
 
   // Auth & Profile states
   const [installerName, setInstallerName] = useState("");
-  const [profileStatus, setProfileStatus] = useState<string>("approved");
+  // Unknown until the profile loads - never assumed approved, since only an
+  // approved installer may submit (also enforced server-side).
+  const [profileStatus, setProfileStatus] = useState<string>("");
   const [verificationNote, setVerificationNote] = useState<string>("");
   const [approvalNote, setApprovalNote] = useState<string>("");
   const [installerId, setInstallerId] = useState("");
@@ -100,7 +102,7 @@ export default function WebInstallerPage() {
 
         if (profile) {
           setInstallerName(`${profile.first_name} ${profile.last_name || ""}`.trim());
-          setProfileStatus(profile.status || "approved");
+          setProfileStatus(profile.status || "");
           setVerificationNote(profile.verification_note || "");
           setApprovalNote(profile.approval_note || "");
           document.cookie = "user_role=installer; path=/; max-age=2592000; SameSite=Lax";
@@ -109,7 +111,7 @@ export default function WebInstallerPage() {
       } catch (profErr) {
         console.warn("Failed to get profile name. Defaulting.", profErr);
         setInstallerName("Installer");
-        setProfileStatus("approved");
+        setProfileStatus("");
       }
 
       // Fetch jobs
@@ -132,6 +134,7 @@ export default function WebInstallerPage() {
 
       // Automatic Sync local jobs to database if database connection is active
       const syncedIds: string[] = [];
+      const refusedSyncErrors: string[] = [];
       const BLOCKED_SYNC = ["unsplash.com", "mixkit.co", "picsum.photos", "placeholder.com", "zencdn", "gtv-videos-bucket", "lorem.space", "placehold.co"];
       const isFakeSyncUrl = (url: string) => !url || typeof url !== "string" || !url.trim() || BLOCKED_SYNC.some(d => url.toLowerCase().includes(d));
 
@@ -155,6 +158,10 @@ export default function WebInstallerPage() {
                   matchingDbJob.photos = localJob.photos;
                   matchingDbJob.notes = localJob.notes;
                   matchingDbJob.is_resubmitted = true;
+                } else if (!(res as any).retryable) {
+                  // Refused by the server - retrying it can never succeed.
+                  syncedIds.push(localJob.id);
+                  refusedSyncErrors.push(res.error || "Not accepted");
                 }
               } catch (e) {
                 console.warn("Failed to sync local re-submission to database:", e);
@@ -168,7 +175,7 @@ export default function WebInstallerPage() {
 
           try {
             const uploadJob = { ...localJob };
-            // Sanitize ID: If it's not a valid UUID, delete it so PostgreSQL generates a valid UUID
+            // Sanitize ID: If it's not a valid UUID, drop it so a fresh one is generated
             const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
             if (!uuidRegex.test(uploadJob.id)) {
               delete uploadJob.id;
@@ -186,19 +193,25 @@ export default function WebInstallerPage() {
               );
             }
 
-            const { error: insertErr } = await supabase
-              .from("installer_jobs")
-              .insert(uploadJob);
-            if (!insertErr) {
+            // Goes through the same server action as a live submission, so a
+            // device-saved job gets the same approval/serial/proof checks -
+            // a direct table insert here used to skip all of them.
+            const res = await submitInstallationAction(uploadJob, "new");
+            if (res.success) {
               syncedIds.push(localJob.id);
               // Add to jobsList so it displays as a DB job
               if (!jobsList.some(j => j.id === localJob.id)) {
-                jobsList.push(localJob);
+                jobsList.push({ ...localJob, status: "pending_verification" });
               }
-            } else if (insertErr.code === "23505") {
-              // Unique constraint violation (already in DB)
+            } else if ((res as any).alreadySubmitted) {
+              // Already in the database from an earlier attempt.
               syncedIds.push(localJob.id);
+            } else if (!(res as any).retryable) {
+              // Refused by the server - retrying it can never succeed.
+              syncedIds.push(localJob.id);
+              refusedSyncErrors.push(res.error || "Not accepted");
             }
+            // retryable: stays saved on this device for the next load.
           } catch (e) {
             console.warn("Failed to sync local job to database:", e);
           }
@@ -208,6 +221,9 @@ export default function WebInstallerPage() {
         if (syncedIds.length > 0) {
           const updatedLocal = localJobs.filter((j: any) => !syncedIds.includes(j.id));
           localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(updatedLocal));
+        }
+        if (refusedSyncErrors.length > 0) {
+          toast.error(`${refusedSyncErrors.length} installation(s) saved on this device were not accepted: ${refusedSyncErrors[0]} Please submit again.`);
         }
       }
 
@@ -500,10 +516,21 @@ export default function WebInstallerPage() {
         created_at: new Date().toISOString()
       };
 
+      // A returned { success: false } is the server deliberately refusing this
+      // submission (not approved yet, serial already installed, missing proof,
+      // ...) - show the real reason and keep the form open. Only a thrown error
+      // (server unreachable) falls back to saving on this device for a retry.
+      let refusedError: string | null = null;
       try {
         const res = await submitInstallationAction(payload, siteFormJobId);
-        if (!res.success) throw new Error(res.error);
-        
+        if (!res.success) {
+          const reason = res.error || "This installation was not accepted.";
+          // A temporary server-side failure falls through to the same
+          // save-on-device path as being offline; a refusal doesn't.
+          if (!(res as any).retryable) refusedError = reason;
+          throw new Error(reason);
+        }
+
         // Save/Update local storage copy with pending_verification so UI updates instantly
         const localJobs = getLocalItems("coretech_local_installer_jobs") || [];
         const index = localJobs.findIndex((j: any) => j.id === payload.id || j.id === siteFormJobId);
@@ -517,6 +544,10 @@ export default function WebInstallerPage() {
         localStorage.setItem("coretech_local_installer_jobs", JSON.stringify(localJobs));
         toast.success("Site installation submitted! Waiting for verification & approval.");
       } catch (dbErr: any) {
+        if (refusedError) {
+          toast.error(refusedError);
+          return;
+        }
         console.warn("DB submission failed. Saving locally.", dbErr);
         const isResubmit = siteFormJobId && siteFormJobId !== "new";
         const localPayload = { ...payload, is_resubmitted: isResubmit };
@@ -555,8 +586,21 @@ export default function WebInstallerPage() {
     }
   };
 
+  const normalizedProfileStatus = profileStatus.trim().toLowerCase();
+  const isApprovedInstaller = normalizedProfileStatus === "approved" || normalizedProfileStatus === "active";
+  const notApprovedMessage =
+    normalizedProfileStatus === "rejected" || normalizedProfileStatus === "blocked"
+      ? "Your installer registration was rejected, so you can't submit installations."
+      : normalizedProfileStatus === "inactive"
+      ? "Your installer account is inactive, so you can't submit installations."
+      : "Your installer account isn't approved yet. You can submit installations once it has been verified and approved.";
+
   const openSubmitForJob = (job: any) => {
     if (!job) return;
+    if (!isApprovedInstaller) {
+      toast.error(notApprovedMessage);
+      return;
+    }
     const st = String(job.status || "").trim().toLowerCase();
     if (st === "approved") {
       return; // DO NOTHING ON APPROVED JOBS
@@ -647,13 +691,13 @@ export default function WebInstallerPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <div className={`border rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${(profileStatus === "active" || profileStatus === "approved")
+            <div className={`border rounded-full px-2 py-0.5 text-[9px] font-bold uppercase ${isApprovedInstaller
                 ? "bg-emerald-50 text-emerald-600 border-emerald-100"
                 : profileStatus === "rejected" || jobs.some((j) => j.status === "rejected")
                 ? "bg-rose-50 text-rose-600 border-rose-100"
                 : "bg-amber-50 text-amber-600 border-amber-100"
               }`}>
-              {(profileStatus === "active" || profileStatus === "approved")
+              {isApprovedInstaller
                 ? "Approved"
                 : profileStatus === "rejected" || jobs.some((j) => j.status === "rejected")
                 ? "Rejected (Action Required)"
@@ -673,6 +717,7 @@ export default function WebInstallerPage() {
             <h2 className="text-base font-extrabold text-slate-800">Hi, {installerName || "Installer"}</h2>
             <p className="text-[10px] text-slate-500 font-medium">CoreTECH Installer Network Portal</p>
           </div>
+          {isApprovedInstaller && (
           <button
             onClick={() => {
               setSiteFormErrors({});
@@ -693,7 +738,14 @@ export default function WebInstallerPage() {
             <Wrench className="w-3.5 h-3.5" />
             Open Site Form
           </button>
+          )}
         </div>
+
+        {!isLoading && !isApprovedInstaller && (
+          <div className="bg-amber-50 border border-amber-200 rounded-[8px] p-2.5 text-[11px] text-amber-700 font-semibold">
+            {notApprovedMessage}
+          </div>
+        )}
 
         {/* Stats Row */}
         <div className="grid grid-cols-4 gap-1 bg-slate-50 p-2.5 rounded-[8px] border border-slate-100 text-center">

@@ -1,31 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveMobileCaller } from "@/lib/mobileAuth";
-import { fetchOrdersAction, createBuzzcartOrderAction, fetchBuzzcartPickersAction } from "@/app/actions/orders";
+import { fetchOrdersAction, createBuzzcartOrderAction } from "@/app/actions/orders";
 import { fetchProductsAction } from "@/app/actions/products";
+import { getBuzzcartRecipients } from "@/lib/buzzcartScope";
 
 const PERMISSION_KEY = "buzzcart";
 
 // Also returns the product catalog and the distributor/sub-dealer picker
-// options the create form needs (fetchBuzzcartPickersAction) - both
-// intrinsic to completing an order, not separately permission-gated, so
-// they ride along with the same buzzcart-gated request instead of needing
-// their own routes.
+// options the create form needs - the pickers scoped by the caller's mobile
+// buzzcart scope (lib/buzzcartScope.ts), same rule as web.
 export async function GET(request: NextRequest) {
   const auth = await resolveMobileCaller(request, PERMISSION_KEY);
   if (!auth.ok) return auth.response;
 
-  const [ordersResult, productsResult, pickersResult] = await Promise.all([
-    fetchOrdersAction({ accessToken: auth.caller.accessToken, surface: "mobile" }),
+  const opts = { accessToken: auth.caller.accessToken, surface: "mobile" as const };
+  const [ordersResult, productsResult, recipients] = await Promise.all([
+    fetchOrdersAction(opts),
     fetchProductsAction(),
-    fetchBuzzcartPickersAction(),
+    getBuzzcartRecipients(opts).catch(() => ({ distributors: [], subDealers: [] })),
   ]);
   if (!ordersResult.success) return NextResponse.json(ordersResult, { status: 400 });
 
   return NextResponse.json({
     ...ordersResult,
     products: productsResult.data,
-    distributors: pickersResult.distributors,
-    subDealers: pickersResult.subDealers,
+    distributors: recipients.distributors,
+    subDealers: recipients.subDealers,
     // Approve/decline is a locked pair on web (hardcoded to country_head/
     // admin, independent of buzzcart's own can_write - §8), not something
     // Role Management's mobile column can grant. Mirrored here rather than
